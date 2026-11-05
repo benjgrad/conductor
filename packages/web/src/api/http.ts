@@ -40,6 +40,7 @@ import {
   TranscriptResponseSchema,
   TicketDetailSchema,
   TicketDtoSchema,
+  TicketSearchResponseSchema,
   SaveWorkflowResponseSchema,
   WorkflowDetailSchema,
   WorkflowListResponseSchema,
@@ -318,6 +319,16 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     createTicket: (req: CreateTicketRequest) =>
       request(TicketDtoSchema, 'POST', API_PATHS.tickets, req),
+
+    searchTickets: (opts = {}) => {
+      const q = new URLSearchParams();
+      if (opts.q !== undefined && opts.q.trim() !== '') q.set('q', opts.q.trim());
+      if (opts.status !== undefined) q.set('status', opts.status.join(','));
+      if (opts.limit !== undefined) q.set('limit', String(opts.limit));
+      if (opts.cursor !== undefined) q.set('cursor', String(opts.cursor));
+      const qs = q.toString();
+      return request(TicketSearchResponseSchema, 'GET', API_PATHS.tickets + (qs ? `?${qs}` : ''));
+    },
 
     getTicket: (ticketId: string) =>
       request(TicketDetailSchema, 'GET', API_PATHS.ticket(encodeURIComponent(ticketId))),

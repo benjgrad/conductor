@@ -17,6 +17,8 @@ Commands run in a shell at the root of a fresh checkout of the commit being ship
 A repo's page shows each check's last 5 runs from the past 30 days, oldest to newest. A green ✓ passed and a red ✗ failed; hover a mark for how it ended, how long it took and its ticket, and click it to open the ticket. The list of repos shows a health hint for each one.
 
 Runs are matched to a check by its command, so renaming a check keeps its history, but changing its command starts it again from empty.
+## Where you see them
+The workflow editor lists the repos with their own checks under each transition's checks. While conductor runs a ticket's checks, the panel shows a **Repo checks** badge when they are the repo's own; both link to the repo's page.
 
 ## Going back to the workflow's checks
 Clear a repo's checks and its tickets run the workflow's checks again. Tickets pick up a change the next time they run their checks.

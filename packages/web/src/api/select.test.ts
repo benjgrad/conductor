@@ -39,4 +39,11 @@ describe('API selection (VITE_API)', () => {
       vi.useRealTimers();
     }
   });
+
+  it('?mock-auth=password starts the mock signed in as its admin', async () => {
+    const env = { VITE_API: 'mock', VITE_MOCK_STATIC: '1' };
+    expect((await createApiFromEnv(env, {}, '').api.me()).auth_mode).toBe('local');
+    const me = await createApiFromEnv(env, {}, '?mock-auth=password').api.me();
+    expect(me).toMatchObject({ auth_mode: 'password', user: { is_admin: true } });
+  });
 });

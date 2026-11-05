@@ -10,7 +10,6 @@ import {
   type EntryCheck,
   type OnUnmet,
   type RepoChecks,
-  type TransitionAction,
   type TransitionObject,
   type WorkflowDefinition,
   type WorkflowState,
@@ -289,8 +288,9 @@ function transitionLines(
     ...listLines(
       br.actions ?? [],
       ar.actions ?? [],
-      (v) => `Action added: ${ACTION_TEXT[v as TransitionAction] ?? v}`,
-      (v) => `Action removed: ${ACTION_TEXT[v as TransitionAction] ?? v}`,
+      // ACTION_TEXT is keyed by TransitionAction; a stored action may be one this UI doesn't know.
+      (v) => `Action added: ${(ACTION_TEXT as Record<string, string>)[v] ?? v}`,
+      (v) => `Action removed: ${(ACTION_TEXT as Record<string, string>)[v] ?? v}`,
     ),
   );
   lines.push(...conditionLines(br.conditions ?? [], ar.conditions ?? []));

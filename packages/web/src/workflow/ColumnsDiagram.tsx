@@ -246,6 +246,7 @@ function LaneBox({
   ]
     .filter(Boolean)
     .join(' ');
+  // UXR-45's kind (restored: a merge on main dropped it) and UXR-73's change mark.
   const name =
     `Column ${lane.title}: ${lane.work}` +
     `${lane.entry ? ', has requirements to enter' : ''} (${kindLabel} column)` +

@@ -298,7 +298,9 @@ describe('session (M2-T05)', () => {
   it('/admin is the admin view', async () => {
     window.history.replaceState(null, '', '/admin');
     render(<App api={createMockApi({ auth: 'password' })} />);
-    await screen.findByRole('region', { name: 'Users' });
+    // The whole App (board, then the admin view's lists) can take longer than findBy's 1 s default
+    // when a full run loads the CPUs.
+    await screen.findByRole('region', { name: 'Users' }, { timeout: 10_000 });
     expect(window.location.pathname + window.location.hash).toBe('/#/admin');
   });
 

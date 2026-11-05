@@ -53,6 +53,7 @@ async fn fake_claude_completes_a_state_against_the_rust_server() {
             on_complete_state: Arc::new(move |r, m| d.lock().unwrap().push((Value::Object(r), m))),
             on_ask_user: Arc::new(|_, _| {}),
             on_permission_request: None,
+            on_attach_file: None,
         },
         OutcomeRegisterOptions::default(),
     );

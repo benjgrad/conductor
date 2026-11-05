@@ -1,28 +1,34 @@
 import { createHash } from 'node:crypto';
 import {
   API_PATHS,
+  ATTACHMENT_CAPTION_HEADER,
+  ATTACHMENT_CAPTION_MAX,
   ATTACHMENT_FILENAME_HEADER,
   ATTACHMENT_MAX_VIDEO_BYTES,
   ATTACHMENT_TICKET_MAX_BYTES,
-  ATTACHMENTS_PER_TICKET_MAX,
   DAEMON_AUTH_HEADER,
   UuidSchema,
   attachmentMaxBytes,
   parseDaemonAuthHeader,
+  attachmentCountMax,
   sanitizeAttachmentName,
   sniffMime,
   type ApiErrorCode,
   type AttachmentDto,
+  type AttachmentMime,
+  type AttachmentSource,
+  type BoardSseEvent,
   type OkResponse,
 } from '@conductor/shared';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import type { AuthConfig } from '../auth/config.js';
-import type { Queryable } from '../contracts.js';
+import type { BoardBus, Queryable } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { AttachmentRow } from '../db/types.js';
 import { ATTACHMENT_META_COLUMNS as META } from '../engine/attachments.js';
 import { authenticateMachine } from '../gateway/auth.js';
 import type { Db } from '../main.js';
+import { cardUpserted } from '../permissions/store.js';
 import { sendError } from './errors.js';
 
 export {
@@ -73,7 +79,7 @@ export class AttachmentLinkError extends Error {
 /**
  * Link uploaded, unlinked attachments of the account to `ticketId`, inside the caller's
  * transaction. Throws AttachmentLinkError (400) when one is unknown or already linked, or the
- * ticket would exceed ATTACHMENTS_PER_TICKET_MAX / ATTACHMENT_TICKET_MAX_BYTES.
+ * ticket would exceed its human count limit or ATTACHMENT_TICKET_MAX_BYTES (`checkTicketLimits`).
  */
 export async function linkAttachments(
   tx: Queryable,
@@ -91,17 +97,33 @@ export async function linkAttachments(
   if (linked.rows.length !== unique.length) {
     throw new AttachmentLinkError(400, 'bad_request', 'unknown or already linked attachment');
   }
+  await checkTicketLimits(tx, ticketId, 'human');
+}
+
+/**
+ * Throws AttachmentLinkError (400 `attachment_limit`) when the ticket holds more than
+ * `attachmentCountMax(source)` attachments from `source` (each source has its own count, so an
+ * agent can't use up the human's) or more than ATTACHMENT_TICKET_MAX_BYTES in all.
+ */
+export async function checkTicketLimits(
+  tx: Queryable,
+  ticketId: string,
+  source: AttachmentSource,
+): Promise<void> {
   const totals = await tx.query<{ n: number; bytes: string }>(
-    'SELECT count(*)::int AS n, coalesce(sum(size_bytes), 0)::text AS bytes ' +
-      'FROM attachment WHERE ticket_id = $1',
-    [ticketId],
+    'SELECT count(*) FILTER (WHERE source = $2)::int AS n, ' +
+      'coalesce(sum(size_bytes), 0)::text AS bytes FROM attachment WHERE ticket_id = $1',
+    [ticketId, source],
   );
   const { n, bytes } = totals.rows[0]!;
-  if (n > ATTACHMENTS_PER_TICKET_MAX) {
+  const max = attachmentCountMax(source);
+  if (n > max) {
     throw new AttachmentLinkError(
       400,
       'attachment_limit',
-      `a ticket has at most ${ATTACHMENTS_PER_TICKET_MAX} attachments`,
+      source === 'agent'
+        ? `the agents of a ticket attach at most ${max} files`
+        : `a ticket has at most ${max} attachments`,
     );
   }
   if (Number(bytes) > ATTACHMENT_TICKET_MAX_BYTES) {
@@ -126,15 +148,11 @@ export async function removeAttachments(
   ]);
 }
 
-/** Store one upload (unlinked). `null` with the error to send when the bytes are refused. */
-export async function storeUpload(
-  db: Db,
-  input: { accountId: string; userId: string | null; rawName: string; data: Buffer },
-): Promise<
-  | { ok: true; dto: AttachmentDto }
-  | { ok: false; status: number; code: ApiErrorCode; message: string }
-> {
-  const mime = sniffMime(input.data);
+type Refusal = { ok: false; status: number; code: ApiErrorCode; message: string };
+
+/** The bytes' sniffed type, or the refusal (415 not a known type, 413 over its type's limit). */
+export function checkBytes(data: Buffer): { ok: true; mime: AttachmentMime } | Refusal {
+  const mime = sniffMime(data);
   if (mime === null) {
     return {
       ok: false,
@@ -144,7 +162,7 @@ export async function storeUpload(
     };
   }
   const max = attachmentMaxBytes(mime);
-  if (input.data.length > max) {
+  if (data.length > max) {
     return {
       ok: false,
       status: 413,
@@ -152,6 +170,17 @@ export async function storeUpload(
       message: `${mime} attachments are at most ${max / 1024 / 1024} MB`,
     };
   }
+  return { ok: true, mime };
+}
+
+/** Store one upload (unlinked). `null` with the error to send when the bytes are refused. */
+export async function storeUpload(
+  db: Db,
+  input: { accountId: string; userId: string | null; rawName: string; data: Buffer },
+): Promise<{ ok: true; dto: AttachmentDto } | Refusal> {
+  const checked = checkBytes(input.data);
+  if (!checked.ok) return checked;
+  const mime = checked.mime;
   const name = sanitizeAttachmentName(input.rawName, mime);
   const sha256 = createHash('sha256').update(input.data).digest();
   // TD-212: the bytes live in Postgres (covered by the pg_dump backup); move them to disk or
@@ -170,6 +199,93 @@ export async function storeUpload(
     return a;
   });
   return { ok: true, dto: toAttachmentDto(row) };
+}
+
+/** A live session of the agent attaching: what its attachment is filed under. */
+interface AttachingSession {
+  id: string;
+  ticket_id: string;
+  account_id: string;
+  workflow_state: string;
+  agent_name: string | null;
+}
+
+/**
+ * Store a file an agent captured (06 §Attachments, agent attachments): linked to the session's
+ * ticket at once, filed under the session and the state it is in, in one transaction with the
+ * per-source limits and the card's `card.upserted` (the open panel refetches). Idempotent on
+ * `(session_id, sha256)`: the same bytes again return the stored row (`created: false`).
+ */
+export async function storeAgentAttachment(
+  db: Db,
+  session: AttachingSession,
+  input: { rawName: string; caption: string | null; data: Buffer },
+): Promise<{ ok: true; created: boolean; dto: AttachmentDto; events: BoardSseEvent[] } | Refusal> {
+  const checked = checkBytes(input.data);
+  if (!checked.ok) return checked;
+  const mime = checked.mime;
+  const name = sanitizeAttachmentName(input.rawName, mime);
+  const sha256 = createHash('sha256').update(input.data).digest();
+  try {
+    return await withTransaction(db, async (tx) => {
+      // One upload per ticket at a time, so two can't both pass the count check.
+      await tx.query('SELECT 1 FROM ticket WHERE id = $1 FOR UPDATE', [session.ticket_id]);
+      // TD-212: the bytes live in Postgres, as a human's do.
+      const ins = await tx.query<AttachmentRow>(
+        'INSERT INTO attachment (account_id, ticket_id, session_id, workflow_state, source, ' +
+          'name, mime, size_bytes, sha256, caption, created_by) ' +
+          "VALUES ($1, $2, $3, $4, 'agent', $5, $6, $7, $8, $9, $10) " +
+          "ON CONFLICT (session_id, sha256) WHERE source = 'agent' AND session_id IS NOT NULL " +
+          'DO NOTHING RETURNING *',
+        [
+          session.account_id,
+          session.ticket_id,
+          session.id,
+          session.workflow_state,
+          name,
+          mime,
+          input.data.length,
+          sha256,
+          input.caption,
+          session.agent_name ?? 'agent',
+        ],
+      );
+      const row = ins.rows[0];
+      if (!row) {
+        const existing = await tx.query<AttachmentRow>(
+          `SELECT ${META} FROM attachment a WHERE a.session_id = $1 AND a.sha256 = $2 ` +
+            "AND a.source = 'agent'",
+          [session.id, sha256],
+        );
+        return {
+          ok: true as const,
+          created: false,
+          dto: toAttachmentDto(existing.rows[0]!),
+          events: [],
+        };
+      }
+      await tx.query(
+        'INSERT INTO attachment_content (attachment_id, account_id, data) VALUES ($1, $2, $3)',
+        [row.id, session.account_id, input.data],
+      );
+      await checkTicketLimits(tx, session.ticket_id, 'agent');
+      // The card's updated_at moves, so a panel showing the ticket refetches it.
+      await tx.query('UPDATE ticket SET updated_at = now() WHERE id = $1', [session.ticket_id]);
+      const events = await cardUpserted(tx, session.id);
+      return { ok: true as const, created: true, dto: toAttachmentDto(row), events };
+    });
+  } catch (err) {
+    if (err instanceof AttachmentLinkError) {
+      return { ok: false, status: err.status, code: err.code, message: err.message };
+    }
+    throw err;
+  }
+}
+
+/** The caption from its header (URL-encoded, trimmed, at most ATTACHMENT_CAPTION_MAX); null if none. */
+export function uploadCaption(header: string | string[] | undefined): string | null {
+  const v = uploadName(header).trim();
+  return v === '' ? null : v.slice(0, ATTACHMENT_CAPTION_MAX);
 }
 
 /** The upload's file name from its header (URL-encoded); '' when absent or malformed. */
@@ -198,13 +314,15 @@ export function contentHeaders(row: Pick<AttachmentRow, 'mime' | 'name' | 'size_
 export interface AttachmentRoutesOptions {
   db: Db;
   auth: AuthConfig;
+  /** Where the agent attachment's `card.upserted` is published. */
+  boardBus: BoardBus;
 }
 
 type IdParams = { Params: { id: string } };
 
 export const registerAttachmentRoutes: FastifyPluginAsync<AttachmentRoutesOptions> = (
   app,
-  { db, auth },
+  { db, auth, boardBus },
 ) => {
   // Raw bytes on the upload route only (the security hook allows octet-stream there alone).
   app.addContentTypeParser(
@@ -283,6 +401,50 @@ export const registerAttachmentRoutes: FastifyPluginAsync<AttachmentRoutesOption
     const ok: OkResponse = { ok: true };
     return ok;
   });
+
+  /**
+   * 06 §Attachments: an agent attaches what it captured. Password mode: the machine credential,
+   * and the session must be live and on that machine (else 404). Local mode (loopback only,
+   * ADR-0017 §Modes): any live session.
+   */
+  app.post<IdParams>(
+    API_PATHS.daemonSessionAttachments(':id'),
+    { bodyLimit: UPLOAD_BODY_LIMIT },
+    async (req, reply) => {
+      const id = req.params.id;
+      let machineId: string | null = null;
+      if (auth.mode === 'password') {
+        const credential = parseDaemonAuthHeader(req.headers[DAEMON_AUTH_HEADER]);
+        const machine = credential === null ? null : await authenticateMachine(db, credential);
+        if (machine === null)
+          return sendError(reply, 401, 'unauthorized', 'machine credential required');
+        machineId = machine.machineId;
+      }
+      const noSession = () => sendError(reply, 404, 'not_found', `session ${id} not found`);
+      if (!UuidSchema.safeParse(id).success) return noSession();
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return sendError(reply, 400, 'bad_request', 'send the file as the request body');
+      }
+      const s = await db.query<AttachingSession>(
+        'SELECT s.id, s.ticket_id, s.account_id, s.workflow_state, ag.name AS agent_name ' +
+          'FROM session s JOIN ticket t ON t.id = s.ticket_id ' +
+          'LEFT JOIN agent ag ON ag.id = t.agent_id WHERE s.id = $1 ' +
+          "AND s.status NOT IN ('done', 'failed', 'lost') " +
+          'AND ($2::text IS NULL OR s.machine_id = $2)',
+        [id, machineId],
+      );
+      const session = s.rows[0];
+      if (!session) return noSession();
+      const res = await storeAgentAttachment(db, session, {
+        rawName: uploadName(req.headers[ATTACHMENT_FILENAME_HEADER]),
+        caption: uploadCaption(req.headers[ATTACHMENT_CAPTION_HEADER]),
+        data: req.body,
+      });
+      if (!res.ok) return sendError(reply, res.status, res.code, res.message);
+      for (const ev of res.events) boardBus.publish(ev);
+      return reply.code(res.created ? 201 : 200).send(res.dto);
+    },
+  );
 
   /**
    * The daemon's download. Password mode: the machine credential, and the machine must hold a

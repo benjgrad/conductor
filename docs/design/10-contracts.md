@@ -726,6 +726,24 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 
 **nginx** (`deploy/gradyserver`): `location = /api/attachments` and `location ~ ^/api/daemon/sessions/[^/]+/attachments$` take `client_max_body_size 55m`; every other route keeps 4m.
 
+## Pages
+
+[ADR-0038](../adr/0038-pages-planning-artifacts.md), 06 §[Pages](06-human-input.md#pages), table [02 §page](02-data-model.md#page). Additive: no `PROTOCOL_VERSION` bump.
+
+| Seam | File | Producer → consumers |
+|---|---|---|
+| `PagesResultSchema` (`{pages: {max: 1..5}}`), `ResultEntrySchema`, `resultKeys`, `pagesSpec`, `AVAILABLE_RESULT_KINDS` | `shared/src/workflow/schema.ts` | engine (missing keys), `render.ts` (`renderPages`), validator (rules 5, 14), web builder |
+| tool alias `pages` (empty fragment), `AVAILABLE_TOOL_ALIASES` | `shared/src/workflow/tools.ts` | daemon `resolveToolPolicy`; `start_session.tools` carries the raw name |
+| `PageRefSchema`, `pagesOfContext`, `pageLimitsOf`, `hostedPageId`, `TicketPageSchema`, `PublishPageRequestSchema` / `PublishPageResponseSchema`, `HostedPageSchema`, `SharePageResponseSchema`, the limits | `shared/src/api/pages.ts` | orchestrator, web, MCP |
+| `SessionDetail.pages?` / `TicketDetail.pages?`: `[{url, title, state, expires_at, hosted, expired}]` (absent ≡ []) | `orchestrator/src/engine/pages.ts` (`sessionPages`) | web `PlanPages`, MCP `get_ticket_artifacts what=plan` (`pages`) |
+| `POST /api/daemon/sessions/:id/pages` `PublishPageRequest` (JSON). No cookie or Origin (both hooks let it through); password mode needs the machine credential (401), and the session must be non-terminal and on that machine (404). → 201 `PublishPageResponse` (`url` absolute on the public origin; `share_url` when `share`); 400 `bad_request`, 413 `page_too_large` (> 2 MiB UTF-8), 409 `page_limit` (30 live per ticket). The state is the session's own | `orchestrator/src/api/pages.ts` | Rust `attachments::pages::publish` |
+| `GET /api/tickets/:id/pages` → `HostedPage[]` (newest first, no HTML; the account's); `POST /api/pages/:id/share` → `SharePageResponse` (mints once, `shared_by = 'user'`; 404 for another account's or an expired page) | same | web Share |
+| `GET /p/:id`: the HTML for a session of the page's account, or `?t=<share token>` (constant-time). 401 with neither, 404 for another account, a wrong token or a missing page, 410 past `expires_at`. Headers replace SECURITY_HEADERS: `PAGE_CSP` (`sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'`), `x-frame-options: SAMEORIGIN`, `nosniff`, `referrer-policy: no-referrer`, `cache-control: private, no-store`. `/p/` is an API prefix, so the SPA fallback never claims it | same | browsers, the card's iframe |
+| `register.features` `pages` (`DAEMON_FEATURE_PAGES`) | `shared/src/protocol/ws.ts` | Rust daemon → `machine.features`; without it `withPagesFeature` drops `pages` from `start_session.tools` and appends `PAGES_FALLBACK_NOTE` |
+| `ProcessMetrics.pages?: {total, by_state, by_ticket}` from `AdvisorRows.pages` (`PageCountRow`, read from session contexts) | `shared/src/advisor/metrics.ts`, `orchestrator/src/advisor/queries.ts` | `get_process_metrics`, `/api/insights` |
+
+**`publish_page`** (`crates/conductor-daemon/src/claude/outcome_server.rs`, `attachments/pages.rs`): `{title, html, ttl_days?, share?}`, always-loaded, listed only when the registration has an `on_publish_page` handler (the CLI driver gives one when `DriverStartOptions.publish_pages` is set, which the daemon sets when `start_session.tools` has `pages`, and an attach target exists, and the session isn't a reviewer; then `mcp__conductor__publish_page` is in `--allowedTools`). The bounds are checked before the POST (no retry: a second POST is a second page). Results: `Published <url> (expires …). … Add it to your result as "pages": [...]`, else an error result `Not published: <why>`. After `complete_state`: `PUBLISH_PAGE_AFTER_COMPLETE`, nothing sent. The TS daemon has no such tool (TD-216).
+
 ## Web Push
 
 UX-15 (server); UX-16 builds the service worker and the subscribe toggle on it. Web Push (VAPID, RFC 8292; message encryption, RFC 8291) through each browser's own push service: no new vendor or account (Ben, 2026-10-28).

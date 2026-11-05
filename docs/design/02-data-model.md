@@ -532,6 +532,26 @@ Down drops the table.
 
 The bytes of one `attachment` (`attachment_id` pk, FK CASCADE; `account_id` fk account, indexed; `data` bytea). In Postgres so the pg_dump backup covers them, with no new volume or service (TD-212: move them to disk or object storage if the total grows past a few GB). Down drops both tables.
 
+### page
+
+[ADR-0038](../adr/0038-pages-planning-artifacts.md), 06 §[Pages](06-human-input.md#pages). Migration `1763400000000_pages`. One conductor-hosted HTML page an agent published (`publish_page`). `GET /p/:id` serves it until `expires_at` (410 after); the scheduler loop deletes expired rows once a day (`sweepExpiredPages`). At most 30 live pages per ticket (`PAGES_PER_TICKET_MAX`). TD-215: the HTML is in Postgres, like attachments' bytes.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | the URL's id (`/p/<id>`) |
+| account_id | uuid fk account | indexed; only this account's sessions open it |
+| ticket_id | uuid fk ticket | CASCADE; `(ticket_id, created_at)` indexed |
+| session_id | uuid fk session null | SET NULL; the publishing session |
+| workflow_state | text | the session's state when it published |
+| title | text | 1–200 (CHECK) |
+| html | text | one document; `size_bytes` of UTF-8 |
+| size_bytes | int | 1–2 MiB (CHECK) |
+| share_token | text null unique | set = shared (`?t=<token>` opens without a session); 32 random bytes, base64url |
+| shared_at | timestamptz null | set with the token (CHECK: all three share columns set or all null) |
+| shared_by | text null | `agent` (`publish_page {share: true}`) · `user` (the card's Share) |
+| created_at | timestamptz | |
+| expires_at | timestamptz | indexed (the sweep) |
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |

@@ -53,11 +53,11 @@ A request waiting on a human sits at the end of the chat in one frame, `RequestC
 
 ## Breakpoint
 
-`MOBILE_QUERY = '(max-width: 699.98px)'` (`components/useMediaQuery.ts`).
+`MOBILE_QUERY = '(max-width: 899.98px)'` (`components/useMediaQuery.ts`): the phone layout below 900 px, desktop from 900 px (UXR-59; it was 700 px).
 - **JS** uses `useIsMobile()`, which returns false without `matchMedia`, so jsdom tests render the desktop layout unless they call `mockViewport(width)` from `src/test/match-media.ts`.
-- **CSS** uses the same `@media (max-width: 699.98px)`.
-- **Desktop** above the breakpoint keeps its layout, apart from the token colour fixes, the shell and the New ticket sheet ([§Create ticket on desktop](#create-ticket-on-desktop-uxr-41)). On the board (`.app.board-view`, UXR-26) the document never scrolls: the shell is `100dvh`, so the top bar stays put, each column's card list scrolls on its own, and the session panel fills the height beside the board with its composer pinned at the bottom. Between 700 and 900 px, where the panel stacks under the board, `main` is the scroller. Other pages keep document scrolling under a sticky top bar; `useElementHeightVar` sets `--topbar-h` on `<html>` from the bar's measured height (taller on a coarse pointer, CSS fallback 49 px). `scripts/ui-screenshots.js` prints a `WARN` line when a board, detail or new-ticket shot above the breakpoint is taller than its window.
-- Tablets (700 px and up) get the desktop layout, plus the touch sizes on a coarse pointer.
+- **CSS** uses the same `@media (max-width: 899.98px)`, and `(min-width: 900px)` for desktop-only rules.
+- **Desktop** above the breakpoint keeps its layout, apart from the token colour fixes, the shell and the New ticket sheet ([§Create ticket on desktop](#create-ticket-on-desktop-uxr-41)). On the board (`.app.board-view`, UXR-26) the document never scrolls: the shell is `100dvh`, so the top bar stays put, each column's card list scrolls on its own, and the session panel fills the height beside the board with its composer pinned at the bottom. Other pages keep document scrolling under a sticky top bar; `useElementHeightVar` sets `--topbar-h` on `<html>` from the bar's measured height (taller on a coarse pointer, CSS fallback 49 px). `scripts/ui-screenshots.js` prints a `WARN` line when a board, detail or new-ticket shot above the breakpoint is taller than its window.
+- Tablets in portrait (768–899 px) get the phone layout: one column with the switcher, the full-screen panel, the compact top bar, the full-screen New ticket sheet and tables that scroll in their own box (UXR-59: at 768 the desktop board was 1,146 px wide, the panel stacked under it and Add a machine wrapped in the top bar). Wider tablets (iPad landscape, 1024) get the desktop layout, plus the touch sizes on a coarse pointer. A two-column tablet board is not planned.
 
 While the phone layout is on, `useVisualViewportHeight` sets `--vvh` and `--vvt` on `<html>` from `visualViewport.height` and `offsetTop`, rounded to whole pixels (`floor` and `round`: iOS reports fractions, and a fixed layer at a sub-pixel offset draws its text blurry). Full-screen surfaces use `top: var(--vvt, 0); height: var(--vvh, 100dvh)`, so they end above the on-screen keyboard and stay in view when iOS pans the layout viewport to a focused field. `100vh` is always paired with a `100dvh` override.
 
@@ -88,7 +88,7 @@ One rule (UXR-27, UXR-28): pages in the top bar, account things in the account m
 
 ## Touch rules
 
-In `@media (pointer: coarse), (max-width: 699.98px)`:
+In `@media (pointer: coarse), (max-width: 899.98px)`. The coarse-pointer half applies at every width, as before; the width half follows the breakpoint, so the phone layout always has tap sizes (its Back button has no padding and relies on the `--tap` minimum):
 - Buttons, nav links, tabs, menu items, inputs and selects are at least `--tap` tall. The card's title and preview buttons are excluded: they are text inside a tappable card.
 - The panel's Back and Close buttons, the workflow editors' Back, and the sheet's Close, are at least `--tap` wide.
 - The Kind labels are 44 px rows, and the composer's send button is 44 × 44.
@@ -96,11 +96,11 @@ In `@media (pointer: coarse), (max-width: 699.98px)`:
 
 On a phone, every `input`, `select` and `textarea` is 16 px, because iOS Safari zooms into any field smaller than that.
 
-There must be no horizontal page scroll at 360 px. `scripts/ui-screenshots.js` checks it in `metrics.json` (`horizontalOverflow`). That also counts overflow clipped inside the phone shell (`.app.mobile`) or a panel (`clippedOverflow` names which), since the shell's `overflow-x: hidden` hides it from the document's width.
+There must be no horizontal page scroll at 360 px or 768 px. `scripts/ui-screenshots.js` checks it in `metrics.json` (`horizontalOverflow`). That also counts overflow clipped inside the phone shell (`.app.mobile`) or a panel (`clippedOverflow` names which), since the shell's `overflow-x: hidden` hides it from the document's width.
 
 ## Create ticket on desktop (UXR-41)
 
-At 700 px and up, the same `CreateTicketForm` dialog is a centred modal (at most 760 px wide and 90 vh tall) over a backdrop. The top bar's New ticket button only opens it (the sheet covers the bar). Close, Escape or a click on the backdrop closes it. Title is full width; Repo, Priority and Kind share one row, with Kind as the phone's two segmented buttons. The form scrolls inside the sheet, under a sticky footer that holds the primary Create ticket and, while it is disabled, "Still needed: …". While the sheet is open, `<html>` has `modal-open` and the page under it doesn't scroll.
+At 900 px and up, the same `CreateTicketForm` dialog is a centred modal (at most 760 px wide and 90 vh tall) over a backdrop. The top bar's New ticket button only opens it (the sheet covers the bar). Close, Escape or a click on the backdrop closes it. Title is full width; Repo, Priority and Kind share one row, with Kind as the phone's two segmented buttons. The form scrolls inside the sheet, under a sticky footer that holds the primary Create ticket and, while it is disabled, "Still needed: …". While the sheet is open, `<html>` has `modal-open` and the page under it doesn't scroll.
 
 At every width, closing with unsaved input (a title, a description that differs from the untouched template, or attachments) asks first. "Discard this ticket?" replaces Create ticket in the footer, with **Discard** and **Keep editing**, and Escape there means Keep editing. It is inline, like the workflow editor's discard prompt: no browser dialogs. Repo, Priority and Kind alone don't count as unsaved input.
 

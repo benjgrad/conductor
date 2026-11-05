@@ -205,3 +205,48 @@ describe('phone create ticket (11-web-ui §Create ticket)', () => {
     expect(document.documentElement.classList.contains('modal-open')).toBe(false);
   });
 });
+
+describe('tablet at 768 px gets the phone layout (UXR-59, 11-web-ui §Breakpoint)', () => {
+  it('the top bar is compact: Add a machine and Help are in the account menu', async () => {
+    await renderAt(768);
+    const bar = document.querySelector<HTMLElement>('header.topbar')!;
+    expect(bar.classList.contains('compact')).toBe(true);
+    expect(within(bar).queryByRole('link', { name: 'Add a machine' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: me.display_name }));
+    const menu = within(screen.getByRole('menu', { name: 'Account' }));
+    expect(menu.getByRole('menuitem', { name: 'Add a machine' })).toBeTruthy();
+    expect(menu.getByRole('menuitem', { name: 'Help' })).toBeTruthy();
+  });
+
+  it('the shell is the phone one, not the desktop board shell', async () => {
+    await renderAt(768);
+    expect(document.documentElement.classList.contains('app-shell')).toBe(true);
+    expect(document.querySelector('.app.mobile')).toBeTruthy();
+    expect(document.querySelector('.app.board-view')).toBeNull();
+  });
+
+  it('a ticket opens full-screen with Back to board', async () => {
+    await renderAt(768);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add audit log table' }));
+    const panel = await screen.findByRole('complementary', { name: 'Session detail' });
+    expect(panel.classList.contains('full-screen')).toBe(true);
+    expect(within(panel).getByRole('button', { name: 'Back to board' })).toBeTruthy();
+  });
+
+  it('New ticket locks the shell, not the document', async () => {
+    await renderAt(768);
+    fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(screen.getByRole('dialog', { name: 'New ticket' })).toBeTruthy();
+    expect(document.documentElement.classList.contains('modal-open')).toBe(false);
+    expect(document.querySelector('.app.creating')).toBeTruthy();
+  });
+
+  it('at 900 px it is the desktop layout', async () => {
+    await renderAt(900);
+    const bar = document.querySelector<HTMLElement>('header.topbar')!;
+    expect(bar.classList.contains('compact')).toBe(false);
+    expect(within(bar).getByRole('link', { name: 'Add a machine' })).toBeTruthy();
+    expect(document.querySelector('.app.board-view')).toBeTruthy();
+    expect(document.documentElement.classList.contains('app-shell')).toBe(false);
+  });
+});

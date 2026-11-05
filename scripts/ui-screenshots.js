@@ -4,6 +4,9 @@
 // docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow and the
 // visible tap targets under 44 px, per shot). Not run in CI.
 //
+// A board, detail or new-ticket shot above the phone breakpoint whose page is taller than the
+// window prints a WARN line (UXR-26: the desktop board's document must not scroll).
+//
 //   node scripts/ui-screenshots.js [--out before|after] [--url http://localhost:5173] [--only board,detail]
 //
 // `--only` re-takes those screens at every size and keeps the rest of metrics.json.
@@ -37,6 +40,10 @@ const BRIEF_CARD = 'Add pagination to /orders';
 const PLAN_CARD = 'Add rate limiting to /login';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
 const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
+/** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
+const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket'];
+/** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
+const PHONE_MAX_WIDTH = 699.98;
 
 /**
  * @typedef {import('playwright-core').Page} Page
@@ -281,6 +288,17 @@ function measure(deviceWidth) {
   };
 }
 
+/**
+ * UXR-26: a desktop board, detail or new-ticket shot taller than the window means the page scrolls.
+ * @param {string} screenId @param {Viewport} vp @param {Metric} metric
+ * @returns {string | null}
+ */
+function fitWarning(screenId, vp, metric) {
+  if (vp.w <= PHONE_MAX_WIDTH || !PAGE_FIT_SHOTS.includes(screenId)) return null;
+  if (!('pageHeight' in metric) || metric.pageHeight <= vp.h) return null;
+  return `pageHeight ${metric.pageHeight} > viewport ${vp.h} (the page scrolls; UXR-26)`;
+}
+
 /** @returns {Promise<number>} */
 async function freePort() {
   return new Promise((resolve, reject) => {
@@ -329,6 +347,8 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   /** @type {Record<string, Metric>} */
   const metrics = {};
+  /** @type {string[]} */
+  const warnings = [];
   // `--only` re-takes some shots: keep the other shots' metrics.
   if (only.length > 0) {
     try {
@@ -363,8 +383,14 @@ async function main() {
             await screen.act?.(page);
             await page.waitForTimeout(300);
             await page.screenshot({ path: join(outDir, `${name}.png`) });
-            metrics[name] = await page.evaluate(measure, vp.w);
+            const metric = await page.evaluate(measure, vp.w);
+            metrics[name] = metric;
             console.log(`ok   ${name}`);
+            const warn = fitWarning(screen.id, vp, metric);
+            if (warn) {
+              warnings.push(`WARN ${name}: ${warn}`);
+              console.log(warnings[warnings.length - 1]);
+            }
           } catch (err) {
             const error = String(err).split('\n')[0] ?? '';
             metrics[name] = { error };
@@ -379,6 +405,10 @@ async function main() {
     server.stop();
   }
   await writeFile(join(outDir, 'metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`);
+  if (warnings.length > 0) {
+    console.log(`\n${warnings.length} WARN:`);
+    for (const w of warnings) console.log(w);
+  }
 }
 
 main().catch((err) => {

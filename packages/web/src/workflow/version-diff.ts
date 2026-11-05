@@ -225,6 +225,11 @@ function approvalLines(before: readonly Approval[], after: readonly Approval[]):
   return lines;
 }
 
+/** An action's words; an action this build doesn't know (a newer version's) by its name. */
+function actionText(action: string): string {
+  return (ACTION_TEXT as Record<string, string | undefined>)[action] ?? action;
+}
+
 function listLines(
   before: readonly string[],
   after: readonly string[],
@@ -288,8 +293,8 @@ function transitionLines(
     ...listLines(
       br.actions ?? [],
       ar.actions ?? [],
-      (v) => `Action added: ${ACTION_TEXT[v] ?? v}`,
-      (v) => `Action removed: ${ACTION_TEXT[v] ?? v}`,
+      (v) => `Action added: ${actionText(v)}`,
+      (v) => `Action removed: ${actionText(v)}`,
     ),
   );
   lines.push(...conditionLines(br.conditions ?? [], ar.conditions ?? []));

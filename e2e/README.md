@@ -75,6 +75,15 @@ which its tickets pin), so the conditions poll fast with no test-only knob.
 | 4. personal | a `kind: personal` ticket: Planning → Implementing → `done` (checks, `open_pr`, no review, no conditions) → Done, never Waiting external; its implementing prompt lists `personal_pr_ready_for_review`, not the work transitions |
 | 5. v1 regression | conductor v1's definition saved as the latest version, a ticket pins it, v2 is saved back; the pinned ticket runs the ADR-0010 path (unnamed `done`s, the `(entry)` step, `open_pr`, Waiting external, Approve, Done) with M1 move records |
 
+## Pages (ADR-0038)
+
+`pages.e2e.test.ts` saves `conductor` v4 again with planning's Pages on (the `pages` tool and
+`{"pages": {"max": 3}}` in its result). Its fake planner calls `publish_page`, then
+`plan_needs_approval` with the returned URL (`$tool_url`, the first URL of the last `tool`
+call's result) in `pages`. The Plan review's session detail lists the page as hosted, `GET /p/:id`
+serves it with the sandbox CSP, and once its expiry is moved into the past it answers 410 and is
+listed as expired. It runs only on the Rust daemon: the frozen TS daemon has no `publish_page`.
+
 ## Windows (MR-T16b)
 
 `daemon-rust.yml`'s `e2e-windows` job runs the same suite on `windows-latest` against the Rust

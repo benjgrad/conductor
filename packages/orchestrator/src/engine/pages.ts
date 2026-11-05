@@ -83,6 +83,9 @@ export async function publishPage(
   const expires = new Date(now.getTime() + (input.ttlDays ?? PAGE_TTL_DEFAULT_DAYS) * DAY_MS);
   const token = input.share === true ? newShareToken() : null;
   return withTransaction(db, async (tx) => {
+    // Locks in the engine's order (session, then ticket): the page row's FK takes a key-share
+    // lock on the session, so locking the ticket first deadlocked with an engine apply.
+    await tx.query('SELECT 1 FROM session WHERE id = $1 FOR UPDATE', [session.id]);
     await tx.query('SELECT 1 FROM ticket WHERE id = $1 FOR UPDATE', [session.ticket_id]);
     const n = await tx.query<{ n: number }>(
       'SELECT count(*)::int AS n FROM page WHERE ticket_id = $1 AND expires_at > $2',

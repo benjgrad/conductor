@@ -33,9 +33,7 @@ describe('setPages', () => {
 
   it('the version diff names the change', () => {
     const on = setPages(CONDUCTOR_V4_DEF, 'planning', {});
-    const lines = diffVersions(CONDUCTOR_V4_DEF, on).flatMap((c) =>
-      'lines' in c ? (c.lines as string[]) : [],
-    );
+    const lines = diffVersions(CONDUCTOR_V4_DEF, on).flatMap((c) => ('lines' in c ? c.lines : []));
     expect(lines.join('\n')).toContain('Pages: off → up to 3');
   });
 });

@@ -186,7 +186,9 @@ export function renderPages(state: Pick<AgentState, 'result' | 'tools'>): string
       'Publish a page with the `publish_page` tool: one self-contained HTML document, inline CSS and JavaScript only (no external URLs: they are blocked), images as data: URLs. It expires after 7 days. Put the URL it returns in `pages`.',
     );
   }
-  lines.push("Never commit pages to the repository. It's optional: leave `pages` out if words are enough.");
+  lines.push(
+    "Never commit pages to the repository. It's optional: leave `pages` out if words are enough.",
+  );
   return lines.join('\n');
 }
 

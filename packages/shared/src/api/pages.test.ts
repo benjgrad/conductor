@@ -50,7 +50,10 @@ describe('pagesOfContext', () => {
   it('reads each state up to its limit, in context order, dropping malformed entries', () => {
     const out = pagesOfContext(
       {
-        planning: { plan: 'p', pages: [{ url: 'javascript:x', title: 't' }, page(1), page(2), page(3)] },
+        planning: {
+          plan: 'p',
+          pages: [{ url: 'javascript:x', title: 't' }, page(1), page(2), page(3)],
+        },
         implementing: { summary: 's', pages: [page(4), page(5)] },
         unlisted: { pages: [page(6)] },
         __qa: { pages: [page(7)] },

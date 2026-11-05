@@ -35,7 +35,11 @@ export function isPageUrl(raw: string): boolean {
 
 /** One page as the agent writes it in its result. */
 export const PageRefSchema = z.object({
-  url: z.string().trim().max(2_000).refine(isPageUrl, 'a page url is https (http only on loopback)'),
+  url: z
+    .string()
+    .trim()
+    .max(2_000)
+    .refine(isPageUrl, 'a page url is https (http only on loopback)'),
   title: z.string().trim().min(1).max(PAGE_TITLE_MAX),
   expires_at: z.iso.datetime({ offset: true }).optional(),
 });

@@ -146,14 +146,18 @@ export const registerPageRoutes: FastifyPluginAsync<PageRoutesOptions> = (
    * token. Another account's page, or a wrong token, is 404 like a missing one; no session and no
    * token is 401. Past `expires_at` it is 410 until the sweep deletes it.
    */
-  const servePage = async (req: FastifyRequest<IdParams & { Querystring: { t?: string } }>, reply: FastifyReply) => {
+  const servePage = async (
+    req: FastifyRequest<IdParams & { Querystring: { t?: string } }>,
+    reply: FastifyReply,
+  ) => {
     const id = req.params.id;
     if (!UuidSchema.safeParse(id).success) return htmlStatus(reply, 404, 'Page not found');
     const r = await db.query<PageRow>('SELECT * FROM page WHERE id = $1', [id]);
     const page = r.rows[0];
     const token = typeof req.query.t === 'string' ? req.query.t : null;
     const viewer = req.auth;
-    const bySession = page !== undefined && viewer !== null && viewer.account.id === page.account_id;
+    const bySession =
+      page !== undefined && viewer !== null && viewer.account.id === page.account_id;
     const byToken = page !== undefined && tokenMatches(token, page.share_token);
     if (!bySession && !byToken) {
       if (viewer === null && token === null) {

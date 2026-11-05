@@ -252,10 +252,7 @@ function SheetBody({
           <PlanView plan={plan} clamp={false} />
         )}
         {/* ADR-0038: the pages the plan's state attached. */}
-        <PlanPages
-          pages={pagesOf(detail, latestPlanEntry(detail)?.from_state ?? null)}
-          api={api}
-        />
+        <PlanPages pages={pagesOf(detail, latestPlanEntry(detail)?.from_state ?? null)} api={api} />
       </div>
       {planActions && sessionId !== null && (
         <div className="ticket-sheet-foot">

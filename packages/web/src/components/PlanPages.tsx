@@ -22,10 +22,7 @@ export function isEmbeddable(page: Pick<TicketPage, 'url' | 'expired'>, origin: 
 }
 
 /** The pages `state` attached (the plan's state); every page when `state` is null. */
-export function pagesOf(
-  detail: Pick<SessionDetail, 'pages'>,
-  state: string | null,
-): TicketPage[] {
+export function pagesOf(detail: Pick<SessionDetail, 'pages'>, state: string | null): TicketPage[] {
   const all = detail.pages ?? [];
   return state === null ? all : all.filter((p) => p.state === state);
 }

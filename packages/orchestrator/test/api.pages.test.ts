@@ -21,11 +21,7 @@ import {
 } from '@conductor/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PAGE_CSP } from '../src/api/pages.js';
-import {
-  PAGES_FALLBACK_NOTE,
-  sweepExpiredPages,
-  withPagesFeature,
-} from '../src/engine/pages.js';
+import { PAGES_FALLBACK_NOTE, sweepExpiredPages, withPagesFeature } from '../src/engine/pages.js';
 import {
   HTTPS_URL,
   cookieOf,
@@ -234,7 +230,10 @@ describe('POST daemon publish', () => {
     expect((await publish(s, m.credential, { title: 't', html: 'x', ttl_days: 31 })).status).toBe(
       400,
     );
-    const big = await publish(s, m.credential, { title: 't', html: 'é'.repeat(PAGE_HTML_MAX_BYTES / 2 + 1) });
+    const big = await publish(s, m.credential, {
+      title: 't',
+      html: 'é'.repeat(PAGE_HTML_MAX_BYTES / 2 + 1),
+    });
     expect(big.status).toBe(413);
     expect(big.json.error?.code).toBe('page_too_large');
   });
@@ -282,11 +281,12 @@ describe('GET /p/:id', () => {
     const open = await raw('GET', pathOf(shared.page.share_url!));
     expect(open.status).toBe(200);
     expect(open.text).toContain('<h1>Hi</h1>');
-    const row = await db.pool.query('SELECT shared_by, shared_at FROM page WHERE id = $1', [
-      shared.page.id,
-    ]);
-    expect(row.rows[0].shared_by).toBe('agent');
-    expect(row.rows[0].shared_at).not.toBeNull();
+    const row = await db.pool.query<{ shared_by: string | null; shared_at: Date | null }>(
+      'SELECT shared_by, shared_at FROM page WHERE id = $1',
+      [shared.page.id],
+    );
+    expect(row.rows[0]?.shared_by).toBe('agent');
+    expect(row.rows[0]?.shared_at).not.toBeNull();
 
     const other = await published();
     const token = new URL(shared.page.share_url!).searchParams.get('t')!;
@@ -326,9 +326,7 @@ describe('Share, the ticket list, and the pages on detail', () => {
     expect(pages.map((p) => [p.id, p.shared_by, p.share_url])).toEqual([
       [page.id, 'user', share_url],
     ]);
-    expect(
-      (await api.send('GET', API_PATHS.ticketPages(ticket.id), as(b))).json,
-    ).toEqual([]);
+    expect((await api.send('GET', API_PATHS.ticketPages(ticket.id), as(b))).json).toEqual([]);
   });
 
   it('the pages planning attached are on the session and ticket detail, ours marked hosted', async () => {

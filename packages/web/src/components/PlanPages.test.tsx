@@ -86,7 +86,10 @@ describe('PlanPages', () => {
   });
 });
 
-async function seedDetail(): Promise<{ api: ReturnType<typeof createMockApi>; detail: SessionDetail }> {
+async function seedDetail(): Promise<{
+  api: ReturnType<typeof createMockApi>;
+  detail: SessionDetail;
+}> {
   const api = createMockApi({ replyDelayMs: 0 });
   const base = await api.getSession(SEED_IDS.transitions.session);
   const detail: SessionDetail = {

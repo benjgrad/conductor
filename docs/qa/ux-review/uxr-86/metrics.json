@@ -1,0 +1,42 @@
+{
+  "ticket-queued-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Machines ›\" 70×16"
+    ]
+  },
+  "ticket-queued-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Machines ›\" 70×16"
+    ]
+  },
+  "ticket-queued-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 36,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  }
+}

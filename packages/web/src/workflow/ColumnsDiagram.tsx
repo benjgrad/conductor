@@ -501,11 +501,10 @@ function LaneBox({
   ]
     .filter(Boolean)
     .join(' ');
-  // UXR-45's kind (restored: a merge on main dropped it) and UXR-73's change mark.
+  // UXR-45 / UXR-68: the column's kind; UXR-73: whether the compared version changed it.
   const name =
-    `Column ${lane.title}: ${lane.work}` +
-    `${lane.entry ? ', has requirements to enter' : ''} (${kindLabel} column)` +
-    `${changed ? ' (changed)' : ''}`;
+    `Column ${lane.title}: ${lane.work}${lane.entry ? ', has requirements to enter' : ''}` +
+    ` (${kindLabel} column)${changed ? ' (changed)' : ''}`;
   const tip = checking
     ? `${name}; checking requirements to enter${checkingPhase ? ` (${checkingPhase})` : ''}`
     : name;

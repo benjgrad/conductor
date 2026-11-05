@@ -5,6 +5,7 @@ import {
   FOLLOW_UPS_MAX,
   type WorkflowDefinition,
 } from '@conductor/shared';
+import { ArrowLeft } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import {
   columnTitle,
@@ -44,6 +45,8 @@ export interface ColumnEditorProps {
   canMove?: { left: boolean; right: boolean };
   removalProblems?: readonly string[];
   onRemove?: () => void;
+  /** UXR-44: the phone's full-screen panel, with Back to the workflow instead of ×. */
+  fullScreen?: boolean;
 }
 
 export const FOLD_NOTICE = 'Saved as transition requirements';
@@ -67,6 +70,7 @@ export function ColumnEditor({
   canMove,
   removalProblems = [],
   onRemove,
+  fullScreen = false,
 }: ColumnEditorProps) {
   const uid = useId();
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -105,10 +109,22 @@ export function ColumnEditor({
   const body = (
     <>
       <div className="wf-editor-head">
+        {fullScreen && (
+          <button
+            type="button"
+            className="wf-back back"
+            onClick={onClose}
+            aria-label="Back to workflow"
+          >
+            <ArrowLeft size={20} aria-hidden="true" />
+          </button>
+        )}
         <h3>{title}</h3>
-        <button type="button" onClick={onClose} aria-label="Close column">
-          ×
-        </button>
+        {!fullScreen && (
+          <button type="button" onClick={onClose} aria-label="Close column">
+            ×
+          </button>
+        )}
       </div>
       <p className="muted wf-note">
         State <code>{state}</code>. Changes go into a draft; Save creates a new version.
@@ -326,7 +342,7 @@ export function ColumnEditor({
     (i) => !shownPaths.has(i.path) && (i.transition === undefined || i.transition.from !== state),
   );
   return (
-    <aside className="wf-editor" aria-label="Column">
+    <aside className={`wf-editor${fullScreen ? ' full-screen' : ''}`} aria-label="Column">
       {body}
       {rest.map((i) => (
         <p key={`${i.path}:${i.message}`} className="wf-field-error" role="alert">

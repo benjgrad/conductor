@@ -55,6 +55,7 @@ export * from './api/plan.js';
 export * from './api/fixtures.js';
 export * from './agents/names.js';
 export * from './advisor/metrics.js';
+export * from './advisor/check-history.js';
 export * from './advisor/insight.js';
 export * from './advisor/diff.js';
 export * from './advisor/proposal.js';

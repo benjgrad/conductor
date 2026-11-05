@@ -256,7 +256,7 @@ button.plan-approve {
 
 /* UXR-54: an empty column's one muted line (what the column is for). */
 .column-empty {
-  margin: var(--space-2) var(--space-3);
+  margin: var(--space-2) var(--space-2);
   color: var(--muted);
   font-size: var(--text-sm);
 }

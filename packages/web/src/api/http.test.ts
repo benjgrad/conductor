@@ -370,6 +370,23 @@ describe('createHttpApi REST', () => {
     ]);
   });
 
+  it('repo check runs and health (UXR-80): GET with the repo and limit in the query', async () => {
+    const runs = { repo: 'github.com/o/app', window_days: 30, checks: [] };
+    const health = { window_days: 30, repos: [] };
+    const { calls, fetch } = recordingFetch(({ url }) =>
+      json(200, url.includes('/health') ? health : runs),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getRepoCheckRuns('github.com/o/app')).toEqual(runs);
+    expect(await api.getRepoCheckRuns('github.com/o/app', 3)).toEqual(runs);
+    expect(await api.getRepoChecksHealth()).toEqual(health);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([
+      ['GET', `${API_PATHS.repoCheckRuns}?repo=github.com%2Fo%2Fapp`],
+      ['GET', `${API_PATHS.repoCheckRuns}?repo=github.com%2Fo%2Fapp&limit=3`],
+      ['GET', API_PATHS.repoChecksHealth],
+    ]);
+  });
+
   it('schedules (ADR-0032, UXR-83): GET, POST, PATCH, DELETE {}, run {force}', async () => {
     const [dto] = mockSchedules(now());
     const ran = { ticket_id: SEED_IDS.running.ticket, schedule: dto };

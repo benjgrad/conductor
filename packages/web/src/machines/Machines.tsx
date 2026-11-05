@@ -1,17 +1,14 @@
 import type { EnrollmentTokenCreated, MachineDetail, MachineRow } from '@conductor/shared';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { ago } from '../components/format.js';
 import { HelpLink } from '../help/HelpPage.js';
 import { routeHash } from '../nav.js';
 import { AddMachine } from './AddMachine.js';
-import { ghTooOld, ghTooOldText, GIT_IDENTITY_MISSING_TEXT } from './format.js';
+import { machineProblems, problemsLabel } from './format.js';
 import { MachineDrawer } from './MachineDrawer.js';
 import { UpgradeBanner } from './UpgradeNotice.js';
 import './machines.css';
-
-/** RenameMachineRequest's limit (10-contracts). */
-const NAME_MAX = 64;
 
 interface MachinesPageProps {
   api: ApiClient;
@@ -23,15 +20,14 @@ type List =
   | { kind: 'loaded'; rows: MachineRow[]; details: ReadonlyMap<string, MachineDetail> };
 
 /**
- * `#/machines` (ADR-0013 §Enrollment, M2-T11): the account's machines with rename and revoke, a
- * drawer with each one's inventory, and Add a machine (the one-time install command).
+ * `#/machines` (ADR-0013 §Enrollment, M2-T11): the account's machines, a drawer with each one's
+ * inventory, problems, rename and revoke (UXR-47/48), and Add a machine (the one-time install command).
  */
 export function MachinesPage({ api }: MachinesPageProps) {
   const [list, setList] = useState<List>({ kind: 'loading' });
   const [enrollment, setEnrollment] = useState<EnrollmentTokenCreated | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<MachineDetail | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -71,9 +67,9 @@ export function MachinesPage({ api }: MachinesPageProps) {
     if (created) setEnrollment(created);
   }
 
-  async function askRevoke(row: MachineRow) {
+  async function askRevoke(id: string) {
     // Always fresh: the confirmation names the sessions that go to a human now.
-    const detail = await act(() => api.getMachine(row.id));
+    const detail = await act(() => api.getMachine(id));
     if (detail) setConfirmRevoke(detail);
   }
 
@@ -150,33 +146,28 @@ export function MachinesPage({ api }: MachinesPageProps) {
           <tbody>
             {list.rows.map((m) => {
               const detail = list.details.get(m.id);
-              const oldGh = detail ? ghTooOld(detail.capabilities) : null;
+              const problems = machineProblems(m, detail);
               return (
                 <tr key={m.id} className={m.revoked_at ? 'machine-revoked' : undefined}>
                   <td>
-                    {renaming === m.id ? (
-                      <RenameForm
-                        name={m.name}
-                        onCancel={() => setRenaming(null)}
-                        onSave={(name) => {
-                          setRenaming(null);
-                          void act(() => api.renameMachine(m.id, { name }));
-                        }}
-                      />
-                    ) : (
-                      <>
-                        <span className="machine-name">{m.name}</span>
-                        {m.name !== m.hostname && <span className="muted"> {m.hostname}</span>}
-                      </>
-                    )}
+                    <span className="machine-name">{m.name}</span>
+                    {m.name !== m.hostname && <span className="muted"> {m.hostname}</span>}
                     {detail && detail.alerts.length > 0 && (
                       <span className="badge badge-alert">
                         {detail.alerts.length === 1 ? '1 alert' : `${detail.alerts.length} alerts`}
                       </span>
                     )}
-                    {oldGh !== null && <p className="machine-warning">⚠ {ghTooOldText(oldGh)}</p>}
-                    {m.git_identity_missing === true && (
-                      <p className="machine-warning">⚠ {GIT_IDENTITY_MISSING_TEXT}</p>
+                    {problems.length > 0 && (
+                      <button
+                        type="button"
+                        className="chip-problem"
+                        aria-label={`${problemsLabel(problems.length)} on ${m.name}: open details`}
+                        title={problems.map((p) => p.summary).join('; ')}
+                        disabled={!detail}
+                        onClick={() => setOpen(m.id)}
+                      >
+                        ⚠ {problemsLabel(problems.length)}
+                      </button>
                     )}
                   </td>
                   <td>
@@ -200,35 +191,17 @@ export function MachinesPage({ api }: MachinesPageProps) {
                   </td>
                   <td>{m.claude_version ?? '—'}</td>
                   <td>{m.repo_count}</td>
-                  <td className="machines-actions">
-                    <button
-                      type="button"
-                      aria-label={`Details of ${m.name}`}
-                      disabled={!detail}
-                      onClick={() => setOpen(m.id)}
-                    >
-                      Details
-                    </button>
-                    {!m.revoked_at && (
-                      <>
-                        <button
-                          type="button"
-                          aria-label={`Rename ${m.name}`}
-                          onClick={() => setRenaming(m.id)}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          aria-label={`Revoke ${m.name}`}
-                          disabled={busy}
-                          onClick={() => void askRevoke(m)}
-                        >
-                          Revoke
-                        </button>
-                      </>
-                    )}
+                  <td className="table-actions">
+                    <div className="table-actions-inner">
+                      <button
+                        type="button"
+                        aria-label={`Details of ${m.name}`}
+                        disabled={!detail}
+                        onClick={() => setOpen(m.id)}
+                      >
+                        Details
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -240,6 +213,11 @@ export function MachinesPage({ api }: MachinesPageProps) {
         <MachineDrawer
           machine={opened}
           onClose={() => setOpen(null)}
+          onRename={(name) => void act(() => api.renameMachine(opened.id, { name }))}
+          onRevoke={() => {
+            setOpen(null);
+            void askRevoke(opened.id);
+          }}
           onSaveRules={async (req) => {
             // The drawer shows the error inline (e.g. a 409 exclusive conflict); reload either way.
             try {
@@ -251,46 +229,6 @@ export function MachinesPage({ api }: MachinesPageProps) {
         />
       )}
     </section>
-  );
-}
-
-function RenameForm({
-  name,
-  onSave,
-  onCancel,
-}: {
-  name: string;
-  onSave: (name: string) => void;
-  onCancel: () => void;
-}) {
-  const [value, setValue] = useState(name);
-  const trimmed = value.trim();
-  const ok = trimmed !== '' && trimmed.length <= NAME_MAX;
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (ok) onSave(trimmed);
-  }
-
-  return (
-    <form className="machine-rename" aria-label="Rename machine" onSubmit={onSubmit}>
-      <input
-        aria-label="Machine name"
-        value={value}
-        maxLength={NAME_MAX}
-        autoFocus
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onCancel();
-        }}
-      />
-      <button type="submit" disabled={!ok}>
-        Save
-      </button>
-      <button type="button" onClick={onCancel}>
-        Cancel
-      </button>
-    </form>
   );
 }
 
@@ -321,7 +259,7 @@ function RevokeConfirm({
       ) : (
         <p>No sessions are running on it.</p>
       )}
-      <div className="machines-actions">
+      <div className="machine-panel-actions">
         <button type="button" className="danger" onClick={onConfirm}>
           Revoke
         </button>

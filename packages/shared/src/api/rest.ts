@@ -1415,6 +1415,19 @@ export const CreateTicketRequestSchema = z.object({
 });
 export type CreateTicketRequest = z.input<typeof CreateTicketRequestSchema>;
 
+/** UXR-70: a workflow version note's longest length (`workflow_definition.note`). */
+export const WORKFLOW_NOTE_MAX = 500;
+
+/** UXR-70: one saved version in `WorkflowDetail.history`. */
+export const WorkflowVersionInfoSchema = z.object({
+  version: z.number().int().positive(),
+  created_at: IsoDateTimeSchema,
+  /** Who saved it: a user's email, `mcp:<email>` for an MCP save; null when unknown. */
+  created_by: z.string().nullable(),
+  note: z.string().nullable(),
+});
+export type WorkflowVersionInfo = z.infer<typeof WorkflowVersionInfoSchema>;
+
 /** GET /api/workflows → WorkflowSummary[] (latest version of each id). */
 export const WorkflowSummarySchema = z.object({
   id: z.string(),
@@ -1430,7 +1443,11 @@ export const WorkflowListResponseSchema = z.array(WorkflowSummarySchema);
  * POST /api/workflows `{definition}` → 201 `{id, version}`. The server assigns `version`
  * (max + 1), ignoring the submitted one, and validates (T03); failure → 400 invalid_workflow.
  */
-export const SaveWorkflowRequestSchema = z.object({ definition: z.unknown() });
+export const SaveWorkflowRequestSchema = z.object({
+  definition: z.unknown(),
+  /** UXR-70: an optional note for the version (the Save review dialog); '' = none. */
+  note: z.string().trim().max(WORKFLOW_NOTE_MAX).optional(),
+});
 export const SaveWorkflowResponseSchema = z.object({
   id: z.string(),
   version: z.number().int().positive(),
@@ -1451,6 +1468,11 @@ export const WorkflowDetailSchema = z.object({
    * sends it.
    */
   versions: z.array(z.number().int().positive()).optional(),
+  /** UXR-70: every saved version with who saved it, when and its note, ascending. Optional. */
+  history: z.array(WorkflowVersionInfoSchema).optional(),
+  /** UXR-70: who saved this version and its note (optional, like `history`). */
+  created_by: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
   /**
    * ADR-0011 (M1b-T09): the shipped default version newer than this id's latest, when the user
    * edited theirs so the seed did not insert it (the editor offers it); null/absent otherwise.

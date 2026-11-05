@@ -9,7 +9,10 @@ import { formatMinutes, InsightsPage } from './InsightsPage.js';
 
 afterEach(cleanup);
 
-const [OPEN_PROPOSAL] = mockChangeProposals(new Date());
+// The mock's open proposal that cites the failing build.
+const OPEN_PROPOSAL = mockChangeProposals(new Date()).find((p) =>
+  p.evidence.some((e) => e.finding_id === 'failing_check:npm run build'),
+);
 
 function setup(api = createMockApi(), ticketTitle?: (id: string) => string | null) {
   const onOpenTicket = vi.fn();

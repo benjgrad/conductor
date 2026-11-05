@@ -41,6 +41,12 @@
   --ask-bg: #fde8e8;
   --ask: #a2262e;
   --ok: #1f7a45;
+  /* UXR-35: each request kind's chip and box (11-web-ui §Requests). Text on its -bg is AA:
+     accent 4.7, ok 4.7, perm 5.8, ask 6.3; --muted 4.9-5.1 on each. */
+  --accent-bg: #eef2fb;
+  --ok-bg: #e6f4ea;
+  --perm: #6b3fc4;
+  --perm-bg: #f1ebfc;
   --code-bg: #0f1420;
   --code-text: #d6dbe6;
   --inline-code-bg: #eef0f4;
@@ -82,6 +88,10 @@ html {
     --ask-bg: #3d1c20;
     --ask: #ff8f96;
     --ok: #5ccf8b;
+    --accent-bg: #222a3a;
+    --ok-bg: #13301f;
+    --perm: #c4a8ff;
+    --perm-bg: #2a2140;
     --inline-code-bg: #262c38;
     --diff-add-bg: #12301f;
     --diff-add: #7fdca2;
@@ -127,6 +137,21 @@ button:disabled {
 }
 button.danger {
   color: var(--ask);
+  border-color: var(--ask);
+}
+/* The one primary action of a group (Approve, Retry, Allow once, Submit). */
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+/* A confirmed destructive action (Abort session): white on --ask is 7.4:1, dark 8.4:1. */
+button.danger-solid {
+  background: var(--ask);
+  border-color: var(--ask);
+  color: var(--on-accent);
+  font-weight: 600;
 }
 a {
   color: var(--accent);
@@ -179,6 +204,24 @@ textarea {
 }
 .topbar.compact .nav-label {
   display: none;
+}
+
+/* UXR-48: a table's action cell stays a table cell (display: flex on a <td> breaks the row's
+   border); its buttons sit in an inner flex box. */
+td.table-actions {
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.table-actions-inner {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+/* UXR-47: a table that scrolls sideways in its own box. */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 main {
@@ -284,8 +327,8 @@ main {
   font-weight: 600;
 }
 .badge-question {
-  background: var(--ask-bg);
-  color: var(--ask);
+  background: var(--accent-bg);
+  color: var(--accent);
   font-weight: 600;
 }
 .status {
@@ -294,9 +337,12 @@ main {
 .status-running {
   color: var(--accent);
 }
-.status-needs_input,
+.status-needs_input {
+  color: var(--accent);
+}
+/* UXR-35: a held tool call is violet, like its request (only failures are red). */
 .status-needs_permission {
-  color: var(--ask);
+  color: var(--perm);
 }
 .status-done {
   color: var(--ok);
@@ -754,23 +800,101 @@ button.copy {
 .jump-count {
   color: var(--accent);
 }
+/* UXR-35 (11-web-ui §Requests): a request waiting on a human (RequestCard.tsx), coloured by its
+   kind. Only a failure is red. */
 .pending {
+  --tone: var(--accent);
+  --tone-bg: var(--accent-bg);
   min-width: 0;
   max-width: 100%;
-  background: var(--ask-bg);
-  border: 1px solid color-mix(in srgb, var(--ask) 35%, transparent);
+  background: var(--tone-bg);
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent);
   /* Questions UX: a request waiting on a human stands out from the chat around it. */
-  border-left: 4px solid var(--ask);
+  border-left: 4px solid var(--tone);
   border-radius: 10px;
   padding: 10px 12px;
 }
-/* Every request waiting on a human (question, plan, permission): one "Action needed" look. */
-.action-needed {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ask);
+.request-review {
+  --tone: var(--ok);
+  --tone-bg: var(--ok-bg);
+}
+.request-permission {
+  --tone: var(--perm);
+  --tone-bg: var(--perm-bg);
+}
+.request-failure {
+  --tone: var(--ask);
+  --tone-bg: var(--ask-bg);
+}
+.request-chip {
+  display: inline-block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--tone);
+  color: var(--tone);
+  background: var(--panel);
+}
+.request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 2px;
+}
+.request-output {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.request-output.clamped {
+  max-height: 18em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+}
+.skip-menu {
+  position: relative;
+}
+.skip-menu [role='menu'] {
+  position: absolute;
+  z-index: var(--z-menu);
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+}
+.skip-menu [role='menuitem'] {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+}
+.skip-menu [role='menuitem']:hover,
+.skip-menu [role='menuitem']:focus-visible {
+  background: var(--accent-bg);
+}
+.quick-actions .abort {
+  margin-left: auto;
+}
+.abort-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
 }
 .pending-head {
   display: flex;
@@ -872,6 +996,7 @@ button.copy {
   font-size: 12px;
 }
 .composer-reason,
+.composer-hint,
 .composer-error {
   margin: 4px 2px 0;
   font-size: 12px;

@@ -1,26 +1,57 @@
 import type {
+  ChangeKind,
   ChangeProposalDetail,
   ChangeProposalSummary,
   ProposalReview,
   StructuralChange,
 } from '@conductor/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { affectedOf, diffRepoChecks, diffVersions, type ReadableChange } from './version-diff.js';
+import { VersionDiff } from './VersionDiff.js';
 
 // ADR-0033 P3 (MA-T07): the workflow advisor's change proposals, under the workflow editor. The
 // advisor (any MCP client, prompt `workflow_advisor`) proposes one change at a time; here a
 // human reads its diff, evidence, expected effect and rollback, and applies or rejects it. Apply
 // runs the same guards as the MCP `apply_change` (the admin gate for workflow changes, approvals,
 // the base it was made from). An applied proposal shows the expected metric before vs after.
+// UXR-73: the diff reads in the editor's words (version-diff.ts) from the proposal's whole change,
+// and a workflow proposal highlights the columns and arrows it changes on the diagram. The Repo
+// checks page shows one repo's proposals (`kind` / `target`).
+
+/** What a proposal changes on the diagram (`affectedOf`). */
+export interface DiagramHighlight {
+  states: ReadonlySet<string>;
+  edges: ReadonlySet<string>;
+}
 
 export interface ProposalsPanelProps {
   api: ApiClient;
-  /** The workflow editor has unsaved changes (applying a workflow change makes them stale). */
+  /** The editor has unsaved changes (applying a change makes them stale). */
   dirty: boolean;
   /** A workflow proposal was applied: the editor reloads the latest version. */
-  onWorkflowApplied: () => void;
+  onWorkflowApplied?: () => void;
   /** UXR-84: open this proposal on mount (the Insights page's "Open proposal"). */
   initialOpenId?: string | null | undefined;
+  /** Any proposal was applied (the Repo checks page reloads the repo). */
+  onApplied?: (p: ChangeProposalDetail) => void;
+  /** UXR-73: only proposals of this kind, for this target (a repo). */
+  kind?: ChangeKind;
+  target?: string;
+  /** UXR-73: the open workflow proposal's columns and arrows; null when none is open. */
+  onHighlight?: (h: DiagramHighlight | null) => void;
+}
+
+/** A proposal's diff in the editor's words, from its whole change; null from an older server. */
+export function readableOf(p: ChangeProposalDetail): ReadableChange[] | null {
+  if (p.kind === 'workflow') {
+    return p.base_definition && p.proposed_definition
+      ? diffVersions(p.base_definition, p.proposed_definition)
+      : null;
+  }
+  return p.checks_after !== undefined
+    ? diffRepoChecks(p.checks_before ?? null, p.checks_after)
+    : null;
 }
 
 type Filter = 'open' | 'all';
@@ -105,12 +136,17 @@ function ReviewResult({ review }: { review: ProposalReview }) {
 
 function Detail({
   p,
+  readable,
+  highlighted,
   busy,
   onApply,
   onReject,
   onReview,
 }: {
   p: ChangeProposalDetail;
+  readable: ReadableChange[] | null;
+  /** Its changes are highlighted on the diagram. */
+  highlighted: boolean;
   busy: boolean;
   onApply: () => void;
   onReject: () => void;
@@ -148,8 +184,13 @@ function Detail({
       </p>
       <h4>Rollback</h4>
       <p>{p.rollback}</p>
-      <h4>Diff{p.base_version !== null ? ` (from v${p.base_version})` : ''}</h4>
-      <DiffTable changes={p.diff.changes} more={p.diff.more_changes} />
+      <h4>What changes{p.base_version !== null ? ` (from v${p.base_version})` : ''}</h4>
+      {highlighted && <p className="muted">Highlighted on the diagram above.</p>}
+      {readable !== null ? (
+        <VersionDiff changes={readable} label={`Changes in ${p.title}`} />
+      ) : (
+        <DiffTable changes={p.diff.changes} more={p.diff.more_changes} />
+      )}
       {p.error && (
         <p className="error" role="alert">
           {p.error}
@@ -197,6 +238,10 @@ export function ProposalsPanel({
   dirty,
   onWorkflowApplied,
   initialOpenId = null,
+  onApplied,
+  kind,
+  target,
+  onHighlight,
 }: ProposalsPanelProps) {
   const [filter, setFilter] = useState<Filter>('open');
   const [rows, setRows] = useState<ChangeProposalSummary[] | null>(null);
@@ -229,18 +274,35 @@ export function ProposalsPanel({
 
   useEffect(() => {
     let cancelled = false;
-    api.listChangeProposals({ status: filter === 'open' ? 'proposed' : 'all' }).then(
-      (res) => {
-        if (!cancelled) setRows(res.proposals);
-      },
-      (err: unknown) => {
-        if (!cancelled) setError(errorMessage(err));
-      },
-    );
+    api
+      .listChangeProposals({
+        status: filter === 'open' ? 'proposed' : 'all',
+        ...(kind !== undefined ? { kind } : {}),
+        ...(target !== undefined ? { target } : {}),
+      })
+      .then(
+        (res) => {
+          if (!cancelled) setRows(res.proposals);
+        },
+        (err: unknown) => {
+          if (!cancelled) setError(errorMessage(err));
+        },
+      );
     return () => {
       cancelled = true;
     };
-  }, [api, filter, refresh]);
+  }, [api, filter, refresh, kind, target]);
+
+  const readable = useMemo(() => (open ? readableOf(open) : null), [open]);
+  // UXR-73: an open workflow proposal's columns and arrows, on the diagram.
+  const highlight = useMemo<DiagramHighlight | null>(() => {
+    if (open?.kind !== 'workflow' || readable === null || readable.length === 0) return null;
+    return affectedOf(readable);
+  }, [open, readable]);
+  useEffect(() => {
+    onHighlight?.(highlight);
+  }, [highlight, onHighlight]);
+  useEffect(() => () => onHighlight?.(null), [onHighlight]);
 
   const toggle = async (id: string) => {
     if (open?.id === id) return setOpen(null);
@@ -264,7 +326,10 @@ export function ProposalsPanel({
       const p = await fn();
       setOpen(p);
       setNotice(done(p));
-      if (applying && p.kind === 'workflow') onWorkflowApplied();
+      if (applying) {
+        if (p.kind === 'workflow') onWorkflowApplied?.();
+        onApplied?.(p);
+      }
     } catch (err) {
       setError(errorMessage(err));
       // A conflict or failure changed its status: show the stored reason.
@@ -278,7 +343,9 @@ export function ProposalsPanel({
   return (
     <section className="cp-panel" aria-label="Change proposals">
       <div className="wf-toolbar">
-        <h3>Proposed changes</h3>
+        <h3>
+          {kind === 'repo_checks' ? 'Proposed changes to this repo’s checks' : 'Proposed changes'}
+        </h3>
         <label>
           Show{' '}
           <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}>
@@ -323,14 +390,18 @@ export function ProposalsPanel({
               </button>
               {open?.id === r.id && (
                 <>
-                  {dirty && open.kind === 'workflow' && open.status === 'proposed' && (
+                  {dirty && open.status === 'proposed' && (
                     <p className="cp-warning" role="note">
-                      You have unsaved edits: applying this saves a new version, and saving your
-                      draft afterwards would replace it.
+                      {open.kind === 'workflow'
+                        ? 'You have unsaved edits: applying this saves a new version, and saving ' +
+                          'your draft afterwards would replace it.'
+                        : 'You have unsaved edits: applying this replaces them.'}
                     </p>
                   )}
                   <Detail
                     p={open}
+                    readable={readable}
+                    highlighted={highlight !== null && onHighlight !== undefined}
                     busy={busy}
                     onApply={() =>
                       void act(

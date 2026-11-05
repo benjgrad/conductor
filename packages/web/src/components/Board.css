@@ -31,14 +31,14 @@
 }
 
 .badge-review {
-  background: var(--user-bg);
-  color: var(--accent);
-  border: 1px solid var(--user-border);
+  background: var(--ok-bg);
+  color: var(--ok);
+  border: 1px solid var(--ok);
   font-weight: 600;
 }
 .badge-step-failed {
-  background: var(--warn-bg);
-  color: var(--warn);
+  background: var(--ask-bg);
+  color: var(--ask);
   font-weight: 600;
 }
 
@@ -79,9 +79,9 @@
 
 /* ADR-0023: "Needs permission" (card and panel): the agent is held on a tool call. */
 .badge-permission {
-  background: var(--warn-bg);
-  color: var(--warn);
-  border: 1px solid var(--warn);
+  background: var(--perm-bg);
+  color: var(--perm);
+  border: 1px solid var(--perm);
   font-weight: 600;
 }
 

@@ -1317,7 +1317,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
     async ({ workflow_id, version, state }) => {
       const id = workflow_id ?? CONDUCTOR_WORKFLOW_ID;
-      const detail = await loadWorkflowDetail(db, id, version ?? null);
+      const detail = await loadWorkflowDetail(db, id, version ?? null, who.scope.account_id);
       if (!detail) {
         return fail('not_found', `No workflow ${id}${version ? ` version ${version}` : ''}.`);
       }
@@ -1395,6 +1395,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     }
     const res = await insertWorkflowVersion(db, def, {
       createdBy: by,
+      accountId: who.scope.account_id,
       ...(baseVersion !== undefined ? { baseVersion } : {}),
     });
     if (!res.ok && res.code === 'conflict') {

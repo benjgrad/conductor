@@ -1,14 +1,9 @@
-/* ADR-0023: the session panel's "Needs permission" box (warn tones: the agent is blocked on a
-   human). `.badge-permission` is Board.css's, shared with the board card. */
-.permission-requests {
-  border-color: var(--warn);
-  border-left-color: var(--warn);
-  background: var(--warn-bg);
-}
+/* ADR-0023: the session panel's "Needs permission" box. Its colours are the request frame's
+   (`.request-permission`, styles.css); `.badge-permission` is Board.css's, shared with the card. */
 .permission-request {
   margin: 6px 0 8px;
   padding: 8px 10px;
-  border: 1px solid var(--warn);
+  border: 1px solid color-mix(in srgb, var(--perm) 40%, transparent);
   border-radius: 6px;
   background: var(--panel);
 }

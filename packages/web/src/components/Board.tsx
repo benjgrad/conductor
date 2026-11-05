@@ -18,6 +18,7 @@ import {
   planApproveRequest,
   planOptions,
   previewText,
+  requestTone,
   type PlanOptions,
   type RequestClass,
 } from './request-preview.js';
@@ -498,7 +499,7 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
       )}
       {q && cls && (
         <div className={`question request-${cls}`}>
-          <span className={BADGE_CLASS[cls](q.kind)}>
+          <span className={badgeClass(cls, q.kind)}>
             {requestLabel(cls, q.kind)} · {ago(q.created_at)}
           </span>
           {/* UX-4: a clamped preview; the full text is its accessible name and tooltip. */}
@@ -637,6 +638,13 @@ const BADGE_CLASS: Record<RequestClass, (kind: string) => string> = {
   step_failed: () => 'badge badge-step-failed',
   question: (kind) => `badge badge-question kind-${kind}`,
 };
+
+/** UXR-35: the request badge's class; an old server's failed run is red like a failed step. */
+function badgeClass(cls: RequestClass, kind: keyof typeof KIND_LABELS): string {
+  return requestTone(cls, kind) === 'failure' && cls === 'question'
+    ? BADGE_CLASS.step_failed(kind)
+    : BADGE_CLASS[cls](kind);
+}
 
 /** The card's request label, as text (NFR-3: never colour alone). */
 export function requestLabel(cls: RequestClass, kind: keyof typeof KIND_LABELS): string {

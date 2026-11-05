@@ -3,9 +3,17 @@
 // 11-web-ui §Phone layout). Messages is a chat with the agent (the live log, the open question
 // inline, a composer pinned at the bottom); Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
 // where, the workflow, spend and the context under Technical details.
-import type { BoardCard, InputRequestDto, SessionDetail } from '@conductor/shared';
+import type { BoardCard, InputRequestDto, OutputChunk, SessionDetail } from '@conductor/shared';
 import { ArrowLeft } from 'lucide-react';
-import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { useInitialPrompt, useSession } from '../board/hooks.js';
 import { parseBrief } from '../brief/parse.js';
@@ -17,12 +25,13 @@ import {
   ConductorCheckBanner,
   failedItemOfQuestion,
   isConductorStep,
+  lastOutputOfQuestion,
 } from './ConductorChecks.js';
 import { isOldVersion } from './details-sections.js';
 import { KIND_LABELS, STATUS_LABELS } from './format.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
-import { OutputLog } from './OutputLog.js';
+import { latestRunText, OutputLog } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
 import { QuestionOptions } from './QuestionOptions.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
@@ -32,8 +41,11 @@ import {
   classifyRequest,
   lastMoveTransition,
   planOptions,
+  requestTone,
+  reviewApproveOption,
   type PlanOptions,
 } from './request-preview.js';
+import { RequestCard } from './RequestCard.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
 import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
@@ -254,9 +266,12 @@ export function DetailPanel({
                   'review' ? (
                     <ReviewRequest
                       key={detail.pending_input.id}
+                      api={api}
                       detail={detail}
                       agent={name}
                       request={detail.pending_input}
+                      onDone={reload}
+                      onRequestChanges={focusComposer}
                     />
                   ) : plan ? (
                     <PlanApprovalRequest
@@ -277,6 +292,7 @@ export function DetailPanel({
                       agent={name}
                       request={detail.pending_input}
                       onDone={reload}
+                      output={output}
                     />
                   ))}
                 {detail.card.sub_status === 'needs_permission' &&
@@ -296,7 +312,7 @@ export function DetailPanel({
                 <TransitionButtons
                   api={api}
                   sessionId={detail.card.session_id}
-                  options={detail.card.human_transitions}
+                  options={genericTransitions(detail)}
                   workflow={detail.workflow}
                   onDone={reload}
                 />
@@ -390,6 +406,17 @@ function planApprovalOptions(detail: SessionDetail): PlanOptions | null {
   );
 }
 
+/** The buttons under the chat: on a review, without the Approve its card already carries. */
+function genericTransitions(detail: SessionDetail): SessionDetail['card']['human_transitions'] {
+  const options = detail.card.human_transitions;
+  const request = detail.pending_input;
+  if (!request || classifyRequest(request, lastMoveTransition(detail)) !== 'review') {
+    return options;
+  }
+  const approve = reviewApproveOption(options, detail.workflow);
+  return approve ? options.filter((o) => o.name !== approve.name) : options;
+}
+
 /** UX-6: the check an open "Step failed" question names, for its run's status. */
 function stepFailedItem(detail: SessionDetail): string | null {
   const request = detail.pending_input;
@@ -418,6 +445,8 @@ interface PendingInputProps {
   agent: string;
   request: InputRequestDto;
   onDone: () => void;
+  /** The session output: a failure shows its check's output under the question (FR-4). */
+  output: readonly OutputChunk[];
 }
 
 /** Questions UX: "Type a different answer" puts the cursor in this panel's composer. */
@@ -425,15 +454,36 @@ function focusComposer(): void {
   document.querySelector<HTMLTextAreaElement>('aside.detail .composer textarea')?.focus();
 }
 
+/** A failure's output longer than this is clamped behind "Show all". */
+const LONG_OUTPUT_LINES = 12;
+
+/**
+ * UXR-39 (FR-4): the output a failure refers to: the failed check's last run in the log, else the
+ * output the question quotes, else (an old version, whose question names no check) the last run.
+ */
+export function failureOutput(
+  detail: Pick<SessionDetail, 'moves' | 'workflow'>,
+  question: string,
+  output: readonly OutputChunk[],
+): string | null {
+  const item = failedItemOfQuestion(question)?.item ?? null;
+  const opts = { moves: detail.moves, workflow: detail.workflow };
+  return (
+    (item !== null ? latestRunText(output, item, opts) : null) ??
+    lastOutputOfQuestion(question, item) ??
+    (item === null ? latestRunText(output, null, opts) : null)
+  );
+}
+
 /**
  * The open input request, inline at the end of the chat. The composer answers it; on old
  * versions, non-agent kinds also get the quick actions (06): retry, skip to…, abort.
  */
-function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps) {
+function PendingInput({ api, detail, agent, request, onDone, output }: PendingInputProps) {
   const sessionId = request.session_id;
-  const [skipTo, setSkipTo] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmAbort, setConfirmAbort] = useState(false);
 
   const skipTargets = Object.entries(detail.workflow.states)
     .filter(([, s]) => s.type !== 'human')
@@ -462,9 +512,12 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
     );
 
   const fromAgent = request.kind === 'agent_question';
-  const stepFailed = classifyRequest(request) === 'step_failed';
+  const cls = classifyRequest(request);
+  const stepFailed = cls === 'step_failed';
+  const tone = requestTone(cls, request.kind);
   // UX-5 FR-4: the failed item and its first error line, above the full question.
   const failed = stepFailed ? failedItemOfQuestion(request.question) : null;
+  const failureText = tone === 'failure' ? failureOutput(detail, request.question, output) : null;
   // The escape hatch for an agent that can't resume: first (highlighted) on a failure, the stuck
   // case; otherwise a secondary action at the end.
   const offer = freshConversationOffer(detail, request);
@@ -478,18 +531,12 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
       />
     );
   return (
-    <section aria-label="Pending input" className="pending">
-      <div className="pending-head">
-        <span className="action-needed">Action needed</span>
-        {stepFailed ? (
-          <span className="badge badge-step-failed">Step failed</span>
-        ) : (
-          <span className={`badge badge-question kind-${request.kind}`}>
-            {KIND_LABELS[request.kind]}
-          </span>
-        )}
-        <span className="muted">{fromAgent ? `${agent} asks` : 'Conductor needs a decision'}</span>
-      </div>
+    <RequestCard
+      tone={tone}
+      label={stepFailed ? 'Step failed' : KIND_LABELS[request.kind]}
+      who={fromAgent ? `${agent} asks` : 'Conductor needs a decision'}
+      ariaLabel="Pending input"
+    >
       {failed?.error && (
         <p className="step-failed-item">
           {failed.item && <strong>{failed.item}</strong>}
@@ -500,6 +547,7 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
       <div className="question-text">
         <Markdown text={request.question} />
       </div>
+      {failureText !== null && <FailureOutput text={failureText} />}
       {offer === 'prominent' && fresh}
       {/* Questions UX: the agent's choices, clickable; typing an answer still works. */}
       {request.options && (
@@ -520,42 +568,49 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
           : 'Reply in the box below to answer.'}
       </p>
       {!fromAgent && isOldVersion(detail) && (
-        <div className="quick-actions" role="group" aria-label="Quick actions">
-          <button type="button" disabled={busy} onClick={() => void send('retry')}>
-            {/* No goto: input.provided returns to return_to, else the workflow start (U-037). */}
-            Retry {detail.return_to ?? detail.workflow.start}
-          </button>
-          <span className="skip">
-            <select
-              aria-label="Skip to state"
-              value={skipTo}
-              onChange={(e) => setSkipTo(e.target.value)}
-              disabled={busy}
-            >
-              <option value="">skip to…</option>
-              {skipTargets.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+        <>
+          <div className="quick-actions" role="group" aria-label="Quick actions">
             <button
               type="button"
-              disabled={busy || skipTo === ''}
-              onClick={() => void send(`skip to ${skipTo}`, skipTo)}
+              className="primary"
+              disabled={busy}
+              onClick={() => void send('retry')}
             >
-              Skip
+              {/* No goto: input.provided returns to return_to, else the workflow start (U-037). */}
+              Retry {detail.return_to ?? detail.workflow.start}
             </button>
-          </span>
-          <button
-            type="button"
-            className="danger"
-            disabled={busy}
-            onClick={() => void run(() => api.cancel(sessionId, { reason: 'aborted from UI' }))}
-          >
-            Abort
-          </button>
-        </div>
+            <SkipMenu
+              targets={skipTargets}
+              disabled={busy}
+              onChoose={(s) => void send(`skip to ${s}`, s)}
+            />
+            <button
+              type="button"
+              className="danger abort"
+              disabled={busy}
+              aria-expanded={confirmAbort}
+              onClick={() => setConfirmAbort(true)}
+            >
+              Abort…
+            </button>
+          </div>
+          {confirmAbort && (
+            <div className="abort-confirm" role="group" aria-label="Confirm abort">
+              <span>Abort this session? The agent stops and the card moves to Failed.</span>
+              <button
+                type="button"
+                className="danger-solid"
+                disabled={busy}
+                onClick={() => void run(() => api.cancel(sessionId, { reason: 'aborted from UI' }))}
+              >
+                Abort session
+              </button>
+              <button type="button" disabled={busy} onClick={() => setConfirmAbort(false)}>
+                Keep it
+              </button>
+            </div>
+          )}
+        </>
       )}
       {offer === 'secondary' && fresh}
       {error && (
@@ -563,6 +618,108 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
           {error}
         </p>
       )}
-    </section>
+    </RequestCard>
+  );
+}
+
+/** FR-4: the failure's output under its question, long output clamped behind "Show all". */
+function FailureOutput({ text }: { text: string }) {
+  const [all, setAll] = useState(false);
+  const long = text.split('\n').length > LONG_OUTPUT_LINES;
+  return (
+    <div className="request-output-wrap" role="region" aria-label="Failure output">
+      <pre className={`request-output${long && !all ? ' clamped' : ''}`}>
+        <code>{text}</code>
+      </pre>
+      {long && (
+        <button
+          type="button"
+          className="link"
+          aria-expanded={all}
+          onClick={() => setAll((v) => !v)}
+        >
+          {all ? 'Show less' : 'Show all'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * FR-4: "Skip to…" as a menu that acts on the choice: one item per state; picking one skips
+ * there. Escape or a click outside closes it; ↑/↓ move between the items.
+ */
+export function SkipMenu({
+  targets,
+  disabled,
+  onChoose,
+}: {
+  targets: readonly string[];
+  disabled?: boolean;
+  onChoose: (state: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLSpanElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    root.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  function onKey(e: KeyboardEvent<HTMLUListElement>) {
+    const items = [...(root.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const at = items.findIndex((el) => el === document.activeElement);
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      button.current?.focus();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      items[(at + step + items.length) % items.length]?.focus();
+    }
+  }
+
+  return (
+    <span className="skip-menu" ref={root}>
+      <button
+        ref={button}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        disabled={disabled === true || targets.length === 0}
+        onClick={() => setOpen((v) => !v)}
+      >
+        Skip to… <span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <ul id={menuId} role="menu" aria-label="Skip to state" onKeyDown={onKey}>
+          {targets.map((s) => (
+            <li key={s} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => {
+                  setOpen(false);
+                  onChoose(s);
+                }}
+              >
+                {s}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </span>
   );
 }

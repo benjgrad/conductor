@@ -42,7 +42,7 @@ An agent's `ask_user` may list the answers it expects, the way Claude Code's own
 - **Panel** (`QuestionOptions.tsx`, inside the pending request): a numbered list, label in bold and description under it. A click answers at once; digits 1–6 pick while focus is in the list and ↑/↓ move between options. Multi-select shows checkboxes and **Submit (n)**. **Type a different answer** focuses the composer. The hint reads "Choose an option, or reply in the box below."
 - **Card** (`CardActions.tsx`): single select with at most 4 options shows one button per option (its description is the tooltip) in place of the human transition buttons; otherwise **Answer…** opens the panel.
 - **Permission prompts on the card**: a card whose agent waits on a permission prompt (`sub_status: needs_permission`) shows **Allow once**, **Deny** (no note) and **Review** (opens the panel, which has Allow always and the deny note) for the oldest pending request.
-- **Action needed**: every request that waits on a human in the panel (question, plan to approve, review, permission) leads with an "Action needed" label and a heavy left border, so it stands out from the chat.
+- **Requests by kind** (UXR-35, [11-web-ui §Requests](11-web-ui.md#requests)): every request that waits on a human in the panel has a heavy left border and a chip naming its kind, coloured by kind: a question (and a plan to approve) blue, a review green, a permission prompt violet, a failure red. Only failures are red.
 
 ## Live messages to a running agent
 

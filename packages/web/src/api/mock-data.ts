@@ -580,6 +580,13 @@ function reviewSeed(now: Date): MockSeed {
       ...base.card,
       kind: 'personal',
       pr_url: 'https://github.com/benjgrad/conductor/pull/42',
+      // UXR-36: the workflow's buttons, so the review shows Approve (its `done`).
+      human_transitions: humanTransitionOptions(
+        CONDUCTOR_V2_DRAFT_DEF,
+        'needs_input',
+        'personal',
+        'implementing',
+      ),
     },
     session: {
       ...base.session!,

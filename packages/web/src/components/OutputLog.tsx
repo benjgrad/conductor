@@ -402,6 +402,28 @@ export function buildThread(
   return out;
 }
 
+/**
+ * UXR-39 (FR-4): the text of the last command run in the output, named `name` when given (the
+ * failed check a failure question names), else the last run of any name. null when there is none.
+ */
+export function latestRunText(
+  output: readonly OutputChunk[],
+  name: string | null,
+  opts: { moves?: readonly MoveDto[] | undefined; workflow?: WorkflowDefinition | undefined } = {},
+): string | null {
+  const thread = buildThread(buildEntries(output), { ...opts, group: true });
+  for (let i = thread.length - 1; i >= 0; i--) {
+    const item = thread[i]!;
+    if (item.kind !== 'run' || (name !== null && item.name !== name)) continue;
+    const text = item.segments
+      .map((s) => s.text)
+      .join('')
+      .replace(/\s+$/, '');
+    return text === '' ? null : text;
+  }
+  return null;
+}
+
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 const SUMMARIZED_TOOLS = new Set([

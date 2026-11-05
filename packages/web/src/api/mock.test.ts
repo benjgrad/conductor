@@ -1,4 +1,6 @@
 import {
+  ScheduleDtoSchema,
+  ScheduleListResponseSchema,
   BoardResponseSchema,
   BoardSseEventSchema,
   checksGatesOf,
@@ -19,7 +21,7 @@ import {
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import { ApiRequestError } from './client.js';
-import { SEED_IDS } from './mock-data.js';
+import { SCHEDULE_IDS, SEED_IDS } from './mock-data.js';
 import { createMockApi } from './mock.js';
 import { detailVersions } from '../workflow/review.js';
 import { planAnswerOption } from '../components/request-preview.js';
@@ -461,5 +463,108 @@ describe('mock repo checks (ADR-0030)', () => {
       code: 'not_found',
     });
     expect((await api.listRepoChecks()).repos).toEqual([]);
+  });
+});
+
+describe('mock schedules (ADR-0032, UXR-83)', () => {
+  const create = {
+    name: 'Nightly',
+    cron: '0 2 * * *',
+    timezone: 'UTC',
+    title: 'Nightly sweep',
+    repo: 'github.com/o/app',
+    kind: 'work' as const,
+  };
+  const reject = (p: Promise<unknown>) =>
+    p.then(
+      () => {
+        throw new Error('expected a rejection');
+      },
+      (err: unknown) => err as ApiRequestError,
+    );
+
+  it('seeds three, by name; the PR sweep card names its schedule', async () => {
+    const api = createMockApi({ now });
+    const list = ScheduleListResponseSchema.parse(await api.listSchedules());
+    expect(list.schedules.map((s) => s.name)).toEqual([
+      'Monthly report',
+      'PR sweep',
+      'Weekly dependency bump',
+    ]);
+    const sweep = list.schedules.find((s) => s.id === SCHEDULE_IDS.prSweep)!;
+    expect(sweep.next_runs).toHaveLength(3);
+    expect(sweep.last_ticket).toEqual({ id: SEED_IDS.running.ticket, status: 'in_progress' });
+    const board = await api.getBoard();
+    const card = board.columns
+      .flatMap((c) => c.cards)
+      .find((c) => c.ticket_id === SEED_IDS.running.ticket);
+    expect(card?.schedule).toEqual({ id: SCHEDULE_IDS.prSweep, name: 'PR sweep' });
+  });
+
+  it('create checks the rule, the timezone, the machines and the name', async () => {
+    const api = createMockApi({ now });
+    const dto = ScheduleDtoSchema.parse(await api.saveSchedule(null, create));
+    expect(dto).toMatchObject({ name: 'Nightly', enabled: true, machine_ids: null });
+    expect(dto.next_run_at).toBe('2026-10-23T02:00:00.000Z');
+
+    const often = await reject(
+      api.saveSchedule(null, { ...create, name: 'x', cron: '*/5 * * * *' }),
+    );
+    expect([often.status, often.code, often.details[0]?.path]).toEqual([
+      400,
+      'bad_request',
+      'cron',
+    ]);
+    const tz = await reject(
+      api.saveSchedule(null, { ...create, name: 'y', timezone: 'Mars/Base' }),
+    );
+    expect(tz.details[0]?.path).toBe('timezone');
+    const m = await reject(api.saveSchedule(null, { ...create, name: 'z', machines: ['nope'] }));
+    expect(m.details[0]?.path).toBe('machines');
+    const dup = await reject(api.saveSchedule(null, create));
+    expect([dup.status, dup.code, dup.details[0]?.path]).toEqual([409, 'conflict', 'name']);
+    const pinned = await api.saveSchedule(null, { ...create, name: 'p', machines: ['mbp-ben'] });
+    expect(pinned.machine_ids).toEqual(['mbp-ben']);
+  });
+
+  it('update: a stale guard is 409; pause clears the next run, resume recomputes it', async () => {
+    const api = createMockApi({ now });
+    const dto = await api.saveSchedule(null, create);
+    const paused = await api.saveSchedule(dto.id, {
+      enabled: false,
+      expected_updated_at: dto.updated_at,
+    });
+    expect([paused.enabled, paused.next_run_at, paused.next_runs]).toEqual([false, null, []]);
+    expect(Date.parse(paused.updated_at)).toBeGreaterThan(Date.parse(dto.updated_at));
+    const stale = await reject(
+      api.saveSchedule(dto.id, { enabled: true, expected_updated_at: dto.updated_at }),
+    );
+    expect([stale.status, stale.code]).toEqual([409, 'conflict']);
+    const resumed = await api.saveSchedule(dto.id, { enabled: true });
+    expect(resumed.next_run_at).toBe('2026-10-23T02:00:00.000Z');
+  });
+
+  it('run now: refused while the last run is open, forced, a queued card with the schedule', async () => {
+    const api = createMockApi({ now });
+    const refused = await reject(api.runScheduleNow(SCHEDULE_IDS.prSweep));
+    expect([refused.status, refused.code]).toEqual([409, 'previous_run_open']);
+    const res = await api.runScheduleNow(SCHEDULE_IDS.prSweep, { force: true });
+    expect(res.schedule.last_ticket).toEqual({ id: res.ticket_id, status: 'ready' });
+    const card = (await api.getBoard()).columns
+      .flatMap((c) => c.cards)
+      .find((c) => c.ticket_id === res.ticket_id);
+    expect(card).toMatchObject({
+      title: 'Sweep open PRs 2026-10-22 08:00',
+      schedule: { id: SCHEDULE_IDS.prSweep, name: 'PR sweep' },
+    });
+    // The new run is queued (open), so a second one is refused again.
+    expect((await reject(api.runScheduleNow(SCHEDULE_IDS.prSweep))).code).toBe('previous_run_open');
+  });
+
+  it('delete: gone, then 404', async () => {
+    const api = createMockApi({ now });
+    expect(await api.deleteSchedule(SCHEDULE_IDS.weekly)).toEqual({ ok: true });
+    expect((await reject(api.deleteSchedule(SCHEDULE_IDS.weekly))).status).toBe(404);
+    expect((await api.listSchedules()).schedules).toHaveLength(2);
   });
 });

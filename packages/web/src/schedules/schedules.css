@@ -1,0 +1,189 @@
+/* ADR-0032 / UXR-83: the Schedules page (the Repo checks page's look) and its sheet. */
+
+.schedules {
+  padding: 16px;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sc-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+.schedules h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.sc-note {
+  margin: 0;
+}
+/* 11-web-ui: tables scroll inside their own box, never the page. */
+.sc-scroll {
+  display: block;
+  overflow-x: auto;
+  position: relative;
+}
+.sc-table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.sc-table th,
+.sc-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.sc-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.sc-table tr.sc-paused td:not(.sc-actions) {
+  color: var(--muted);
+}
+button.sc-name {
+  font-weight: 600;
+  font-size: inherit;
+  padding: 0;
+  text-align: left;
+}
+.sc-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 12px;
+}
+.sc-repo {
+  color: var(--muted);
+}
+.sc-warning,
+.sc-skipped {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.sc-skipped {
+  color: var(--warn);
+}
+.sc-actions {
+  white-space: nowrap;
+}
+.sc-actions > * + * {
+  margin-left: 6px;
+}
+.sc-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sc-note-row td {
+  background: var(--bg);
+}
+.sc-note-row p {
+  margin: 0;
+}
+
+.schedule-form .sc-hint {
+  display: block;
+  font-size: 12px;
+  font-weight: normal;
+}
+.sc-when,
+.sc-machines {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sc-when-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+.sc-when-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sc-cron input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-width: 14em;
+}
+.sc-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sc-days button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.sc-preview {
+  margin: 0;
+}
+.schedule-form .sc-repo-cell {
+  grid-column: 1 / span 2;
+}
+.schedule-form .sc-machines label,
+.schedule-form .sc-enabled {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-weight: normal;
+}
+.schedule-form .sc-machines input[type='checkbox'],
+.schedule-form .sc-enabled input[type='checkbox'] {
+  min-height: 0;
+  width: auto;
+}
+
+/* 11-web-ui §Breakpoint: on a phone each schedule is a stacked card, labelled cell by cell. */
+@media (max-width: 699.98px) {
+  .sc-table {
+    min-width: 0;
+  }
+  .sc-table thead {
+    display: none;
+  }
+  .sc-table,
+  .sc-table tbody,
+  .sc-table tr,
+  .sc-table td {
+    display: block;
+  }
+  .sc-table tr {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 0;
+  }
+  .sc-table td {
+    border-bottom: 0;
+    padding: 4px 12px;
+  }
+  .sc-table td[data-label]:not([data-label='Name'])::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .sc-actions {
+    white-space: normal;
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .sc-actions > * + * {
+    margin-left: 0;
+  }
+}

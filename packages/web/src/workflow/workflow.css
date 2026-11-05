@@ -200,6 +200,57 @@
   padding: 12px 16px;
   align-items: start;
 }
+/* UXR-69 FR-1: the save bar, under everything (the editor panels too), stuck to the bottom. */
+/* A short page still puts the bar on the window's bottom edge. */
+.wf-view:has(> .wf-savebar) {
+  min-height: calc(100vh - var(--topbar-h, 49px));
+  min-height: calc(100dvh - var(--topbar-h, 49px));
+}
+.wf-savebar {
+  grid-column: 1 / -1;
+  align-self: end;
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 -16px -12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 0.06);
+}
+.wf-savebar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.wf-problems-toggle {
+  color: var(--ask);
+  border-color: var(--ask);
+}
+.wf-problems-popover {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 16px;
+  max-width: min(640px, calc(100% - 32px));
+  max-height: 50vh;
+  overflow: auto;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.15);
+}
+.wf-version-warning {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+p.wf-version-warning {
+  padding: 6px 10px;
+  border: 1px solid var(--warn);
+}
 .wf-view.with-editor {
   grid-template-columns: minmax(0, 1fr) 380px;
 }
@@ -304,8 +355,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: calc(100vh - 90px);
-  max-height: calc(100dvh - 90px);
+  /* The save bar's height (SaveBar sets it while a draft exists) stays clear. */
+  max-height: calc(100vh - 90px - var(--wf-savebar-h, 0px));
+  max-height: calc(100dvh - 90px - var(--wf-savebar-h, 0px));
   overflow: auto;
 }
 .wf-editor h3 {
@@ -394,17 +446,44 @@ main[hidden] {
   display: none;
 }
 
-.wf-confirm {
+/* UXR-69 FR-3: the unsaved-draft guard, a modal dialog over the page. */
+.wf-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, #000 40%, transparent);
+}
+.wf-modal {
+  width: min(420px, 100%);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.25);
+}
+.wf-modal h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.wf-modal p {
+  margin: 0 0 14px;
+}
+.wf-modal-actions {
   display: flex;
-  align-items: center;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 8px 16px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--warn);
-  border-radius: 6px;
-  background: var(--warn-bg);
-  color: var(--warn);
+}
+.wf-modal .primary,
+.wf-savebar .wf-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
 }
 
 /* The transition whose requirements review is running (session Details). */
@@ -903,6 +982,65 @@ main[hidden] {
 @media (min-width: 1100px) {
   .wf-view.with-editor.with-transition {
     grid-template-columns: minmax(0, 1fr) clamp(560px, 42vw, 640px);
+  }
+}
+
+/* UXR-44 / 11-web-ui §Phone layout: below the phone breakpoint the column, arrow and transition
+   editors open full-screen, like the ticket panel, with a 44 px Back instead of ×. The page
+   stays laid out (and inert) under them, so its scroll position survives. */
+@media (max-width: 699.98px) {
+  .wf-view.with-editor,
+  .wf-view.with-editor.with-transition {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wf-editor.full-screen {
+    position: fixed;
+    top: var(--vvt, 0);
+    left: 0;
+    right: 0;
+    z-index: var(--z-sheet);
+    width: auto;
+    min-width: 0;
+    height: var(--vvh, 100dvh);
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    padding: calc(var(--space-1) + env(safe-area-inset-top))
+      max(var(--space-3), env(safe-area-inset-right))
+      calc(var(--space-4) + env(safe-area-inset-bottom))
+      max(var(--space-3), env(safe-area-inset-left));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .wf-editor.full-screen .wf-editor-head {
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .wf-editor.full-screen .wf-editor-head h3 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .wf-editor.full-screen .wf-back {
+    flex: none;
+    display: grid;
+    place-items: center;
+    min-width: var(--tap);
+    min-height: var(--tap);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+  }
+  .wf-editor.full-screen .wf-crumbs {
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .wf-editor.full-screen :is(input, select, textarea) {
+    max-width: 100%;
+  }
+  .wf-editor.full-screen :is(code, .mono) {
+    overflow-wrap: anywhere;
   }
 }
 

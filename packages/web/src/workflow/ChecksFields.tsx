@@ -1,5 +1,14 @@
 import type { EntryCheck } from '@conductor/shared';
-import { Fragment, useId, useState, type ReactNode } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FocusEvent,
+  type ReactNode,
+} from 'react';
 
 // A check list and the setup before it: a transition's `requires.checks` (TransitionEditor) and a
 // repo's check override (ADR-0030, the Repo checks page). Every change goes to `onChange`; the
@@ -37,6 +46,39 @@ export interface ChecksFieldsProps extends ChecksValue {
   issues: readonly ChecksIssue[];
   /** The setup field's label. */
   setupLabel?: string;
+  /** UXR-71: a check was added at `index` (its problems wait until it loses focus). */
+  onAdded?: (index: number) => void;
+  /** Focus left check `index` (its fields and buttons). */
+  onItemBlur?: (index: number) => void;
+  /** A check was moved or removed (the indexes shifted). */
+  onReordered?: () => void;
+}
+
+/** Focus moved out of the element the handler is on, to somewhere outside it. */
+export const leftItem = (e: FocusEvent<HTMLElement>) =>
+  !(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget));
+
+/**
+ * Focus the first `selector` field of a just-added item: put `list` on the list, `data-item={i}`
+ * on each item, and call `focusNew(i)` when adding item i.
+ */
+export function useFocusNew<T extends HTMLElement>(selector: string) {
+  const list = useRef<T>(null);
+  const pending = useRef<number | null>(null);
+  // After every render: the item asked for has rendered by the commit that follows the add.
+  useEffect(() => {
+    if (pending.current === null) return;
+    const field = list.current?.querySelector<HTMLElement>(
+      `[data-item="${pending.current}"] ${selector}`,
+    );
+    if (!field) return;
+    pending.current = null;
+    field.focus();
+  });
+  const focusNew = useCallback((index: number) => {
+    pending.current = index;
+  }, []);
+  return { list, focusNew };
 }
 
 export function ChecksFields({
@@ -45,8 +87,12 @@ export function ChecksFields({
   onChange,
   issues,
   setupLabel = 'Setup: runs first, in a fresh checkout of the commit',
+  onAdded,
+  onItemBlur,
+  onReordered,
 }: ChecksFieldsProps) {
   const uid = useId();
+  const { list, focusNew } = useFocusNew<HTMLTableSectionElement>('input');
   /** The user picked "Custom command" (its text may still be empty, which reads as none). */
   const [customSetup, setCustomSetup] = useState(false);
   const issueAt = (suffix: string): ReactNode =>
@@ -114,7 +160,7 @@ export function ChecksFields({
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody ref={list}>
               {checks.map((c, i) => {
                 // A row's problems span the row under it (each names its column, FR-5).
                 const problems = ['name', 'cmd', 'timeout'].flatMap((f) =>
@@ -122,7 +168,12 @@ export function ChecksFields({
                 );
                 return (
                   <Fragment key={i}>
-                    <tr>
+                    <tr
+                      data-item={i}
+                      onBlur={(e) => {
+                        if (leftItem(e)) onItemBlur?.(i);
+                      }}
+                    >
                       <td>
                         <input
                           aria-label={`Check ${i + 1} name`}
@@ -161,8 +212,14 @@ export function ChecksFields({
                           what="check"
                           i={i}
                           n={checks.length}
-                          onMove={(j) => setChecks(swap(checks, i, j))}
-                          onRemove={() => setChecks(checks.filter((_, j) => j !== i))}
+                          onMove={(j) => {
+                            onReordered?.();
+                            setChecks(swap(checks, i, j));
+                          }}
+                          onRemove={() => {
+                            onReordered?.();
+                            setChecks(checks.filter((_, j) => j !== i));
+                          }}
                         />
                       </td>
                     </tr>
@@ -187,7 +244,11 @@ export function ChecksFields({
         <button
           type="button"
           disabled={checks.length >= MAX_CHECKS}
-          onClick={() => setChecks([...checks, { name: '', cmd: '' }])}
+          onClick={() => {
+            onAdded?.(checks.length);
+            setChecks([...checks, { name: '', cmd: '' }]);
+            focusNew(checks.length);
+          }}
         >
           Add check
         </button>

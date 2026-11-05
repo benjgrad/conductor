@@ -6,21 +6,30 @@ The web app (`packages/web`) has one desktop layout and, below a phone breakpoin
 
 `packages/web/src/styles.css :root` holds every token. Colours follow `prefers-color-scheme` (a dark block re-sets them), so components never need their own dark rules.
 
+Every stylesheet uses the tokens (UXR-22, UXR-57). `pnpm lint` runs `scripts/lint-css.js` first, which rejects, outside `:root`:
+- a raw `font-size` length (px, rem, pt). Use `var(--text-*)`; `inherit`, `em` and `%` are fine;
+- a `padding*`/`margin*` px value other than `0`, `1px` or `2px`. Use `var(--space-*)` (or `var(--tap)`), with `calc(-1 * …)` for a negative margin;
+- a hex colour anywhere. Add a colour token instead.
+
+Custom properties (`--tone: …`) are exempt. A real exception goes in `scripts/lint-css.allow.json` with its reason. An entry that no longer matches anything fails the lint.
+
 | Group | Tokens | Values |
 |---|---|---|
-| Spacing | `--space-1` … `--space-6` | 4 / 8 / 12 / 16 / 24 / 32 px |
-| Type | `--text-xs/sm/base/md/lg/xl` | 11 / 12 / 14 / 15 / 18 / 20 px |
+| Spacing | `--space-1` … `--space-8` | 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 px |
+| Type | `--text-xs/sm/base/md/lg/xl` | 11 / 12 / 13 / 14 / 16 / 20 px: badges and chips xs (never smaller), meta lines sm, body base, card titles and section headings md at 600, page and sheet titles lg, hero headings xl |
 | Radius | `--radius-sm/md/lg/pill` | 4 / 6 / 10 / 999 px |
 | Shadow | `--shadow-1` (floating pill), `--shadow-2` (menus) | |
+| Card edge | `--card-edge` (UXR-24): `--border-strong` mixed 55% into `--border` | about 2.0:1 on `--panel` light, 2.2:1 dark (`--border` alone is 1.3:1) |
 | Layers | `--z-sticky` 5, `--z-menu` 20, `--z-sheet` 40 | |
 | Touch | `--tap` | 44 px (WCAG 2.5.5) |
-| Colour | `--bg --panel --text --muted --border --border-strong --accent --on-accent` and the status pairs (`--warn`/`--warn-bg`, `--ask`/`--ask-bg`, `--ok`/`--ok-bg`, `--accent`/`--accent-bg`, `--perm`/`--perm-bg`, `--diff-*`, `--user-*`, `--tool`, `--code-*`) | |
+| Colour | `--bg --panel --text --muted --border --border-strong --accent --on-accent --accent-bg`, the semantic pairs ([§Colour semantics](#colour-semantics)), `--perm`/`--perm-bg` (an alias of the attention pair), `--diff-*`, `--user-*`, `--tool`, `--code-*` | |
 
 Contrast rules:
-- `--muted` text meets AA (4.5:1) on `--bg` and on `--ask-bg`.
+- `--muted` text meets AA (4.5:1) on `--bg` and on every semantic `-bg`.
 - Text on an `--accent` fill uses `--on-accent`: white in light mode, `--bg` in dark mode, where white on the lighter accent is only 2.65:1.
 - Field edges use `--border-strong` (about 3:1, WCAG 1.4.11). `--border` is for dividers and cards.
 - Each request kind's text on its own `-bg` meets AA (§Requests).
+- `packages/web/src/tokens.test.ts` checks these ratios for both schemes, so a token change that breaks AA fails the tests.
 
 Focus (UXR-56, UXR-58, UXR-72):
 - `styles.css` draws one global `:focus-visible` ring (`2px solid var(--accent)`, offset 2px). A component may restyle it but never remove it. Where a field turns its own outline off, its wrapper draws an equivalent edge instead (the composer box, the rich ticket editor). The phone create-ticket sheet is a focused container, not a control, so it draws no ring.
@@ -29,21 +38,33 @@ Focus (UXR-56, UXR-58, UXR-72):
 
 Workflow diagram (UXR-45, UXR-68):
 - The columns diagram fits the width of its box by default (all six columns show at 1440 px). The Fit / − / + bar above it zooms, and the box scrolls when zoomed.
-- A column's kind is its border colour and icon: agent (accent, ✦), person (ask, ●), waiting (warn, ◷), queue (muted, ≡), end (ok, ■). The legend lists them. Column boxes are never dashed: dashed means only an arrow for "requirements not met".
+- A column's kind is its border colour and icon: agent (accent, ✦), person (attention, ●), waiting (warn, ◷), queue (muted, ≡), end (ok, ■). The legend lists them. Column boxes are never dashed: dashed means only an arrow for "requirements not met".
 - Arrows are labelled with transition titles (an event with its title, e.g. "Approved"), or "N ways" when several transitions share an arrow. A ✓ marks an arrow where some transition has rules. Labels sit on a solid background and slide along their line to a spot no other line crosses.
 
-Only the rules this design touched use the spacing, type and radius tokens so far. Moving the rest of the CSS onto them is a follow-up.
+## Colour semantics
+
+One meaning per colour (UXR-23). Each meaning has its own pair: the colour for text, icons and edges, and a `-bg` for its boxes and badges.
+
+| Meaning | Tokens | Used for | Never for | Contrast light / dark (on its `-bg`, on `--panel`) |
+|---|---|---|---|---|
+| A person is needed | `--attention` / `--attention-bg` (violet) | the Needs input column (title, tab, dot, the waiting pill and count), `needs_input` and permission status, permission requests, the workflow's person lanes and states | failures | 5.8, 6.7 / 7.5, 8.1 |
+| Failed or lost | `--danger` / `--danger-bg` (red) | failed or lost status, step-failed and `.git` alert badges, failure requests, form and workflow errors, a lost machine and its problems, destructive buttons | anything that is only waiting | 6.3, 7.4 / 6.9, 7.5 |
+| Degraded or waiting | `--warn` / `--warn-bg` (amber) | routing (queued, no machine can take it), a draining machine, an update available, unsaved edits, unmet requirements on an arrow | failures | 5.4, 5.9 / 8.4, 9.7 |
+| Information | `--info` / `--info-bg` (blue) | Question and plan-approval requests and badges, running status, proposals, conductor's own tool calls, notices | controls | 4.7, 5.3 / 5.4, 6.2 |
+| Done or passed | `--ok` / `--ok-bg` (green) | done status, ready-for-review requests, passed checks | | 4.7, 5.3 / 7.3, 8.4 |
+
+`--accent` is for controls only: primary buttons, links, selection, focus rings and active tabs. `--info` starts from the same blue, but the two are separate tokens so they can be told apart later. `--muted` is at least 4.5:1 on every `-bg` in both schemes. Diff colours (`--diff-*`) and the changed-in-a-version purple (`--tool`) are their own domains.
 
 ## Requests
 
-A request waiting on a human sits at the end of the chat in one frame, `RequestCard` (`components/RequestCard.tsx`, `.pending.request-<kind>` in `styles.css`). The kind sets the box colour (a `--tone-bg` box with a 4 px `--tone` bar) and a sentence-case chip that names it, so colour is never the only cue. There are no "Action needed" caps. **Red (`--ask`) is only for failures.** `requestTone` (`request-preview.ts`) picks the kind.
+A request waiting on a human sits at the end of the chat in one frame, `RequestCard` (`components/RequestCard.tsx`, `.pending.request-<kind>` in `styles.css`). The kind sets the box colour (a `--tone-bg` box with a 4 px `--tone` bar) and a sentence-case chip that names it, so colour is never the only cue. There are no "Action needed" caps. **Red (`--danger`) is only for failures.** `requestTone` (`request-preview.ts`) picks the kind.
 
 | Kind | Tokens | Chip | When | Text on its bg (light / dark) |
 |---|---|---|---|---|
-| Question | `--accent` / `--accent-bg` | Question, Plan to approve, Budget exceeded… | an agent's question, a plan approval, any other decision | 4.7 / 5.4 |
+| Question | `--info` / `--info-bg` | Question, Plan to approve, Budget exceeded… | an agent's question, a plan approval, any other decision | 4.7 / 5.4 |
 | Ready for review | `--ok` / `--ok-bg` | Ready for review | a `*ready_for_review` move | 4.7 / 7.3 |
-| Permission | `--perm` / `--perm-bg` (violet) | Needs permission | a held tool call (ADR-0023) | 5.8 / 7.5 |
-| Failure | `--ask` / `--ask-bg` | Step failed, Retries exhausted, Timed out, Machine lost | `step_failed`, or a retries-exhausted, timeout or machine-lost request | 6.3 / 6.9 |
+| Permission | `--attention` / `--attention-bg` (violet; `--perm` is an alias) | Needs permission | a held tool call (ADR-0023) | 5.8 / 7.5 |
+| Failure | `--danger` / `--danger-bg` | Step failed, Retries exhausted, Timed out, Machine lost | `step_failed`, or a retries-exhausted, timeout or machine-lost request | 6.3 / 6.9 |
 
 `--muted` (the "Avery asks" after the chip) is 4.9–5.2:1 on every `-bg`. The chip itself is `--tone` on `--panel` (5.3–8.4:1). The board card's request badges use the same pairs.
 

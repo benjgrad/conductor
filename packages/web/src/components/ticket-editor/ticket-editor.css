@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .ticket-body-head {
@@ -15,8 +15,8 @@
 }
 .ticket-body-toggle,
 .ticket-hints-toggle {
-  font-size: 12px;
-  padding: 1px 8px;
+  font-size: var(--text-sm);
+  padding: 1px var(--space-2);
 }
 .ticket-body-toggle[aria-pressed='true'] {
   color: var(--accent);
@@ -30,25 +30,25 @@
   border-radius: 6px;
   background: var(--panel);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .ticket-body-plain {
   resize: vertical;
-  padding: 6px 8px;
+  padding: var(--space-2) var(--space-2);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .ticket-body-rich {
   overflow: auto;
   resize: vertical;
-  padding: 6px 0;
+  padding: var(--space-2) 0;
 }
 .ticket-body-rich .bn-editor {
-  padding-inline: 44px 12px;
+  padding-inline: var(--tap) var(--space-3);
 }
 /* Section headings at form scale, not document scale (BlockNote's ## is 2em). */
 .ticket-body-rich [data-content-type='heading'] {
   --level: 1.35em;
-  padding-top: 10px;
+  padding-top: var(--space-3);
 }
 .ticket-body-rich [data-content-type='heading'][data-level='2'] {
   --level: 1.2em;
@@ -80,8 +80,8 @@
 }
 
 .ticket-hints ul {
-  margin: 4px 0 0;
-  padding-left: 18px;
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
   color: var(--warn);
 }
 

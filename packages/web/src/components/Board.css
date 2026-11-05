@@ -8,13 +8,13 @@
   overflow: hidden;
   max-height: calc(3 * 18px);
   width: 100%;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   padding: 0;
   border: 0;
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-base);
   line-height: 18px;
   text-align: left;
   overflow-wrap: anywhere;
@@ -37,19 +37,19 @@
   font-weight: 600;
 }
 .badge-step-failed {
-  background: var(--ask-bg);
-  color: var(--ask);
+  background: var(--danger-bg);
+  color: var(--danger);
   font-weight: 600;
 }
 
 .card .card-pr-link {
   display: inline-block;
-  margin-top: 6px;
-  padding: 2px 8px;
+  margin-top: var(--space-1);
+  padding: 2px var(--space-2);
   border-radius: 4px;
   background: var(--accent);
   color: var(--on-accent);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   text-decoration: none;
 }
@@ -63,15 +63,15 @@
   color: var(--warn);
 }
 .badge-alert {
-  background: var(--ask-bg);
-  color: var(--ask);
+  background: var(--danger-bg);
+  color: var(--danger);
   font-weight: 600;
 }
 .card-alert-files {
   margin: 2px 0 0;
-  padding-left: 18px;
-  font-size: 12px;
-  color: var(--ask);
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--danger);
 }
 
 /* ADR-0023: "Needs permission" (card and panel): the agent is held on a tool call. */
@@ -84,9 +84,9 @@
 
 /* 06 §Plan approval: the "Plan to approve" badge (card and panel) and its primary button. */
 .badge-plan-approval {
-  background: var(--user-bg);
-  color: var(--accent);
-  border: 1px solid var(--user-border);
+  background: var(--info-bg);
+  color: var(--info);
+  border: 1px solid color-mix(in srgb, var(--info) 30%, transparent);
   font-weight: 600;
 }
 button.plan-approve {
@@ -148,7 +148,7 @@ button.plan-approve {
   height: 100%;
   min-height: 200px;
   justify-content: flex-start;
-  padding: 8px 0;
+  padding: var(--space-2) 0;
   writing-mode: vertical-rl;
 }
 .column.collapsed .column-chevron {
@@ -160,7 +160,7 @@ button.plan-approve {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--ask);
+  background: var(--attention);
 }
 
 /* UXR-32 (11-web-ui §Waiting on you): Needs input notes the cards waiting for a permission. */
@@ -169,17 +169,17 @@ button.plan-approve {
   width: 100%;
   margin: 0 0 var(--space-2);
   padding: var(--space-1) var(--space-2);
-  border: 1px dashed var(--ask);
+  border: 1px dashed var(--attention);
   border-radius: var(--radius-pill);
-  background: var(--ask-bg);
-  color: var(--ask);
+  background: var(--attention-bg);
+  color: var(--attention);
   font-size: var(--text-sm);
   font-weight: 600;
   text-align: center;
 }
 .count-waiting {
   margin-left: var(--space-1);
-  color: var(--ask);
+  color: var(--attention);
   font-weight: 600;
 }
 .column.collapsed .count-waiting {
@@ -228,12 +228,12 @@ button.plan-approve {
   color: var(--accent);
 }
 .column-tab-needs_input {
-  color: var(--ask);
+  color: var(--attention);
 }
 .column-tab-needs_input.active {
-  border-color: var(--ask);
-  background: var(--ask-bg);
-  color: var(--ask);
+  border-color: var(--attention);
+  background: var(--attention-bg);
+  color: var(--attention);
 }
 .board-mobile .column {
   min-height: 0;

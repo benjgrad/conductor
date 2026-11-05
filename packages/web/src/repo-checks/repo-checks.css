@@ -1,23 +1,24 @@
 /* ADR-0030: the Repo checks page. Two panes (UXR-76): the repos, then the selected repo's editor. */
 
 .repo-checks {
-  padding: 16px;
-  max-width: 1200px;
+  padding: var(--space-4);
+  max-width: 1100px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 .repo-checks h2 {
-  font-size: 18px;
+  font-size: var(--text-lg);
   margin: 0;
 }
 .repo-checks h3,
 .repo-checks h4 {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
 }
 .repo-checks .mono,
 .repo-checks code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-sm);
 }
 .rc-note {
   margin: 0;
@@ -171,7 +172,7 @@
 .rc-table td {
   text-align: left;
   vertical-align: top;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 .rc-table th {
@@ -191,7 +192,7 @@
 }
 .rc-checks {
   margin: 0;
-  padding-left: 16px;
+  padding-left: var(--space-4);
 }
 
 /* FR-5: Discard and Save stay in reach while the list scrolls. */
@@ -212,6 +213,13 @@
 }
 .rc-footer-gap {
   flex: 1;
+}
+.rc-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
 }
 .rc-hint {
   font-size: 12px;

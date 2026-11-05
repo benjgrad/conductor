@@ -1,21 +1,21 @@
 /* UX-2: the brief (BriefCard.tsx), in the Brief sheet (TicketStrip.tsx). */
 .brief-tally-line {
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 .brief-tally-line:empty {
   display: none;
 }
 .brief-tally {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .brief-tally-warn {
   color: var(--warn);
   font-weight: 600;
 }
 .brief-section h4 {
-  margin: 8px 0 4px;
-  font-size: 12px;
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -39,30 +39,30 @@
 }
 .brief-id {
   flex: none;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .brief-how {
   display: block;
-  margin-left: 22px;
-  font-size: 12px;
+  margin-left: var(--space-5);
+  font-size: var(--text-sm);
 }
 .brief-warnings {
-  margin: 8px 0 0;
-  font-size: 12px;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
 }
 .brief-actions {
   display: flex;
   gap: 4px;
-  margin: 8px 0 0 -8px;
+  margin: var(--space-2) 0 0 calc(-1 * var(--space-2));
 }
 .brief-ticket {
-  margin-top: 4px;
-  padding: 6px 10px;
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
   border-left: 3px solid var(--border);
 }
 .brief-prompt {
-  margin: 4px 0 0;
-  padding: 8px 10px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2) var(--space-3);
   max-height: 30vh;
   overflow: auto;
   white-space: pre-wrap;
@@ -70,8 +70,8 @@
   border-radius: 6px;
   background: var(--code-bg);
   color: var(--code-text);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .brief-unavailable {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
 }

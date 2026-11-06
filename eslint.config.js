@@ -41,6 +41,26 @@ export default tseslint.config(
     rules: reactHooks.configs.recommended.rules,
   },
   {
+    // The deploy image's build context has no docs/ (.dockerignore) and its `pnpm build` typechecks
+    // tests too, so a static import from docs/ breaks the deploy (2026-11-06: #207, #214, #215).
+    // Read docs/ files at run time instead: readFileSync(join(import.meta.dirname, '…/docs/…')).
+    files: ['packages/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '(^|/)docs/',
+              message:
+                'docs/ is not in the deploy image; read it at run time with readFileSync instead of importing it.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Root-level config files and executable JS test fixtures (e.g. the fake `claude` binary)
     // are not part of any tsconfig project.
     files: ['*.js', '*.ts', 'packages/*/test/fixtures/**/*.mjs'],

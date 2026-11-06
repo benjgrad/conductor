@@ -4,7 +4,6 @@ import {
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
-import V7_DRAFT from '../../../../docs/design/workflows/conductor.v7.draft.json';
 import {
   addBase,
   baseNameProblem,
@@ -17,6 +16,17 @@ import {
   setBaseMode,
 } from './bases.js';
 import { validateColumns } from './columns.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+// Read at run time, not imported: the deploy image has no docs/ (.dockerignore) and its
+// `tsc -b` typechecks tests, so a static import of a docs/ file breaks `pnpm build`.
+const V7_DRAFT: unknown = JSON.parse(
+  readFileSync(
+    join(import.meta.dirname, '../../../../docs/design/workflows/conductor.v7.draft.json'),
+    'utf8',
+  ),
+);
 
 // ADR-0039 (B3): the Bases section's pure edits and problems, on the v7 draft.
 

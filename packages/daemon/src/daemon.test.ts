@@ -1,6 +1,14 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -936,6 +944,18 @@ describe('daemon core: command_id dedupe and seq', () => {
 });
 
 describe('daemon core: run_cmd and kill', () => {
+  /**
+   * One commit on the session branch: a branch with none ahead of origin's default has nothing
+   * to check, and its entry checks are not run.
+   */
+  const commitAhead = (wt: string) => {
+    writeFileSync(join(wt, 'work.txt'), 'work\n');
+    execFileSync('git', ['add', '.'], { cwd: wt });
+    execFileSync('git', ['-c', 'user.email=t@x', '-c', 'user.name=t', 'commit', '-qm', 'work'], {
+      cwd: wt,
+    });
+  };
+
   it('runs a command through the injected CommandRunner and reports build_slot + cmd_exit', async () => {
     const runner = new FakeCommandRunner(1).script('npm test', { exitCode: 1, output: 'FAIL\n' });
     const driver = new FakeClaudeDriver(complete({}));
@@ -1010,6 +1030,7 @@ describe('daemon core: run_cmd and kill', () => {
     orch.send(startSession(sid, {}, 3));
     await orch.until(() => orch.events('exit')[0]);
     const wt = orch.eventData('started')[0]!.worktree_path;
+    commitAhead(wt);
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim();
     const check = (command: string, sha: string | null, last: boolean) =>
       orch.send(
@@ -1049,6 +1070,7 @@ describe('daemon core: run_cmd and kill', () => {
     const sid = randomUUID();
     orch.send(startSession(sid, {}, 3));
     await orch.until(() => orch.events('exit')[0]);
+    commitAhead(orch.eventData('started')[0]!.worktree_path);
     orch.send(
       cmdMsg(sid, {
         command_id: randomUUID(),
@@ -1083,6 +1105,7 @@ describe('daemon core: run_cmd and kill', () => {
     orch.send(startSession(sid, {}, 3));
     await orch.until(() => orch.events('exit')[0]);
     const wt = orch.eventData('started')[0]!.worktree_path;
+    commitAhead(wt);
     const send = (command: string, sha: string | null) =>
       orch.send(
         cmdMsg(sid, {
@@ -1133,6 +1156,7 @@ describe('daemon core: run_cmd and kill', () => {
     const sid = randomUUID();
     orch.send(startSession(sid, {}, 3));
     await orch.until(() => orch.events('exit')[0]);
+    commitAhead(orch.eventData('started')[0]!.worktree_path);
     orch.send(
       cmdMsg(sid, {
         command_id: randomUUID(),
@@ -1152,6 +1176,41 @@ describe('daemon core: run_cmd and kill', () => {
     });
     expect(runner.calls.map((c) => c.cmd)).toEqual(['make deps']);
     expect(existsSync(runner.calls[0]!.cwd)).toBe(false);
+  });
+
+  it('a branch with no commits ahead of the default branch is not checked, and says so', async () => {
+    // 2026-11-06: a no-code spike's gate reported "killed by a signal" 5 min in. Now it is told
+    // up front: no fresh checkout, no setup, no command.
+    const runner = new FakeCommandRunner(1, true);
+    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid, {}, 3));
+    await orch.until(() => orch.events('exit')[0]);
+    const wt = orch.eventData('started')[0]!.worktree_path;
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim();
+    orch.send(
+      cmdMsg(sid, {
+        command_id: randomUUID(),
+        workflow_state: 'implementing → waiting_external (entry)',
+        cmd: 'sleep 600',
+        cwd: null,
+        timeout_ms: 1000,
+        require_clean: true,
+        checkout: { sha: null, setup: 'make deps', last: false },
+      }),
+    );
+    const exit = await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+    expect(exit).toMatchObject({
+      exit_code: null,
+      no_commits: true,
+      head_sha: head,
+      not_run: expect.stringContaining('has no commits ahead of origin/') as unknown,
+      output_tail: expect.stringContaining('nothing to check') as unknown,
+    });
+    expect(runner.calls).toEqual([]);
+    const priv = join(tmp, 'root', 'private');
+    expect(existsSync(priv) ? readdirSync(priv) : []).toEqual([]);
   });
 
   it('ADR-0010: a require_clean check on a dirty worktree is not run; cmd_exit reports dirty', async () => {

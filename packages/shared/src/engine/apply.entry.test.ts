@@ -551,6 +551,52 @@ describe('checks run in a fresh checkout of one commit (Ben, 2026-10-26)', () =>
     expect(prompt).toContain('npm ERR! missing lockfile');
   });
 
+  it('a check that did not run is unmet with its reason, never "killed by a signal"', () => {
+    const h = checking();
+    const r = h.run({
+      type: 'command.exited',
+      command_id: h.newId(),
+      exit_code: null,
+      timed_out: false,
+      output_tail: 'could not read the session branch `b` (git fetch exit 128): no output',
+      head_sha: HEAD_SHA,
+      not_run: 'could not read the session branch `b` (git fetch exit 128): no output',
+    });
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      retry_counters: { [KEY]: 1 },
+    });
+    const prompt = find(r.effects, 'start_session')!.prompt;
+    expect(prompt).toContain('did not run: could not read the session branch `b`');
+    expect(prompt).not.toContain('killed by a signal');
+  });
+
+  it('a check killed without a not_run reason still says "killed by a signal" (older daemons)', () => {
+    const h = checking();
+    const r = h.cmdExit(null, 'boom', false, HEAD_SHA);
+    expect(find(r.effects, 'start_session')!.prompt).toContain('killed by a signal');
+  });
+
+  it('no commits ahead of the default branch goes straight to a human, no retry spent', () => {
+    const h = checking();
+    const r = h.run({
+      type: 'command.exited',
+      command_id: h.newId(),
+      exit_code: null,
+      timed_out: false,
+      output_tail: '',
+      head_sha: HEAD_SHA,
+      not_run: 'the session branch `b` has no commits ahead of origin/main (it is at x)',
+      no_commits: true,
+    });
+    expect(r.snapshot.workflow_state).toBe('needs_input');
+    expect(r.snapshot.retry_counters[KEY]).toBeUndefined();
+    expect(find(r.effects, 'run_cmd')).toBeUndefined();
+    const q = find(r.effects, 'create_input_request')!.question;
+    expect(q).toContain('has no commits ahead of origin/main');
+    expect(q).toContain('nothing to check or to open a pull request for');
+  });
+
   it('the implicit pin check of a check-less entry runs no checkout', () => {
     const h = implementing(
       conductorWith((raw) => {

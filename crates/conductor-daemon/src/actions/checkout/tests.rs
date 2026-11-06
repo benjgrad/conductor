@@ -61,6 +61,7 @@ impl Fx {
             branch: BRANCH.into(),
             sha: sha.into(),
             env: None,
+            timeout: None,
         })
         .await
     }
@@ -154,6 +155,104 @@ async fn refuses_when_the_tip_is_not_the_commit_reporting_the_tip() {
         std::fs::read_dir(f.root.join("private")).unwrap().count(),
         0
     );
+}
+
+// ---------------------------------------------------------------- 2026-11-06: the fetch
+
+fn run(code: Option<i32>, stderr: &str) -> Run {
+    Run {
+        code,
+        stdout: String::new(),
+        stderr: stderr.into(),
+        spawn_error: None,
+    }
+}
+
+#[test]
+fn fetch_failure_names_a_timeout_and_never_shows_an_empty_tail() {
+    let hour = Duration::from_secs(3600);
+    // The incident: a `--quiet` fetch killed at its limit wrote nothing.
+    let t = fetch_failure(BRANCH, &run(None, ""), hour, hour);
+    assert!(t.contains("timed out after 1h"), "{t}");
+    assert!(t.contains(&format!("`{BRANCH}`")), "{t}");
+    assert!(!t.ends_with(": "), "{t}");
+    let e = fetch_failure(BRANCH, &run(Some(128), "  "), Duration::ZERO, hour);
+    assert_eq!(
+        e,
+        format!("could not read the session branch `{BRANCH}` (git fetch exit 128): no output")
+    );
+    let k = fetch_failure(BRANCH, &run(None, ""), Duration::from_secs(1), hour);
+    assert!(k.contains("git fetch killed): no output"), "{k}");
+    let g = fetch_failure(BRANCH, &run(Some(1), "fatal: nope\n"), Duration::ZERO, hour);
+    assert!(g.ends_with("(git fetch exit 1): fatal: nope"), "{g}");
+}
+
+#[test]
+fn durations_read_in_the_largest_whole_unit() {
+    assert_eq!(format_duration(Duration::from_secs(3600)), "1h");
+    assert_eq!(format_duration(Duration::from_secs(1800)), "30m");
+    assert_eq!(format_duration(Duration::from_secs(90)), "90s");
+    assert_eq!(format_duration(Duration::from_millis(5)), "5ms");
+    // The fetch never gets less than 30 minutes, even for a short check.
+    let m = |n: u64| Duration::from_secs(60 * n);
+    assert_eq!(fetch_budget(None), m(30));
+    assert_eq!(fetch_budget(Some(m(1))), m(30));
+    assert_eq!(fetch_budget(Some(m(60))), m(60));
+}
+
+#[tokio::test]
+async fn a_fetch_over_its_budget_reports_the_timeout() {
+    // Real git: the fetch's timeout is what is under test. 1 ms is always too short.
+    let f = Fx::new();
+    let r = fresh_checkout(&FreshCheckoutInput {
+        root: f.root.clone(),
+        worktree: f.worktree.clone(),
+        branch: BRANCH.into(),
+        sha: f.head.clone(),
+        env: None,
+        timeout: Some(Duration::from_millis(1)),
+    })
+    .await;
+    match r {
+        FreshCheckout::Err { error, head } => {
+            assert!(error.contains("timed out after 1ms"), "{error}");
+            assert_eq!(head, None);
+        }
+        ok => panic!("{ok:?}"),
+    }
+    assert_eq!(
+        std::fs::read_dir(f.root.join("private")).unwrap().count(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn no_commits_ahead_only_when_the_commit_is_on_origins_default_branch() {
+    // Real git: ancestry against `origin/HEAD` is git behaviour.
+    let f = Fx::new();
+    assert_eq!(no_commits_ahead(&f.worktree, &f.head, None).await, None);
+    let spike = f.tmp.join("spike");
+    git(
+        &f.clone,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "conductor/spike",
+            &ps(&spike),
+            "origin/main",
+        ],
+    );
+    let base = git(&spike, &["rev-parse", "HEAD"]).trim().to_string();
+    assert_eq!(
+        no_commits_ahead(&spike, &base, None).await.as_deref(),
+        Some("origin/main")
+    );
+    assert_eq!(no_commits_ahead(&spike, "not-a-sha", None).await, None);
+    // Unknown default branch: never block, the checks run.
+    git(&f.clone, &["remote", "set-head", "origin", "--delete"]);
+    assert_eq!(no_commits_ahead(&spike, &base, None).await, None);
 }
 
 #[tokio::test]

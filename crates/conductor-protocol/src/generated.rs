@@ -987,12 +987,66 @@ pub struct CmdExitEventData {
         with = "crate::wire::double_option"
     )]
     pub head_sha: ::std::option::Option<::std::option::Option<::std::string::String>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub no_commits: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_run: ::std::option::Option<CmdExitEventDataNotRun>,
     pub output_tail: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub setup_failed: ::std::option::Option<bool>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub signal: ::std::option::Option<::std::string::String>,
     pub timed_out: bool,
+}
+///`CmdExitEventDataNotRun`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CmdExitEventDataNotRun(::std::string::String);
+impl ::std::ops::Deref for CmdExitEventDataNotRun {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CmdExitEventDataNotRun> for ::std::string::String {
+    fn from(value: CmdExitEventDataNotRun) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CmdExitEventDataNotRun {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CmdExitEventDataNotRun {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for CmdExitEventDataNotRun {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CmdExitEventDataNotRun {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`CommandAckPayload`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]

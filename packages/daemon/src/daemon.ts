@@ -51,9 +51,11 @@ import {
 } from './inventory/report.js';
 import {
   detectSetup,
+  fetchBudget,
   freshCheckout,
   managedCommand,
   missingManager,
+  noCommitsAhead,
   removeCheckout,
   sweepPrivate,
 } from './actions/checkout.js';
@@ -1146,6 +1148,9 @@ export class Daemon {
     let headSha: string | null = null;
     let dirty: string[] | null = null;
     let setupFailed = false;
+    // The command did not run, and why (`cmd_exit.not_run`); no commits ahead (`no_commits`).
+    let notRunReason: string | null = null;
+    let noCommits = false;
     const exec = (command: string, at: string) =>
       runner.run({
         commandId: p.command_id,
@@ -1164,7 +1169,8 @@ export class Daemon {
         onWaitingForSlot: (waiting) =>
           this.emit(sid, token, { kind: 'build_slot', data: { waiting } }),
       });
-    const notRun = (text: string) => {
+    const notRun = (text: string, why: string | null = text) => {
+      notRunReason = why;
       this.sendOutput(sid, token, 'stderr', `conductor: ${text}\n`);
       return { exitCode: null, signal: null, timedOut: false, durationMs: 0, outputTail: text };
     };
@@ -1174,7 +1180,10 @@ export class Daemon {
         headSha = c.head;
         dirty = c.dirty;
         if (c.dirty !== null) {
-          return notRun(`uncommitted changes, not running \`${p.cmd}\`:\n${c.dirty.join('\n')}`);
+          return notRun(
+            `uncommitted changes, not running \`${p.cmd}\`:\n${c.dirty.join('\n')}`,
+            null,
+          );
         }
       } else {
         headSha = await resolveHead(s.worktreePath);
@@ -1189,6 +1198,17 @@ export class Daemon {
         );
       }
       headSha = want;
+      // Nothing to check when the branch adds no commits to origin's default branch (a no-code
+      // spike): say so up front, before a fresh checkout and setup. Once per gate: a held
+      // checkout means an earlier check of this gate already got past it.
+      if (this.checkouts.get(sid)?.sha !== want) {
+        const base = await noCommitsAhead(s.worktreePath, want);
+        if (base !== null) {
+          const why = `the session branch \`${s.branch}\` has no commits ahead of ${base} (it is at ${want})`;
+          noCommits = true;
+          return notRun(`${why}, so there is nothing to check`, why);
+        }
+      }
       let ok = false;
       // The checkout this run uses: its `finally` only ever removes this one, never a newer
       // visit's checkout for the same session.
@@ -1206,6 +1226,8 @@ export class Daemon {
             branch: s.branch,
             sha: want,
             signal: abort.signal,
+            // The fetch of a large repo takes minutes: the check's own budget.
+            timeoutMs: fetchBudget(p.timeout_ms),
           });
           if (!fresh.ok) {
             if (fresh.head !== null) headSha = fresh.head;
@@ -1220,7 +1242,7 @@ export class Daemon {
             const missing = missingManager(setup);
             if (missing !== null) {
               setupFailed = true;
-              return notRun(missing);
+              return notRun(missing, null);
             }
             this.sendOutput(
               sid,
@@ -1284,6 +1306,8 @@ export class Daemon {
             head_sha: headSha,
             ...(dirty !== null ? { dirty } : {}),
             ...(setupFailed ? { setup_failed: true } : {}),
+            ...(notRunReason !== null ? { not_run: notRunReason } : {}),
+            ...(noCommits ? { no_commits: true } : {}),
           },
         });
       })

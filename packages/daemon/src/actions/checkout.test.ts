@@ -17,9 +17,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   detectPackageManager,
   detectSetup,
+  fetchBudget,
+  fetchFailure,
+  formatDuration,
   freshCheckout,
   managedCommand,
   missingManager,
+  noCommitsAhead,
   removeCheckout,
   sweepPrivate,
 } from './checkout.js';
@@ -129,6 +133,62 @@ describe('freshCheckout', () => {
       head: tip,
     });
     expect(readdirSync(join(root, 'private'))).toEqual([]);
+  });
+
+  it('names a fetch timeout and never shows an empty tail (2026-11-06)', () => {
+    const hour = 3_600_000;
+    const run = (code: number | null, stderr: string) => ({
+      code,
+      stdout: '',
+      stderr,
+      spawnError: null,
+    });
+    // The incident: a `--quiet` fetch killed at its limit wrote nothing.
+    const t = fetchFailure(BRANCH, run(null, ''), hour, hour);
+    expect(t).toContain('timed out after 1h');
+    expect(t).toContain(`\`${BRANCH}\``);
+    expect(t.endsWith(': ')).toBe(false);
+    expect(fetchFailure(BRANCH, run(128, '  '), 0, hour)).toBe(
+      `could not read the session branch \`${BRANCH}\` (git fetch exit 128): no output`,
+    );
+    expect(fetchFailure(BRANCH, run(null, ''), 1000, hour)).toContain(
+      'git fetch killed): no output',
+    );
+    expect(fetchFailure(BRANCH, run(1, 'fatal: nope\n'), 0, hour)).toMatch(
+      /\(git fetch exit 1\): fatal: nope$/,
+    );
+    expect([3_600_000, 1_800_000, 90_000, 5].map(formatDuration)).toEqual([
+      '1h',
+      '30m',
+      '90s',
+      '5ms',
+    ]);
+    // The fetch never gets less than 30 minutes, even for a short check.
+    expect([null, 60_000, 3_600_000].map(fetchBudget)).toEqual([1_800_000, 1_800_000, 3_600_000]);
+  });
+
+  it('a fetch over its budget reports the timeout, leaving nothing', async () => {
+    // Real git: the fetch's timeout is what is under test. 1 ms is always too short.
+    const r = await freshCheckout({ root, worktree, branch: BRANCH, sha: head, timeoutMs: 1 });
+    expect(r).toEqual({
+      ok: false,
+      error: expect.stringContaining('timed out after 1ms') as unknown,
+      head: null,
+    });
+    expect(readdirSync(join(root, 'private'))).toEqual([]);
+  });
+
+  it("no commits ahead only when the commit is on origin's default branch", async () => {
+    // Real git: ancestry against `origin/HEAD` is git behaviour.
+    expect(await noCommitsAhead(worktree, head)).toBeNull();
+    const spike = join(tmp, 'spike');
+    git(clone, 'worktree', 'add', '--quiet', '-b', 'conductor/spike', spike, 'origin/main');
+    const base = git(spike, 'rev-parse', 'HEAD').trim();
+    expect(await noCommitsAhead(spike, base)).toBe('origin/main');
+    expect(await noCommitsAhead(spike, 'not-a-sha')).toBeNull();
+    // Unknown default branch: never block, the checks run.
+    git(clone, 'remote', 'set-head', 'origin', '--delete');
+    expect(await noCommitsAhead(spike, base)).toBeNull();
   });
 
   it('setup: configured, "" = none, else auto-detect (lockfile → npm ci, package.json → npm install)', async () => {

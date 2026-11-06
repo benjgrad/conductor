@@ -6,6 +6,7 @@ import {
 } from '@conductor/shared';
 import {
   detectSetup,
+  fetchBudget,
   freshCheckout,
   managedCommand,
   missingManager,
@@ -76,7 +77,8 @@ export class CmdConditionRunner {
    * worktree's HEAD).
    */
   async run(c: CmdCondition, sha: string | null): Promise<ConditionResult> {
-    const dir = await this.prepare(sha);
+    const timeout = c.timeout ?? DEFAULT_CHECK_TIMEOUT;
+    const dir = await this.prepare(sha, parseDuration(timeout));
     if (dir === null) return pending(this.broken ?? 'no checkout');
     if (c.needs !== 'checkout') {
       if (this.setupFailed !== null) return pending(this.setupFailed);
@@ -92,7 +94,6 @@ export class CmdConditionRunner {
     const cmd = managedCommand(dir, c.cmd);
     const missing = missingManager(cmd, this.ctx.path);
     if (missing !== null) return pending(missing);
-    const timeout = c.timeout ?? DEFAULT_CHECK_TIMEOUT;
     const r = await this.ctx.exec(cmd, dir, parseDuration(timeout));
     if (r.timedOut) {
       return {
@@ -118,7 +119,7 @@ export class CmdConditionRunner {
     this.dir = null;
   }
 
-  private async prepare(sha: string | null): Promise<string | null> {
+  private async prepare(sha: string | null, timeoutMs: number): Promise<string | null> {
     if (this.dir !== null) return this.dir;
     if (this.broken !== null) return null;
     const wt = this.ctx.worktree;
@@ -137,6 +138,7 @@ export class CmdConditionRunner {
       worktree: wt.path,
       branch: wt.branch,
       sha: want,
+      timeoutMs: fetchBudget(timeoutMs),
       ...(this.ctx.env ? { env: this.ctx.env } : {}),
       ...(this.ctx.signal ? { signal: this.ctx.signal } : {}),
     });

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { assertOwnerOnly, isOnPath } from '../platform/index.js';
-import { NO_HOOKS, privateDir, run, tail } from './open-pr.js';
+import { NO_HOOKS, privateDir, run, tail, type Run } from './open-pr.js';
 
 // ADR-0010 (Ben, 2026-10-26): entry checks run in a fresh, conductor-owned checkout of the exact
 // commit, never in the agent's worktree. The checkout is an ephemeral repo under
@@ -14,6 +14,9 @@ import { NO_HOOKS, privateDir, run, tail } from './open-pr.js';
 // The checks are the agent's own code (`npm test`), so they can still do anything the daemon's
 // user can (U-004); what is gone is checking a working tree that differs from the pushed commit,
 // and running filters / attributes config the agent planted in the shared clone.
+// The fetch copies the branch's whole history into an empty repo, which takes minutes on a large
+// repo, so it (and the checkout) runs under the check's own timeout, not `run`'s 5 minutes:
+// 2026-11-06, a 60m check died 5 min in with an empty "could not read the session branch: ".
 
 export interface FreshCheckoutInput {
   root: string;
@@ -24,6 +27,63 @@ export interface FreshCheckoutInput {
   sha: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  /** The budget for the fetch and the checkout (the check's timeout); default FRESH_FETCH_TIMEOUT_MS. */
+  timeoutMs?: number;
+}
+
+/** The fetch / checkout budget when the check names none. */
+export const FRESH_FETCH_TIMEOUT_MS = 30 * 60_000;
+
+/**
+ * A check's fresh-checkout budget: its own timeout, never less than FRESH_FETCH_TIMEOUT_MS (a
+ * 1-minute lint still needs the clone of a large repo first).
+ */
+export const fetchBudget = (checkMs: number | null | undefined): number =>
+  Math.max(checkMs ?? 0, FRESH_FETCH_TIMEOUT_MS);
+
+/** `90s`, `5m`, `2h`: the largest whole unit (the workflow's own duration style). */
+export function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s === 0) return `${ms}ms`;
+  if (s % 3600 === 0) return `${s / 3600}h`;
+  if (s % 60 === 0) return `${s / 60}m`;
+  return `${s}s`;
+}
+
+/**
+ * Why fetching the session branch failed, for a human: never an empty tail (the fetch is
+ * `--quiet`, so a killed one wrote nothing), and a timeout says so.
+ */
+export function fetchFailure(branch: string, r: Run, elapsedMs: number, limitMs: number): string {
+  if (r.spawnError !== null) {
+    return `could not run git to read the session branch \`${branch}\`: ${r.spawnError.message}`;
+  }
+  if (r.code === null && elapsedMs >= limitMs) {
+    return `could not read the session branch \`${branch}\`: fetching it into a fresh checkout timed out after ${formatDuration(limitMs)} (a large repository can take that long; raise the check's timeout)`;
+  }
+  const why = r.code === null ? 'killed' : `exit ${r.code}`;
+  const out = tail(r.stderr) || 'no output';
+  return `could not read the session branch \`${branch}\` (git fetch ${why}): ${out}`;
+}
+
+/**
+ * 2026-11-06: `"origin/<default>"` when `sha` is already on origin's default branch, i.e. the
+ * session branch has no commits ahead of it, so there is nothing to check. null: it has commits
+ * ahead, or that can't be told (no `origin/HEAD`): then the checks run as usual. Reads the agent's
+ * worktree like `resolveHead` does: refs only (no index, no filters), hooks off.
+ */
+export async function noCommitsAhead(
+  worktree: string,
+  sha: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string | null> {
+  if (!SHA_RE.test(sha)) return null;
+  const git = (args: string[]) => run('git', [...NO_HOOKS, ...args], worktree, { env });
+  const head = await git(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+  const base = head.stdout.trim();
+  if (head.code !== 0 || base === '') return null;
+  const anc = await git(['merge-base', '--is-ancestor', sha, 'refs/remotes/origin/HEAD']);
+  return anc.code === 0 ? base : null;
 }
 
 export type FreshCheckout =
@@ -48,11 +108,17 @@ export async function freshCheckout(i: FreshCheckoutInput): Promise<FreshCheckou
     return { ok: false, error, head };
   };
   try {
-    const git = (args: string[]) => run('git', [...NO_HOOKS, ...args], dir, i);
+    const opts = { ...(i.env ? { env: i.env } : {}), ...(i.signal ? { signal: i.signal } : {}) };
+    const git = (args: string[]) => run('git', [...NO_HOOKS, ...args], dir, opts);
+    const limitMs = i.timeoutMs ?? FRESH_FETCH_TIMEOUT_MS;
+    // The fetch and the checkout: `run`'s hardening, with the check's budget.
+    const slowGit = (args: string[]) =>
+      run('git', [...NO_HOOKS, ...args], dir, { ...opts, timeoutMs: limitMs });
     const init = await git(['init', '--quiet', dir]);
     if (init.code !== 0) return fail(`git init failed: ${tail(init.stderr)}`);
     const ref = `refs/heads/${i.branch}`;
-    const fetch = await git([
+    const started = Date.now();
+    const fetch = await slowGit([
       '-c',
       'protocol.allow=never',
       '-c',
@@ -65,13 +131,13 @@ export async function freshCheckout(i: FreshCheckoutInput): Promise<FreshCheckou
       i.worktree,
       `+${ref}:${ref}`,
     ]);
-    if (fetch.code !== 0) return fail(`could not read the session branch: ${tail(fetch.stderr)}`);
+    if (fetch.code !== 0) return fail(fetchFailure(i.branch, fetch, Date.now() - started, limitMs));
     const tip = (await git(['rev-parse', '--verify', `${ref}^{commit}`])).stdout.trim();
     if (!SHA_RE.test(tip)) return fail(`the session branch ${i.branch} has no commit`);
     if (tip !== i.sha) {
       return fail(`the branch moved: the checks are for ${i.sha}, the branch is at ${tip}`, tip);
     }
-    const co = await git([
+    const co = await slowGit([
       '-c',
       'advice.detachedHead=false',
       'checkout',

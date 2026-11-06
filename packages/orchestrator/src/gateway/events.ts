@@ -50,6 +50,8 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         ...(p.data.head_sha !== undefined ? { head_sha: p.data.head_sha } : {}),
         ...(p.data.dirty !== undefined ? { dirty: p.data.dirty } : {}),
         ...(p.data.setup_failed !== undefined ? { setup_failed: p.data.setup_failed } : {}),
+        ...(p.data.not_run !== undefined ? { not_run: p.data.not_run } : {}),
+        ...(p.data.no_commits !== undefined ? { no_commits: p.data.no_commits } : {}),
       };
     case 'spend':
       return {

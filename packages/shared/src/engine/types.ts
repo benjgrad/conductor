@@ -422,6 +422,10 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     dirty: z.array(z.string()).optional(),
     /** ADR-0010: the fresh checkout's setup command failed (the check did not run). */
     setup_failed: z.boolean().optional(),
+    /** The check did not run, and why; `exit_code` is null but nothing was killed. */
+    not_run: z.string().optional(),
+    /** The session branch has no commits ahead of origin's default branch (the check did not run). */
+    no_commits: z.boolean().optional(),
   }),
   /**
    * D `spend`: cumulative per claude_session_id (ADR-0005). apply adds only

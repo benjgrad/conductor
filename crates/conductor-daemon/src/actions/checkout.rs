@@ -6,8 +6,12 @@
 //! git's minimal config (hooks off, no repo-config filter drivers). The session branch is fetched
 //! in with the open_pr hardening, its tip must equal the commit to check, and that commit is
 //! checked out detached. M2-T30: the setup and the npm-style checks follow the repo's lockfile.
+//!
+//! The fetch copies the branch's whole history into an empty repo, which takes minutes on a large
+//! repo, so it (and the checkout) runs under the check's own timeout, not `exec::run`'s 5 minutes:
+//! 2026-11-06, a 60m check died 5 min in with an empty "could not read the session branch: ".
 
-use crate::exec::{self, Env, no_hooks, private_dir, sv, tail600};
+use crate::exec::{self, Env, Run, no_hooks, private_dir, sv, tail600};
 use crate::platform::{self, acl};
 use regress::Regex;
 use std::path::{Path, PathBuf};
@@ -22,6 +26,96 @@ pub struct FreshCheckoutInput {
     /// The commit to check.
     pub sha: String,
     pub env: Option<Env>,
+    /// The budget for the fetch and the checkout (the check's timeout); None: [`FRESH_FETCH_TIMEOUT`].
+    pub timeout: Option<Duration>,
+}
+
+/// The fetch / checkout budget when the check names none.
+pub const FRESH_FETCH_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+/// A check's fresh-checkout budget: its own timeout, never less than [`FRESH_FETCH_TIMEOUT`] (a
+/// 1-minute lint still needs the clone of a large repo first).
+pub fn fetch_budget(check: Option<Duration>) -> Duration {
+    check.map_or(FRESH_FETCH_TIMEOUT, |c| c.max(FRESH_FETCH_TIMEOUT))
+}
+
+/// `90s`, `5m`, `2h`: the largest whole unit (the workflow's own duration style).
+pub fn format_duration(d: Duration) -> String {
+    let s = d.as_secs();
+    if s == 0 {
+        format!("{}ms", d.as_millis())
+    } else if s.is_multiple_of(3600) {
+        format!("{}h", s / 3600)
+    } else if s.is_multiple_of(60) {
+        format!("{}m", s / 60)
+    } else {
+        format!("{s}s")
+    }
+}
+
+/// Why fetching the session branch failed, for a human: never an empty tail (the fetch is
+/// `--quiet`, so a killed one wrote nothing), and a timeout says so.
+pub fn fetch_failure(branch: &str, r: &Run, elapsed: Duration, limit: Duration) -> String {
+    if let Some(e) = &r.spawn_error {
+        return format!(
+            "could not run git to read the session branch `{branch}`: {}",
+            e.message
+        );
+    }
+    match r.code {
+        None if elapsed >= limit => format!(
+            "could not read the session branch `{branch}`: fetching it into a fresh checkout timed out after {} (a large repository can take that long; raise the check's timeout)",
+            format_duration(limit)
+        ),
+        code => {
+            let why = code.map_or_else(|| "killed".to_string(), |c| format!("exit {c}"));
+            let out = tail600(&r.stderr);
+            let out = if out.is_empty() {
+                "no output".to_string()
+            } else {
+                out
+            };
+            format!("could not read the session branch `{branch}` (git fetch {why}): {out}")
+        }
+    }
+}
+
+/// FR (2026-11-06): `Some("origin/<default>")` when `sha` is already on origin's default branch,
+/// i.e. the session branch has no commits ahead of it, so there is nothing to check. None: it has
+/// commits ahead, or that can't be told (no `origin/HEAD`): then the checks run as usual. Reads the
+/// agent's worktree like `resolve_head` does: refs only (no index, no filters), hooks off.
+pub async fn no_commits_ahead(
+    worktree: &Path,
+    sha: &str,
+    env: Option<&[(String, String)]>,
+) -> Option<String> {
+    if !exec::is_sha(sha) {
+        return None;
+    }
+    let git = |args: &[&str]| {
+        let mut a = no_hooks();
+        a.extend(sv(args));
+        async move { exec::run("git", &a, worktree, env).await }
+    };
+    let head = git(&[
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "refs/remotes/origin/HEAD",
+    ])
+    .await;
+    let base = head.stdout.trim().to_string();
+    if head.code != Some(0) || base.is_empty() {
+        return None;
+    }
+    let anc = git(&[
+        "merge-base",
+        "--is-ancestor",
+        sha,
+        "refs/remotes/origin/HEAD",
+    ])
+    .await;
+    (anc.code == Some(0)).then_some(base)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +158,28 @@ pub async fn fresh_checkout(i: &FreshCheckoutInput) -> FreshCheckout {
         let env = i.env.clone();
         async move { exec::run("git", &a, &dir, env.as_deref()).await }
     };
+    let limit = i.timeout.unwrap_or(FRESH_FETCH_TIMEOUT);
+    // The fetch and the checkout: `exec::run`'s hardening, with the check's budget.
+    let slow_git = |args: Vec<String>| {
+        let mut a = no_hooks();
+        a.extend(args);
+        let dir = dir.clone();
+        let base = match &i.env {
+            Some(e) => e.clone(),
+            None => platform::spawn::process_env(),
+        };
+        async move {
+            exec::run_raw(
+                "git",
+                &a,
+                &dir,
+                exec::clean_env(&base),
+                exec::RUN_MAX_BUFFER,
+                limit,
+            )
+            .await
+        }
+    };
     let d = dir.to_string_lossy().into_owned();
     let init = git(sv(&["init", "--quiet", &d])).await;
     if init.code != Some(0) {
@@ -71,7 +187,8 @@ pub async fn fresh_checkout(i: &FreshCheckoutInput) -> FreshCheckout {
     }
     let r#ref = format!("refs/heads/{}", i.branch);
     let wt = i.worktree.to_string_lossy().into_owned();
-    let fetch = git(sv(&[
+    let started = std::time::Instant::now();
+    let fetch = slow_git(sv(&[
         "-c",
         "protocol.allow=never",
         "-c",
@@ -87,10 +204,7 @@ pub async fn fresh_checkout(i: &FreshCheckoutInput) -> FreshCheckout {
     .await;
     if fetch.code != Some(0) {
         return fail(
-            format!(
-                "could not read the session branch: {}",
-                tail600(&fetch.stderr)
-            ),
+            fetch_failure(&i.branch, &fetch, started.elapsed(), limit),
             None,
         );
     }
@@ -116,7 +230,7 @@ pub async fn fresh_checkout(i: &FreshCheckoutInput) -> FreshCheckout {
             Some(tip),
         );
     }
-    let co = git(sv(&[
+    let co = slow_git(sv(&[
         "-c",
         "advice.detachedHead=false",
         "checkout",

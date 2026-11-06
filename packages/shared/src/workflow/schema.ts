@@ -378,7 +378,7 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * ADR-0037: the workflow primitives that parse but are refused "not available yet" (rule 14)
  * until their ticket marks them available here. Conditions `cmd` / `pr_mergeable` / `age_below`
  * are gated by AVAILABLE_CONDITION_TYPES instead.
- * - `watch` (P1, T6): a state's `watch`;
+ * - `watch` (P1, T6, available): a state's `watch`;
  * - `no_checks` (P3, T5, available): `pr_checks_green.no_checks`;
  * - `concurrency` (P4, T7): `requires.concurrency`;
  * - `instructions` (P5, T8): the `instructions` map, `$instructions.<slug>` refs and `presets`;
@@ -396,6 +396,7 @@ export const WORKFLOW_FEATURES = [
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
 export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
+  'watch',
   'no_checks',
   'instructions',
   'notify_policy',
@@ -750,7 +751,7 @@ export const MIN_WATCH_POLL = '30s';
  * ADR-0037 P1: conditions a human or event state keeps checking while a ticket sits in it, in
  * order, stopping at the first that is not met. A `failed` one takes `on_broken`: a counted
  * system move to `goto` (then `else`, a human state), or one escalation per stay. Rule 19;
- * refused until T6 (rule 14).
+ * available since T6 (engine: apply.ts §watch).
  */
 export const WatchSchema = z.strictObject({
   poll: DurationSchema.optional(),

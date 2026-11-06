@@ -107,6 +107,8 @@ export interface FakePrState {
   approvals?: number;
   /** The PR's one CI check. Default 'green'. */
   checks?: 'green' | 'pending' | 'red';
+  /** ADR-0037 P2: GitHub's `mergeable` (`pr_mergeable`, the watch). Default 'MERGEABLE'. */
+  mergeable?: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
 }
 
 /**
@@ -159,6 +161,8 @@ if (argv[0] === 'pr' && argv[1] === 'view' && /^https:/.test(argv[2])) {
       status: checks === 'pending' ? 'IN_PROGRESS' : 'COMPLETED',
       conclusion: checks === 'green' ? 'SUCCESS' : checks === 'red' ? 'FAILURE' : null }],
     reviews,
+    mergeable: st.mergeable || 'MERGEABLE',
+    mergeStateStatus: st.mergeable === 'CONFLICTING' ? 'DIRTY' : st.mergeable === 'UNKNOWN' ? 'UNKNOWN' : 'CLEAN',
   }));
   process.exit(0);
 }

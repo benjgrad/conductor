@@ -277,6 +277,8 @@ export interface SessionRow {
   state_entered_at: Date;
   /** When the current state's timeout fires (timeout sweep, T04); null = none. */
   state_deadline: Date | null;
+  /** ADR-0037 P1 (T6): when the current state's `watch` checks next (watch sweep); null = none. */
+  watch_deadline: Date | null;
   /** Card badge (not a status), set from session_event `build_slot`. */
   waiting_for_build_slot: boolean;
   created_at: Date;

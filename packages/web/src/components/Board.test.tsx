@@ -764,6 +764,39 @@ describe('board card schedule chip (ADR-0032)', () => {
   });
 });
 
+describe('board card watch line (ADR-0037 P1)', () => {
+  it('shows each watched condition with its last answer, and a note when there is one', () => {
+    renderCards([
+      card(
+        1,
+        {},
+        {
+          watching: {
+            state: 'needs_input',
+            conditions: [
+              {
+                type: 'pr_mergeable',
+                label: 'Merges cleanly',
+                status: 'met',
+                value: 'MERGEABLE',
+                detail: null,
+                checked_at: '2026-11-06T12:00:00.000Z',
+              },
+            ],
+            note: 'waiting for a machine to check conditions',
+            last_checked_at: '2026-11-06T12:00:00.000Z',
+            next_check_at: '2026-11-06T12:02:00.000Z',
+          },
+        },
+      ),
+      card(2, {}),
+    ]);
+    expect(article('Card 1').getByText(/Watching: Merges cleanly ✓ · next check/)).toBeTruthy();
+    expect(article('Card 1').getByText(/waiting for a machine/)).toBeTruthy();
+    expect(article('Card 2').queryByText(/Watching:/)).toBeNull();
+  });
+});
+
 describe('permission prompts count as waiting on you (UXR-32)', () => {
   const needsInput = () => screen.getByRole('region', { name: 'Needs input' });
   const count = () => needsInput().querySelector('h2 .count')!.textContent;

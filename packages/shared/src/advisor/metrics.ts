@@ -253,6 +253,40 @@ export interface LoopCounts {
    * tickets with any. Sorted by the larger of the two, most first.
    */
   tickets: { ticket_id: string; state: string; extra_visits: number; qa_fail: number }[];
+  /**
+   * ADR-0037 P1: per ticket and watched state, how often its watch sent the ticket back
+   * (`watch_broken`). These laps, and the ticket's return to the watched state after each, are a
+   * re-sync loop, not rework: they are not in `reentries` or `tickets`. Most first.
+   */
+  resyncs: { ticket_id: string; state: string; count: number }[];
+}
+
+/**
+ * ADR-0037 P1: the moves of re-sync laps: each `watch_broken` move, and the ticket's next return
+ * to the watched state (in time order; the queries return newest first). `resyncs` counts the
+ * `watch_broken` moves per `ticket \0 watched state`.
+ */
+function resyncLaps(moves: readonly MoveRow[]): {
+  resyncs: Map<string, number>;
+  laps: Set<MoveRow>;
+} {
+  const resyncs = new Map<string, number>();
+  const laps = new Set<MoveRow>();
+  const awaitingReturn = new Map<string, string>();
+  const time = (m: MoveRow) => Date.parse(m.at) || 0;
+  for (const m of [...moves].sort((a, b) => time(a) - time(b))) {
+    if (m.cause === 'watch_broken' && m.from !== null) {
+      const watched = stateKey(m.from);
+      const k = `${m.ticket_id}\u0000${watched}`;
+      resyncs.set(k, (resyncs.get(k) ?? 0) + 1);
+      awaitingReturn.set(m.ticket_id, watched);
+      laps.add(m);
+    } else if (m.visit >= 2 && awaitingReturn.get(m.ticket_id) === stateKey(m.to)) {
+      awaitingReturn.delete(m.ticket_id);
+      laps.add(m);
+    }
+  }
+  return { resyncs, laps };
 }
 
 /** Rework: states entered again, transitions taken, and the tickets that went round. */
@@ -265,8 +299,10 @@ export function loopCounts(moves: readonly MoveRow[]): LoopCounts {
     string,
     LoopKey & { count: number; tickets: Set<string>; examples: string[] }
   >();
+  const { resyncs, laps } = resyncLaps(moves);
   for (const m of moves) {
     const cause = m.cause ?? null;
+    const resync = laps.has(m);
     if (isNamedMove({ transition: m.transition, actor: m.actor ?? null, cause })) {
       tr.set(m.transition!, (tr.get(m.transition!) ?? 0) + 1);
     }
@@ -293,7 +329,7 @@ export function loopCounts(moves: readonly MoveRow[]): LoopCounts {
     const to = stateKey(m.to);
     const t = bucket(tk, m.ticket_id, () => ({ state: to, extra_visits: 0, qa_fail: 0 }));
     if (m.transition === 'qa_fail') t.qa_fail++;
-    if (m.visit >= 2) {
+    if (m.visit >= 2 && !resync) {
       const r = bucket(re, to, () => ({ count: 0, tickets: new Set<string>(), examples: [] }));
       r.count++;
       r.tickets.add(m.ticket_id);
@@ -335,6 +371,12 @@ export function loopCounts(moves: readonly MoveRow[]): LoopCounts {
           a.transition.localeCompare(b.transition) ||
           a.cause.localeCompare(b.cause),
       ),
+    resyncs: [...resyncs.entries()]
+      .map(([k, count]) => {
+        const [ticket_id, state] = k.split('\u0000') as [string, string];
+        return { ticket_id, state, count };
+      })
+      .sort((a, b) => b.count - a.count || a.ticket_id.localeCompare(b.ticket_id)),
     tickets: [...tk.entries()]
       .filter(([, t]) => t.extra_visits > 0 || t.qa_fail > 0)
       .map(([ticket_id, t]) => ({ ticket_id, ...t }))
@@ -966,6 +1008,8 @@ export const FindingCategorySchema = z.enum([
   'permission_denials',
   'frequent_question',
   'rework_loop',
+  /** ADR-0037 P1: a watch keeps sending tickets back (`watch_broken` laps), e.g. merge conflicts. */
+  'resync_loop',
   /** P2: a friction the analyst sub-agents reported in many sessions (advisor/insight.ts). */
   'recurring_friction',
 ]);
@@ -1013,6 +1057,8 @@ export const FINDING_RULES = {
   questionMinTickets: 2,
   /** A ticket that took `qa_fail`, or re-entered one state, at least this many times. */
   reworkLoops: 2,
+  /** A ticket its watch sent back (`watch_broken`) at least this many times. */
+  resyncLoops: 2,
 } as const;
 
 const CATEGORY_ORDER: FindingCategory[] = FindingCategorySchema.options;
@@ -1171,6 +1217,28 @@ export function rankFindings(rows: AdvisorRows, extra: readonly Finding[] = []):
       suggestion:
         'Compare the results of each round (get_ticket_artifacts `results`): a requirement the ' +
         'agent keeps missing belongs in the prompt or the checks.',
+    });
+  }
+
+  // Re-sync loops (ADR-0037 P1): a watch keeps sending tickets back, not rework.
+  const byResyncState = new Map<string, { ticket_id: string; count: number }[]>();
+  for (const r of loopCounts(rows.moves).resyncs) {
+    if (r.count >= R.resyncLoops) bucket(byResyncState, r.state, () => []).push(r);
+  }
+  for (const [state, list] of byResyncState) {
+    const examples: string[] = [];
+    for (const r of list) addExample(examples, r.ticket_id);
+    out.push({
+      id: `resync_loop:${state}`,
+      category: 'resync_loop',
+      severity: list.length >= 3 ? 2 : 1,
+      title: `Tickets keep being sent back from ${state} to re-sync`,
+      evidence: `${list.length} ticket${list.length === 1 ? '' : 's'} broke ${state}’s watch ${R.resyncLoops}+ times (watch_broken).`,
+      example_ticket_ids: examples,
+      suggested_tool: 'save_workflow',
+      suggestion:
+        'Tickets waiting here go stale (e.g. their PRs conflict with later merges). Hold parallel ' +
+        'tickets that touch the same files (requires.concurrency) or keep PRs smaller, with save_workflow.',
     });
   }
 

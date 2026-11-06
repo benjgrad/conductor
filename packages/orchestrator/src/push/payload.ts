@@ -89,6 +89,30 @@ export function transitionPayload(p: {
   };
 }
 
+/**
+ * ADR-0037 P1 (T6): a watch's `notify: escalate` (e.g. a question unanswered for 2h). One per
+ * stay: the tag (and idempotency key) is `watch_escalate:<session>:<state>:<visit>`.
+ */
+export function watchEscalatePayload(p: {
+  ticketId: string;
+  ticketTitle: string;
+  stateTitle: string;
+  reason: string;
+  tag: string;
+}): PushNotification {
+  return {
+    title: clip(p.ticketTitle, PUSH_QUESTION_MAX),
+    body: clip(`Still waiting in ${p.stateTitle}: ${p.reason}`, PUSH_QUESTION_MAX),
+    url: `/#/?ticket=${p.ticketId}`,
+    tag: p.tag,
+  };
+}
+
+/** The `tag` of a watch escalation: once per session, state and visit (stay). */
+export function watchEscalateTag(sessionId: string, state: string, visit: number): string {
+  return `watch_escalate:${sessionId}:${state}:${visit}`;
+}
+
 /** The `tag` (and outbox idempotency key) of a transition notification. */
 export function transitionTag(eventId: number): string {
   return `transition:${eventId}`;

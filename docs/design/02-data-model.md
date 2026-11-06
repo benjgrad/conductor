@@ -186,6 +186,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | notified_transitions | text[] | [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P6 (`1763600000000_notify-policy`): the `once` transitions that already pushed on the ticket; a reopen copies it, so `once` is per ticket. Written by apply only under a workflow `notify` policy |
 | state_entered_at | timestamptz | when the current state was entered |
 | state_deadline | timestamptz null | when the current state's `timeout` fires; read by the timeout sweep (M1-T04) |
+| watch_deadline | timestamptz null | [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P1 (`1763800000000_session-watch-deadline`, T6): when the current human / event state's `watch` checks next; read by the same sweep (`watch.fired`), set to now by a merge or push on the repo (the nudge). Partial index where not null. The watch's checklist lives in `context.__watch` |
 | waiting_for_build_slot | bool | card badge, **not** a status ([10](10-contracts.md)); set from session_event `build_slot` |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, updated_at | | |
@@ -201,7 +202,7 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 |---|---|---|
 | id | uuid pk | |
 | session_id | fk | |
-| kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` · `machine_lost` (`MACHINE_LOST_KIND`: the session's machine was lost or revoked, [10](10-contracts.md#machines-protocol-v2); added by M2-T03) · `handoff` (a `handoff: true` transition handed finished work over for review; `question` is the agent's summary; [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P8, added by T3) · `check_config` (a gate's setup failed on the branch and on the base branch: conductor's check config; not counted; [05](05-workflow-engine.md#requirements-to-enter-a-column-adr-0010) "Setup failures", migration 1763800000000) |
+| kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` · `machine_lost` (`MACHINE_LOST_KIND`: the session's machine was lost or revoked, [10](10-contracts.md#machines-protocol-v2); added by M2-T03) · `handoff` (a `handoff: true` transition handed finished work over for review; `question` is the agent's summary; [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P8, added by T3) · `check_config` (a gate's setup failed on the branch and on the base branch: conductor's check config; not counted; [05](05-workflow-engine.md#requirements-to-enter-a-column-adr-0010) "Setup failures", migration 1763900000000) |
 | question | text | shown as the card badge |
 | return_to | text null | copy of `session.return_to` when created |
 | answer | text null | |
@@ -507,7 +508,7 @@ ADR-0033 P3 (MA-T05): a workflow advisor's proposed change. Migration `176260000
 | applied_version | int null | workflow: the version applying it saved |
 | error | text null | why it is `conflict` or `failed` |
 | review, reviewed_at | jsonb null, timestamptz null | the last `ProposalReview` |
-| ticket_id | uuid null fk ticket (ON DELETE SET NULL) | an agent's proposal (ask_user `proposed_checks`, [06](06-human-input.md#check-config-failures-and-agent-proposed-repo-checks)): the ticket it was proposed on; partial index `WHERE ticket_id IS NOT NULL`. Migration `1763800000001_change-proposal-ticket` |
+| ticket_id | uuid null fk ticket (ON DELETE SET NULL) | an agent's proposal (ask_user `proposed_checks`, [06](06-human-input.md#check-config-failures-and-agent-proposed-repo-checks)): the ticket it was proposed on; partial index `WHERE ticket_id IS NOT NULL`. Migration `1763900000001_change-proposal-ticket` |
 | input_request_id | uuid null fk input_request (ON DELETE SET NULL) | the question it came with: applying the proposal answers it |
 
 Down drops the table. An agent's proposal has `created_by` `agent:<ticket id, 8 chars>`.

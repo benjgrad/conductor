@@ -327,8 +327,9 @@ describe('rules 24 and 25: condition placement, no-CI policy', () => {
 });
 
 describe('rule 14: not available yet', () => {
-  it('T5, T3, T8 and T4: the new condition types, no_checks, handoff, instructions and the notify policy are available; nothing else yet', () => {
+  it('T5, T3, T8, T4 and T6: the new condition types, watch, no_checks, handoff, instructions and the notify policy are available; nothing else yet', () => {
     expect(AVAILABLE_WORKFLOW_FEATURES).toEqual([
+      'watch',
       'no_checks',
       'instructions',
       'notify_policy',
@@ -375,6 +376,24 @@ describe('rule 14: not available yet', () => {
       `14 ${PR}.requires.conditions.1`,
     ]);
     expect(validateWorkflow(d, { allowUnavailable: true }).ok).toBe(true);
+  });
+
+  it('a watch validates without allowUnavailable; refused while the feature is off', () => {
+    const d = structuredClone(LIVE_V5);
+    d.states.in_review!.watch = {
+      conditions: [{ type: 'pr_mergeable' }],
+      on_broken: { goto: 'implementing', return_to: '$self', retries: 3, else: 'needs_input' },
+    };
+    const res = validateWorkflow(d);
+    expect(res.ok ? [] : res.errors).toEqual([]);
+    expect(
+      checkAvailability(WorkflowDefinitionSchema.parse(d), {
+        tools: AVAILABLE_TOOL_ALIASES,
+        resultKinds: AVAILABLE_RESULT_KINDS,
+        conditions: CONDITION_TYPES,
+        features: [],
+      }).map((e) => `${e.rule} ${e.path.join('.')}`),
+    ).toEqual(['14 states.in_review.watch']);
   });
 
   it('a notify policy validates without allowUnavailable; refused while the feature is off', () => {

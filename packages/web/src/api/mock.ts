@@ -540,6 +540,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       kind: req.kind ?? null,
       size: req.size,
       pending: null,
+      watching: null,
       human_transitions: [],
       pr_url: null,
       machine_id: null,

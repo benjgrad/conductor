@@ -84,6 +84,7 @@ export const WatchSchema = z.strictObject({
     - **The move form** enters `goto` as a system move with `cause: 'watch_broken'` (P7) and the failed conditions as evidence. The move is counted under `watch:<state>`; when the count exceeds `retries` it goes to `else`.
     - The instruction goes to the agent the way `on_unmet.instruction` does.
     - `return_to: '$self'` sets `session.return_to` to the watched state, so the agent's next completion, through `$return_to` or a hand-off, comes back to it.
+      *As built (T6):* agent transitions can't name `$return_to` (rule 10), so the way back is the hand-off: the move also stores `context.__watch_return`, and the agent's next `handoff: true` transition lands in the watched state instead of its own `goto`, after its `requires`. The marker is cleared on any landing in a human or terminal state and by a human's move. The first check after entry is one poll later (entry only arms the timer).
   - **The escalate form** emits one notification with `via: 'watch_escalate'` per stay. The counter resets on re-entry.
   - Leaving the state disarms the watch. A watch never kills a running process, because human and event states have none.
 - **Where a `cmd` condition runs.** In the fresh, conductor-owned checkout of the PR head that `requires.checks` uses (ADR-0030). Never in the agent's worktree, which on a human state may belong to the next visit. Its `needs` field (P2) decides how much is prepared:

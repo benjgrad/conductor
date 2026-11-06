@@ -220,6 +220,26 @@ describe('loopCounts', () => {
     ).toEqual(['check_failed', 'unrecorded']);
   });
 
+  it('ADR-0037 P1: watch_broken laps are a re-sync loop, not rework', () => {
+    // implementing → in_review, then the watch sends it back twice; each time the agent returns.
+    const rows = walk('a', [
+      ['implementing', 0],
+      ['in_review', 10, 'pr_ready_for_review'],
+      ['implementing', 20],
+      ['in_review', 30, 'pr_ready_for_review'],
+      ['implementing', 40],
+      ['in_review', 50, 'pr_ready_for_review'],
+    ]).map((m, i) => (i === 2 || i === 4 ? { ...m, cause: 'watch_broken' as const } : m));
+    // The queries return newest first: the laps are found in time order anyway.
+    const res = loopCounts([...rows].reverse());
+    expect(res.resyncs).toEqual([{ ticket_id: 'a', state: 'in_review', count: 2 }]);
+    expect(res.reentries).toEqual([]);
+    expect(res.tickets).toEqual([]);
+    expect(rankFindings({ ...EMPTY, moves: rows }).map((f) => [f.id, f.category])).toEqual([
+      ['resync_loop:in_review', 'resync_loop'],
+    ]);
+  });
+
   it('lists no ticket that went straight through', () => {
     expect(
       loopCounts(

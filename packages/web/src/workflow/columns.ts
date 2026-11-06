@@ -11,6 +11,7 @@ import {
   type EntryRequirements,
   type FollowUps,
   type OnUnmet,
+  type Watch,
   type WorkflowDefinition,
   type WorkflowState,
 } from '@conductor/shared';
@@ -966,4 +967,25 @@ export function currentLane(
     return status === null || status === 'queued' || status === 'assigned' ? QUEUED_LANE : null;
   }
   return has(def, workflowState) ? workflowState : null;
+}
+
+/** ADR-0037 P1: a human or event column's `watch`, or null (none, or another column type). */
+export function watchOfColumn(def: WorkflowDefinition, name: string): Watch | null {
+  const s = def.states[name];
+  if (s === undefined || (s.type !== 'human' && s.type !== 'event')) return null;
+  return s.watch ?? null;
+}
+
+/** Set (or, for null, remove) a human or event column's `watch`. */
+export function setWatch(
+  def: WorkflowDefinition,
+  name: string,
+  watch: Watch | null,
+): WorkflowDefinition {
+  return updateState(def, name, (s) => {
+    if (s.type !== 'human' && s.type !== 'event') return s;
+    const next = { ...s };
+    delete next.watch;
+    return watch === null ? next : { ...next, watch };
+  });
 }

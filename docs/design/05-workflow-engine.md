@@ -337,6 +337,8 @@ Rules 19–25 are [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-pr
 
 `docs/design/workflows/conductor.v6.draft.json` passes `validateWorkflow(draft, {allowUnavailable: true})`; without it, only rule 14 refuses (`conductor.v6-draft.test.ts`).
 
+The live `conductor` workflow v6, saved on 2026-11-06 (ADR-0037 T9), is that draft without `requires.concurrency` (T7 not available yet, U-120 undecided): `docs/design/workflows/conductor.v6.json`, which passes `validateWorkflow` with no options (`conductor.v6.test.ts`). A v7 edit adds concurrency once both land.
+
 Rules 26–27 are [ADR-0039](../adr/0039-base-refs.md#validation-on-save-rules-2627)'s (base refs), in `validate-bases.ts` (`checkBases`, B1):
 - 26, `base_default` needs `bases`, and each of its values names a key of `bases` (`base_default.<kind>`). A ticket's or plan's base name is checked against the same map when it is set (`ticketBaseProblems`, `planBaseProblems`);
 - 27, `$base` / `$base_sha` in a check `cmd`, a `cmd` condition (`requires` or `watch`), an `instructions` text or a literal `on_unmet` / `on_broken` instruction needs the workflow's `bases`. A definition can't know a repo's default branch, so declaring `bases` (at least `{"default": {"ref": "$default_branch"}}`) is the opt-in.

@@ -7,7 +7,8 @@ import { validateWorkflow } from './validate.js';
 // ADR-0037 T1: docs/design/workflows/conductor.v6.draft.json is the definition the builder would
 // save once P1–P8 land. With the schema in, it parses as is and passes every rule but rule 14's
 // "not available yet" refusals (`allowUnavailable`). Each primitive's ticket shrinks the refusal
-// list below until it is empty (T9 saves the draft).
+// list below until it is empty. T9 saved v6 without `requires.concurrency`
+// (conductor.v6.json, conductor.v6.test.ts); the two refusals left are T7's.
 
 const read = (name: string): unknown =>
   JSON.parse(

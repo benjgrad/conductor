@@ -1,0 +1,386 @@
+{
+  "id": "conductor",
+  "version": 6,
+  "start": "planning",
+  "budget": {
+    "usd": 5,
+    "minutes": 240,
+    "max_loop_retries": 3
+  },
+  "on_budget_exceeded": "needs_input",
+  "columns": [
+    "planning",
+    "plan_review",
+    "implementing",
+    "in_review",
+    "needs_input",
+    "waiting_external",
+    "done"
+  ],
+  "instructions": {
+    "resync_main": "Another pull request merged into the default branch and this branch no longer merges cleanly. Run `git fetch origin && git merge origin/main`. Resolve every conflict by keeping both sides' changes (never drop rows or code that came from main). Rerun the targeted tests for the files you touched, confirm `git rev-list --count HEAD..origin/main` prints 0, commit the merge, then finish the step again.",
+    "fix_and_resubmit": "First merge the latest default branch into your branch. Then fix what is listed above, commit, and finish the step again. If a PR check failed, read its log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`). If the failing test is one this branch didn't touch: when it is listed in docs/tracking/FLAKY.md, rerun only the failed job once (`gh run rerun <run-id> --failed`); otherwise fix it in its own commit ('test: fix pre-existing failure in <test>') and say so in your summary."
+  },
+  "notify": {
+    "default": "once",
+    "engine_moves": "never",
+    "coalesce": "15m"
+  },
+  "states": {
+    "planning": {
+      "type": "agent",
+      "title": "Planning",
+      "prompt": "plan_template",
+      "tools": [
+        "read"
+      ],
+      "result": [
+        "plan",
+        "summary"
+      ],
+      "timeout": "60m",
+      "on": {
+        "timeout": "needs_input",
+        "ask_user": {
+          "goto": "needs_input",
+          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets.",
+          "notify": "every"
+        },
+        "impossible": {
+          "goto": "needs_input",
+          "title": "Impossible",
+          "when": "The work cannot be done as asked.",
+          "question": true,
+          "notify": "every"
+        },
+        "plan_ready": {
+          "goto": "implementing",
+          "title": "Plan ready",
+          "when": "The plan is complete and needs no decision from a human. Additive schema changes (new tables, columns or MCP tools) are routine: list them under a 'Schema changes' heading in the plan and take this transition."
+        },
+        "scope_changed": {
+          "goto": "needs_input",
+          "title": "Scope changed",
+          "when": "A finding changes what the ticket can deliver and the milestone spec doesn't settle it. If the ticket only bundles several tasks ('finish the remaining work'), don't ask: plan the first task and put the rest in proposed_tickets.",
+          "question": true,
+          "notify": "every"
+        },
+        "plan_needs_approval": {
+          "goto": "plan_review",
+          "title": "Plan needs approval",
+          "when": "Only when the plan reverses an accepted ADR, drops or rewrites existing data, adds an external service or spends money. Finish with the full plan in your result; your reason names the one decision and your recommendation.",
+          "question": true,
+          "notify": "every"
+        },
+        "needs_product_context": {
+          "goto": "needs_input",
+          "title": "Needs product context",
+          "when": "You need more product context to plan the work.",
+          "question": true,
+          "notify": "every"
+        }
+      }
+    },
+    "plan_review": {
+      "type": "human",
+      "title": "Plan review",
+      "on": {
+        "revise_plan": {
+          "goto": "$return_to",
+          "title": "Revise plan",
+          "actor": "human",
+          "text": "required"
+        },
+        "approve_plan": {
+          "goto": "implementing",
+          "title": "Approve plan",
+          "actor": "human",
+          "text": "optional"
+        }
+      }
+    },
+    "implementing": {
+      "type": "agent",
+      "title": "Implementing",
+      "prompt": "implement_template",
+      "tools": [
+        "edit",
+        "bash",
+        "git"
+      ],
+      "input": {
+        "plan": "$planning.plan"
+      },
+      "timeout": "2h",
+      "on": {
+        "timeout": "needs_input",
+        "ask_user": {
+          "goto": "needs_input",
+          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets.",
+          "notify": "every"
+        },
+        "ready_for_testing": {
+          "goto": "waiting_external",
+          "title": "Ready for testing",
+          "when": "The work is complete and should go to testing.",
+          "kinds": [
+            "work"
+          ],
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "review": {
+              "items": [
+                "The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository."
+              ]
+            },
+            "actions": [
+              "open_pr"
+            ],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks": {
+                  "policy": "require_mergeable",
+                  "after": "5m"
+                }
+              },
+              {
+                "type": "pr_approvals",
+                "min": 1
+              },
+              {
+                "type": "jira_fields_set",
+                "fields": [
+                  "resolution"
+                ],
+                "enabled": false
+              },
+              {
+                "type": "azure_pipeline_succeeded",
+                "pipeline": "ci",
+                "enabled": false
+              }
+            ],
+            "condition_timeout": "3d",
+            "condition_poll": "2m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "$instructions.fix_and_resubmit",
+            "retries": 3,
+            "else": "needs_input"
+          },
+          "notify": "once"
+        },
+        "pr_ready_for_review": {
+          "goto": "in_review",
+          "title": "PR ready for review",
+          "when": "The work is done and you want Ben to review the PR before it goes further. Start your summary (the PR description) with what changed in at most three bullets, what to look at first, and anything you couldn't verify, such as the Windows leg.",
+          "kinds": [
+            "work"
+          ],
+          "handoff": true,
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "review": {
+              "items": [
+                "The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository."
+              ]
+            },
+            "actions": [
+              "open_pr"
+            ],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks": {
+                  "policy": "require_mergeable",
+                  "after": "5m"
+                }
+              }
+            ],
+            "condition_timeout": "2h",
+            "condition_poll": "1m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "$instructions.fix_and_resubmit",
+            "retries": 3,
+            "else": "needs_input"
+          },
+          "notify": "once"
+        },
+        "needs_approval_to_message": {
+          "goto": "needs_input",
+          "title": "Approve a message",
+          "when": "You are about to message a person and need approval of the text first.",
+          "question": true,
+          "notify": "every"
+        },
+        "personal_pr_ready_for_review": {
+          "goto": "in_review",
+          "title": "PR ready for review",
+          "when": "The work is done and committed. Conductor opens the PR, waits for CI, and moves the ticket to In review for Ben. Start your summary (the PR description) with what changed in at most three bullets, what to look at first, and anything you couldn't verify, such as the Windows leg.",
+          "kinds": [
+            "personal"
+          ],
+          "handoff": true,
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "actions": [
+              "open_pr"
+            ],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks": {
+                  "policy": "require_mergeable",
+                  "after": "5m"
+                }
+              }
+            ],
+            "condition_timeout": "2h",
+            "condition_poll": "1m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "$instructions.fix_and_resubmit",
+            "retries": 3,
+            "else": "needs_input"
+          },
+          "notify": "once"
+        }
+      }
+    },
+    "in_review": {
+      "type": "human",
+      "title": "In review",
+      "on": {
+        "done": {
+          "goto": "done",
+          "title": "Merged, done",
+          "actor": "human"
+        },
+        "request_changes": {
+          "goto": "$return_to",
+          "title": "Request changes",
+          "actor": "human",
+          "text": "required",
+          "presets": [
+            "resync_main"
+          ]
+        },
+        "waiting_on_someone": {
+          "goto": "waiting_external",
+          "title": "Waiting on someone else",
+          "actor": "human"
+        }
+      },
+      "watch": {
+        "poll": "2m",
+        "conditions": [
+          {
+            "type": "pr_mergeable",
+            "label": "Merges cleanly with main (GitHub)"
+          }
+        ],
+        "on_broken": {
+          "goto": "implementing",
+          "instruction": "$instructions.resync_main",
+          "return_to": "$self",
+          "retries": 3,
+          "else": "needs_input"
+        }
+      }
+    },
+    "needs_input": {
+      "type": "human",
+      "title": "Needs input",
+      "on": {
+        "done": {
+          "goto": "done",
+          "title": "Done",
+          "actor": "human"
+        },
+        "answer": {
+          "goto": "$return_to",
+          "title": "Back with this answer",
+          "actor": "human"
+        },
+        "waiting_on_someone": {
+          "goto": "waiting_external",
+          "title": "Waiting on someone else",
+          "actor": "human"
+        }
+      },
+      "watch": {
+        "poll": "5m",
+        "conditions": [
+          {
+            "type": "age_below",
+            "max": "2h",
+            "label": "Answered within 2 hours"
+          }
+        ],
+        "on_broken": {
+          "notify": "escalate"
+        }
+      }
+    },
+    "waiting_external": {
+      "type": "event",
+      "title": "Waiting external",
+      "wait_for": [
+        "ui.approve"
+      ],
+      "on": {
+        "ui.approve": {
+          "goto": "done",
+          "title": "Approved"
+        },
+        "back_to_implementing": {
+          "goto": "implementing",
+          "title": "Back to Implementing",
+          "actor": "human"
+        }
+      }
+    },
+    "done": {
+      "type": "terminal",
+      "title": "Done"
+    }
+  }
+}

@@ -1720,14 +1720,12 @@ button.link {
     max-width: 880px;
   }
 }
-/* UXR-37 (FR-2): the wide panel's request, above the conversation; long evidence scrolls here. */
+/* UXR-37 (FR-2): the wide panel's request, the last block of the conversation. It scrolls with
+   the chat (no pinned pane, no scroll of its own); long evidence is clamped by .request-output. */
 .request-slot {
-  flex: none;
-  max-height: 55%;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
 }
 /* The check output's own disclosure under the chat (like Proposed follow-up tickets). */
 .check-output-disclosure .panel-disclosure-body {

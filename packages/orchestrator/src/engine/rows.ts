@@ -155,6 +155,8 @@ export function toSnapshot(
       // ADR-0011: the `ticket.kind` column arrives with M1b-T04's migration (TicketRow gains it
       // then); `SELECT *` rows carry it from that moment, so this needs no change.
       kind: (ticket as Partial<Pick<SessionSnapshot['ticket'], 'kind'>>).kind ?? null,
+      // ADR-0037 §4 (C2): the planning prompt splits an L ticket.
+      size: ticket.size ?? null,
     },
     machine_id: session.machine_id,
     workflow_id: session.workflow_id,

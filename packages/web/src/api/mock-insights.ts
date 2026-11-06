@@ -8,6 +8,7 @@ import {
   type AdvisorRows,
   type ChangeProposalDetail,
   type FindingsResponse,
+  type NotifyDecision,
   type ProcessMetricsResponse,
   type ProcessReportResponse,
   type SessionInsightResponse,
@@ -103,9 +104,23 @@ function history(now: Date): Stamped {
     const base = { session_id, ticket_id, repo, workflow_id: 'conductor', machine_id };
     let t = start;
     let visitImpl = 0;
+    // ADR-0037 P6: the notify policy's decisions. The hand-off pushes once per ticket, a QA fail
+    // is silent, the rest push every time; the first entry has no transition and no decision.
+    let handedOff = false;
+    const decide = (transition: string | null): NotifyDecision | null => {
+      if (transition === null) return null;
+      if (transition === 'qa_fail') return { via: transition, mode: 'never', decision: 'silent' };
+      if (transition === 'ready_for_testing') {
+        const first = !handedOff;
+        handedOff = true;
+        return { via: transition, mode: 'once', decision: first ? 'push' : 'silent' };
+      }
+      return { via: transition, mode: 'every', decision: 'push' };
+    };
     const move = (from: string | null, to: string, transition: string | null, mins: number) => {
       if (to === 'implementing') visitImpl++;
       rows.moves.push({
+        notify: decide(transition),
         ...base,
         from,
         to,

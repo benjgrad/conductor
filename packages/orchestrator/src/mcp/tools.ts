@@ -9,6 +9,7 @@ import {
   REPO_CHECKS_MAX,
   checksGatesOf,
   TicketKindSchema,
+  TicketSizeSchema,
   TicketPrioritySchema,
   httpForApplyResult,
   inputClass,
@@ -824,6 +825,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         body: z.string().max(20_000),
         kind: TicketKindSchema.optional().describe(
           'Default: the kind of your last ticket on this repo',
+        ),
+        size: TicketSizeSchema.optional().describe(
+          'Optional S, M or L. The planner splits an L ticket into follow-ups unless the body says otherwise',
         ),
         workflow_id: z.string().min(1).max(100).optional(),
       },

@@ -2139,6 +2139,9 @@ button.link {
 .tag-personal {
   color: var(--tool);
 }
+.tag-size {
+  color: var(--muted);
+}
 .pending-move {
   font-size: var(--text-sm);
   background: var(--warn-bg);

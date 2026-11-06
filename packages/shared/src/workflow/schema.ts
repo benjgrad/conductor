@@ -162,6 +162,14 @@ export type TicketKind = z.infer<typeof TicketKindSchema>;
 export const TICKET_KINDS = TicketKindSchema.options;
 
 /**
+ * ADR-0037 §4 (C2): a ticket's optional size. Only the planning prompt reads it (an `L` ticket is
+ * split via `proposed_tickets`); nothing enforces it.
+ */
+export const TicketSizeSchema = z.enum(['S', 'M', 'L']);
+export type TicketSize = z.infer<typeof TicketSizeSchema>;
+export const TICKET_SIZES = TicketSizeSchema.options;
+
+/**
  * ADR-0011: who may take a transition. `agent`: the worker names it in `complete_state`. `human`:
  * a button on the card (`POST /api/sessions/:id/transition`). `system`: timeouts, command exits,
  * connector results, an event state's `wait_for` names, `budget_exceeded`. Inferred when omitted

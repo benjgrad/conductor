@@ -322,6 +322,18 @@ describe('board card says only what its column does not (UX card cleanup)', () =
     expect(visibleText(screen.getByText('Card 2').closest('article')!)).not.toMatch(/conductor/i);
   });
 
+  it('C2: a sized card shows its size tag; an unsized one shows none', () => {
+    renderCards([
+      card(1, {}, { input_request: null, column: 'queued', status: null, size: 'M' }),
+      card(2, {}, { input_request: null, column: 'queued', status: null, size: null }),
+    ]);
+    const tag = (t: string) =>
+      screen.getByText(t).closest('article')!.querySelector<HTMLElement>('.tag-size');
+    expect(tag('Card 1')?.textContent).toBe('M');
+    expect(tag('Card 1')?.title).toBe('Size: Medium');
+    expect(tag('Card 2')).toBeNull();
+  });
+
   it('UXR-30: with two workflows on the board, each card names its workflow', () => {
     renderCards([
       card(1, {}, { input_request: null, column: 'queued', status: null, workflow_state: null }),

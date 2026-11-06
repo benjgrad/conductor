@@ -34,6 +34,7 @@ import {
   humanize,
   KIND_LABELS,
   TICKET_KIND_LABELS,
+  TICKET_SIZE_LABELS,
   usd,
   watchingSummary,
 } from './format.js';
@@ -796,6 +797,11 @@ function Card({
       <div className="card-meta">
         {card.kind && (
           <span className={`tag tag-kind tag-${card.kind}`}>{TICKET_KIND_LABELS[card.kind]}</span>
+        )}
+        {card.size && (
+          <span className="tag tag-size" title={`Size: ${TICKET_SIZE_LABELS[card.size]}`}>
+            {card.size}
+          </span>
         )}
         <span
           className="card-agent"

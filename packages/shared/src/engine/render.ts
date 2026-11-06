@@ -73,6 +73,14 @@ export function renderPrompt(input: RenderPromptInput): string {
     parts.push(ticketSection(snapshot.ticket));
   } else if (state.prompt === PLAN_TEMPLATE) {
     parts.push(ticketSection(snapshot.ticket), withHint(PLAN_INSTRUCTIONS, state));
+    // ADR-0037 §4 (C2): an L ticket is split before implementing; S and M get no extra line.
+    if (snapshot.ticket.size === 'L') {
+      parts.push(
+        state.follow_ups?.enabled === false
+          ? PLAN_SIZE_NO_PROPOSALS_INSTRUCTION
+          : PLAN_SIZE_INSTRUCTION,
+      );
+    }
   } else if (state.prompt === IMPLEMENT_TEMPLATE) {
     parts.push(ticketSection(snapshot.ticket), withHint(IMPLEMENT_INSTRUCTIONS, state));
   } else if (state.prompt !== undefined) {
@@ -142,9 +150,12 @@ export const PROPOSALS_HINT =
  * (ADR-0034): set, it says itself whether (and how) the agent may propose follow-ups.
  */
 function withHint(instructions: string, state: Pick<AgentState, 'follow_ups'>): string {
-  return state.follow_ups === undefined
-    ? instructions
-    : instructions.replace(`\n${PROPOSALS_HINT}`, '');
+  if (state.follow_ups === undefined) return instructions;
+  const text = instructions.replace(`\n${PROPOSALS_HINT}`, '');
+  // C2: a state that reads no proposals must not be told to put out-of-scope work there.
+  return state.follow_ups.enabled
+    ? text
+    : text.replace(IMPLEMENT_SCOPE_INSTRUCTION, IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION);
 }
 
 /** The heading of the follow-up section of a state with `follow_ups` on (ADR-0034). */
@@ -199,6 +210,28 @@ export function renderPages(state: Pick<AgentState, 'result' | 'tools'>): string
 export const PLAN_FILES_INSTRUCTION =
   'End the plan with a `## Files` heading: the repo-relative paths or path globs (e.g. `packages/web/src/**`) you expect to create or edit, one per line. Put the same list in the result as `"files": ["…"]`, or `[]` if the ticket changes no files.';
 
+/**
+ * ADR-0037 §4 (C2): the planning line an `L` ticket gets (`ticket.size`), after the instructions.
+ * The `_NO_PROPOSALS_` variant is for a state whose `follow_ups` are off (no `proposed_tickets`).
+ */
+export const PLAN_SIZE_INSTRUCTION =
+  'This ticket is sized L: unless its body says otherwise, plan only the first independently shippable piece and put the rest in `proposed_tickets` (title, repo, one-line why) before implementing.';
+export const PLAN_SIZE_NO_PROPOSALS_INSTRUCTION =
+  'This ticket is sized L: unless its body says otherwise, ask with `ask_user` whether to split it before planning the whole thing.';
+
+/**
+ * ADR-0037 §4 (C2): the implementing step's scope rule. The `_NO_PROPOSALS_` variant replaces it
+ * in a state whose `follow_ups` are off.
+ */
+export const IMPLEMENT_SCOPE_INSTRUCTION =
+  "Do only what the ticket's Goal and Functional requirements ask. Anything else you notice (a fix, a refactor, a missing gate) becomes a `proposed_tickets` entry with a one-line why, never a commit in this PR. If a requirement cannot be met without an out-of-scope change, ask with `ask_user` and name the change.";
+export const IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION =
+  "Do only what the ticket's Goal and Functional requirements ask. Anything else you notice (a fix, a refactor, a missing gate) becomes a line under a `Follow-ups` heading in your summary, never a commit in this PR. If a requirement cannot be met without an out-of-scope change, ask with `ask_user` and name the change.";
+
+/** ADR-0037 §4 (C2): update tests alongside each change, not in one batch at the end. */
+export const IMPLEMENT_TESTS_INSTRUCTION =
+  'When you restructure UI or change a type that many tests match on, update the affected tests with each component or type change, not in one batch at the end, and run the targeted tests after each.';
+
 const PLAN_INSTRUCTIONS = [
   '## Your step: planning',
   '',
@@ -213,6 +246,8 @@ const IMPLEMENT_INSTRUCTIONS = [
   '## Your step: implementing',
   '',
   'Make the change, following the plan under Inputs (written in the planning step; adapt it where the code tells you otherwise).',
+  IMPLEMENT_SCOPE_INSTRUCTION,
+  IMPLEMENT_TESTS_INSTRUCTION,
   'Add or update tests. Before you finish, commit everything on the current branch (`git add` and `git commit`) so that `git status` is clean: only committed changes are checked and pushed, and a worktree with uncommitted changes is sent back to you. Do not push. Conductor then checks that the build and the tests pass on your last commit, pushes it and opens the pull request itself.',
   PROPOSALS_HINT,
   'Finish with `complete_state` and a result that includes `"summary"`: a short description of the change, used as the pull request description.',
@@ -221,6 +256,7 @@ const IMPLEMENT_INSTRUCTIONS = [
 function ticketSection(t: RenderPromptInput['snapshot']['ticket']): string {
   const lines = [`# Ticket: ${t.title}`, '', t.body.trim() || '(no description)', ''];
   lines.push(`Repository: ${t.repo}`);
+  if (t.size) lines.push(`Size: ${t.size}`);
   if (t.external_ref) lines.push(`External reference: ${t.external_ref}`);
   return lines.join('\n');
 }

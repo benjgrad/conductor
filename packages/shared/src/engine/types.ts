@@ -13,6 +13,7 @@ import {
   ApprovalIdSchema,
   ConditionTypeSchema,
   TicketKindSchema,
+  TicketSizeSchema,
   ENGINE_CAUSES,
   MoveActorSchema,
   MoveCauseSchema,
@@ -44,6 +45,8 @@ export const SnapshotTicketSchema = z.object({
    * so snapshots built before M1b still parse; absent ≡ null.
    */
   kind: TicketKindSchema.nullable().optional(),
+  /** ADR-0037 §4 (C2): `ticket.size`; the planning prompt reads it. Absent ≡ null. */
+  size: TicketSizeSchema.nullable().optional(),
 });
 
 /**

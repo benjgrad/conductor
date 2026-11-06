@@ -12,6 +12,7 @@ import { errorMessage, type ApiClient } from '../api/client.js';
 import { CopyButton } from '../components/details-sections.js';
 import { CONNECT_CLAUDE_URL, followInApp } from '../help/HelpPage.js';
 import { routeHash } from '../nav.js';
+import { NOTIFY_MODE_TEXT } from '../workflow/notify-policy.js';
 import './insights.css';
 
 // UXR-84 (ADR-0033): `#/insights`, the workflow advisor's data on the board. The same reads as the
@@ -301,6 +302,7 @@ function MetricsSection({
       )}
       {data.more_groups > 0 && <p className="muted">And {data.more_groups} more.</p>}
       {data.presets && <SavedReplies presets={data.presets} />}
+      {data.pushes && <Notifications pushes={data.pushes} />}
       {data.rows_truncated && (
         <p className="muted">
           Only the newest rows were read for: {data.rows_truncated.join(', ')}.
@@ -339,6 +341,45 @@ function SavedReplies({ presets }: { presets: NonNullable<ProcessMetricsResponse
         {presets.typed} {presets.typed === 1 ? 'reply was' : 'replies were'} typed by hand where a
         saved reply was on offer.
       </p>
+    </div>
+  );
+}
+
+/**
+ * ADR-0037 P6: what the notify policy decided over the window: moves that pushed, moves it kept
+ * silent, pushes per ticket, and the decisions per transition (or engine cause). Absent in legacy
+ * mode, when no move carried a decision.
+ */
+function Notifications({ pushes }: { pushes: NonNullable<ProcessMetricsResponse['pushes']> }) {
+  const p = pushes.per_ticket;
+  return (
+    <div className="ins-scroll">
+      <p className="muted">
+        {pushes.total} {pushes.total === 1 ? 'push' : 'pushes'} sent · {pushes.silent} kept silent ·
+        per ticket: median {p.median}, p90 {p.p90}, max {p.max}
+      </p>
+      <table className="ins-table" aria-label="Notifications">
+        <thead>
+          <tr>
+            <th scope="col">Via</th>
+            <th scope="col">Policy</th>
+            <th scope="col">Decision</th>
+            <th scope="col">Moves</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pushes.by_via.map((v) => (
+            <tr key={`${v.via}/${v.mode}/${v.decision}`}>
+              <th scope="row" className="mono">
+                {v.via}
+              </th>
+              <td>{(NOTIFY_MODE_TEXT as Record<string, string | undefined>)[v.mode] ?? v.mode}</td>
+              <td>{v.decision === 'push' ? 'Pushed' : 'Silent'}</td>
+              <td>{v.count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

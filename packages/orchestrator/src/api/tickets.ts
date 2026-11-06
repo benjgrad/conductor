@@ -11,6 +11,7 @@ import {
   type TicketDetail,
   type TicketDto,
   type TicketKind,
+  type TicketSize,
   type UpdateTicketRequest,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -334,6 +335,7 @@ async function insertNewTicket(
       repo_allow_machines: body.repo_allow_machines,
       priority: body.priority,
       kind,
+      size: body.size,
     }))!;
     // 06 §Attachments: linked before the commit, so no claim sees the ticket without its files.
     await linkAttachments(tx, scope.account_id, row.id, body.attachment_ids ?? []);
@@ -390,6 +392,8 @@ export interface NewTicket {
   repo_allow_machines: string[] | null;
   priority: number;
   kind: TicketKind;
+  /** ADR-0037 §4 (C2): S / M / L; absent ≡ null (schedule runs, approved proposals). */
+  size?: TicketSize | null;
   /** ADR-0032: the schedule run it comes from; both or neither. */
   schedule_id?: string | null;
   scheduled_for?: Date | null;
@@ -402,8 +406,8 @@ export interface NewTicket {
 export async function insertTicketRow(tx: Queryable, t: NewTicket): Promise<TicketRow | null> {
   const res = await tx.query<TicketRow>(
     'INSERT INTO ticket (external_ref, repo, title, body, workflow_id, required_tags, ' +
-      'repo_allow_machines, priority, kind, account_id, schedule_id, scheduled_for) ' +
-      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ' +
+      'repo_allow_machines, priority, kind, account_id, schedule_id, scheduled_for, size) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ' +
       'ON CONFLICT (schedule_id, scheduled_for) WHERE schedule_id IS NOT NULL DO NOTHING ' +
       'RETURNING *',
     [
@@ -419,6 +423,7 @@ export async function insertTicketRow(tx: Queryable, t: NewTicket): Promise<Tick
       t.account_id,
       t.schedule_id ?? null,
       t.scheduled_for ?? null,
+      t.size ?? null,
     ],
   );
   return res.rows[0] ?? null;

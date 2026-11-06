@@ -40,6 +40,7 @@ mod send_message;
 mod start_session;
 mod transitions;
 mod units;
+mod update;
 
 pub const TICKET: &str = "0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2";
 
@@ -117,6 +118,12 @@ pub struct Make {
     pub scan: Option<ScanFn>,
     pub sysinfo: Option<SysInfo>,
     pub max_sessions: Option<&'static str>,
+    /// ADR-0021 (MR-T14a).
+    pub supervised: Option<&'static str>,
+    pub stage_update: Option<StageUpdateFn>,
+    pub on_restart: Option<OnRestartForUpdate>,
+    pub max_drain_ms: Option<u64>,
+    pub trial_register_ms: Option<u64>,
 }
 
 /// One test's temp dir, fixture repo, fake orchestrator and daemons.
@@ -262,6 +269,11 @@ impl Ctx {
         o.claude_bin = m.claude_bin.take();
         o.proc_info = m.proc_info.take();
         o.has_conversation = m.has_conversation.take();
+        o.supervised = m.supervised.map(String::from);
+        o.stage_update = m.stage_update.take();
+        o.on_restart_for_update = m.on_restart.take();
+        o.update_max_drain_ms = m.max_drain_ms;
+        o.update_trial_register_ms = m.trial_register_ms;
         let d = Daemon::new(o).unwrap();
         self.daemons.lock().unwrap().push(d.clone());
         d.start();

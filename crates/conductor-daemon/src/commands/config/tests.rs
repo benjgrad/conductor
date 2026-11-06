@@ -178,6 +178,7 @@ fn show_the_file_effective_roots_and_repos_conductor_roots_wins() {
             "roots": ["/from/file"],
             "roots_from": "file",
             "repos": {},
+            "auto_update": true,
         })
     );
     // Key order as TS: file, roots, roots_from, repos.
@@ -240,4 +241,25 @@ fn conductor_roots_with_drive_letters_is_two_roots_on_windows() {
         roots_from_env(&env).unwrap(),
         vec![PathBuf::from(r"C:\a"), PathBuf::from(r"D:\b")]
     );
+}
+
+#[test]
+fn auto_update_off_and_on_round_trips_and_a_bad_value_is_2() {
+    let mut f = Fx::new();
+    assert!(f.cfg().auto_update);
+    assert_eq!(f.run(&["auto-update", "off"], &[]), 0);
+    assert!(!f.cfg().auto_update);
+    let text = std::fs::read_to_string(file_config_path(&f.root)).unwrap();
+    assert!(text.contains("\"auto_update\": false"), "{text}");
+    f.io.out.clear();
+    assert_eq!(f.run(&["show"], &[]), 0);
+    let shown: serde_json::Value = serde_json::from_str(&f.io.out.join("\n")).unwrap();
+    assert_eq!(shown["auto_update"], false);
+    assert_eq!(f.run(&["auto-update", "on"], &[]), 0);
+    assert!(f.cfg().auto_update);
+    // On is the default, so it isn't written: the file looks as before this key existed.
+    let text = std::fs::read_to_string(file_config_path(&f.root)).unwrap();
+    assert!(!text.contains("auto_update"), "{text}");
+    assert_eq!(f.run(&["auto-update"], &[]), 2);
+    assert_eq!(f.run(&["auto-update", "maybe"], &[]), 2);
 }

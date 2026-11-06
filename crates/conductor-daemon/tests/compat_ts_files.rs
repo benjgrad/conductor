@@ -54,6 +54,8 @@ fn sample_config() -> DaemonFileConfig {
                 mode(WorkingCopyMode::Reference),
             ),
         ]),
+        // TS has no such key; on (the default) is never written, so the file stays TS-shaped.
+        auto_update: true,
     }
 }
 

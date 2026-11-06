@@ -44,6 +44,34 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     imp::symlink(target, link)
 }
 
+/// ADR-0021 §2.4: point the directory link `<dir>/<name>` (the daemon's `current`) at the sibling
+/// `<dir>/<target>`, which must exist.
+/// - POSIX: a relative symlink `<target>` made beside it and renamed over it, so the swap is atomic
+///   (what `install.sh` does with `mv -T`).
+/// - Windows: a junction (no admin needed, unlike a symlink). There is no atomic swap: the old
+///   junction is removed and a new one made, as `install.ps1` does; if making it fails, the old
+///   one is put back (TD-218). A running exe is never touched: only the link moves.
+///
+/// Refuses to replace a real directory.
+pub fn repoint_dir_link(dir: &Path, name: &str, target: &str) -> io::Result<()> {
+    if !dir.join(target).is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} is not a directory", dir.join(target).display()),
+        ));
+    }
+    let link = dir.join(name);
+    if let Ok(m) = std::fs::symlink_metadata(&link)
+        && !is_reparse_point(&m)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} is not a link; move it away", link.display()),
+        ));
+    }
+    imp::repoint_dir_link(dir, &link, target)
+}
+
 /// Is this (lstat) metadata a reparse point: a symlink, a junction or another name surrogate?
 /// POSIX: a symlink.
 pub fn is_reparse_point(meta: &Metadata) -> bool {
@@ -123,6 +151,14 @@ mod imp {
     pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
         std::os::unix::fs::symlink(target, link)
     }
+    pub fn repoint_dir_link(dir: &Path, link: &Path, target: &str) -> io::Result<()> {
+        let tmp = dir.join(format!(".current.{}", std::process::id()));
+        let _ = std::fs::remove_file(&tmp);
+        std::os::unix::fs::symlink(target, &tmp)?;
+        std::fs::rename(&tmp, link).inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp);
+        })
+    }
 }
 
 #[cfg(windows)]
@@ -167,6 +203,36 @@ mod imp {
         } else {
             std::os::windows::fs::symlink_file(target, link)
         }
+    }
+    fn mklink_junction(link: &Path, target: &Path) -> io::Result<()> {
+        let out = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .stdin(std::process::Stdio::null())
+            .output()?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other(format!(
+                "mklink /J failed: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            )))
+        }
+    }
+
+    // TD-218: not atomic (remove, then mklink); a crash between the two leaves no `current`.
+    pub fn repoint_dir_link(dir: &Path, link: &Path, target: &str) -> io::Result<()> {
+        let old = std::fs::read_link(link).ok();
+        if std::fs::symlink_metadata(link).is_ok() {
+            // Removing a junction removes the link only, never what it points at.
+            std::fs::remove_dir(link)?;
+        }
+        mklink_junction(link, &dir.join(target)).inspect_err(|_| {
+            if let Some(old) = &old {
+                let _ = mklink_junction(link, old);
+            }
+        })
     }
 }
 
@@ -241,6 +307,33 @@ mod tests {
         } else {
             assert_eq!(posix_mode(&f), None);
         }
+    }
+
+    #[test]
+    fn repoint_dir_link_swaps_current_and_refuses_a_real_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        std::fs::create_dir(d.join("1.0.0")).unwrap();
+        std::fs::create_dir(d.join("2.0.0")).unwrap();
+        std::fs::write(d.join("2.0.0").join("VERSION"), "2.0.0").unwrap();
+        repoint_dir_link(d, "current", "1.0.0").unwrap();
+        repoint_dir_link(d, "current", "2.0.0").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(d.join("current").join("VERSION")).unwrap(),
+            "2.0.0"
+        );
+        let t = std::fs::read_link(d.join("current")).unwrap();
+        assert_eq!(t.file_name().unwrap(), "2.0.0");
+        // Both versions are still there; nothing else is left beside them.
+        let mut names: Vec<String> = std::fs::read_dir(d)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["1.0.0", "2.0.0", "current"]);
+        assert!(repoint_dir_link(d, "current", "3.0.0").is_err());
+        std::fs::create_dir(d.join("real")).unwrap();
+        assert!(repoint_dir_link(d, "real", "1.0.0").is_err());
     }
 
     #[test]

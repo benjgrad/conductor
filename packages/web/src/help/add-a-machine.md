@@ -152,7 +152,9 @@ It reports repo paths and remotes, and the names and versions of the tools it fo
 
 ## Upgrade
 
-Daemons don't update themselves yet (automatic updates are planned). When conductor has a newer daemon, the **Machines** page marks each machine that runs an older one with **update**, and shows the command to run. The command is also in the machine's **Details**.
+The daemon can update itself, but conductor doesn't tell machines about new builds yet, so for now you upgrade by hand. When conductor has a newer daemon, the **Machines** page marks each machine that runs an older one with **update**, and shows the command to run. The command is also in the machine's **Details**.
+
+Once conductor announces new builds, a daemon that runs as a service updates itself without you. It downloads the new build in the background, stops taking new tickets, and waits until nothing is running. A session waiting on your answer doesn't hold it up. Then it restarts on the new version. If the new version fails to start twice, it goes back to the old one and the Machines page says so. A daemon you started by hand downloads the build and asks you to restart it. Machines installed before this release need one more manual upgrade before they update themselves. To turn automatic updates off on a machine, run `~/.conductor/bin/conductor-daemon config auto-update off`, and `on` to turn them back on.
 
 On macOS and Linux, run this on the machine:
 

@@ -104,6 +104,18 @@ pub type HasConversation = Arc<dyn Fn(&Path, &str) -> bool + Send + Sync>;
 pub type OnFatal = Arc<dyn Fn(u16, &str) + Send + Sync>;
 /// Builds the command runner once (lazily, on the first run_cmd) with max_concurrent_builds.
 pub type RunnerFactory = Arc<dyn Fn(usize) -> Arc<dyn CommandRunner> + Send + Sync>;
+/// ADR-0021 §2.1: stage an announced build into `<root>/daemon/<version>`.
+pub type StageUpdateFn = Arc<
+    dyn Fn(
+            crate::update::DaemonBuild,
+        )
+            -> futures_util::future::BoxFuture<'static, Result<PathBuf, crate::update::UpdateError>>
+        + Send
+        + Sync,
+>;
+/// ADR-0021 §2.4: `current` was switched (or a trial start failed): exit with
+/// `EXIT_RESTART_FOR_UPDATE` so the service manager restarts the launcher.
+pub type OnRestartForUpdate = Arc<dyn Fn() + Send + Sync>;
 
 /// `DaemonOptions`.
 pub struct DaemonOptions {
@@ -131,6 +143,16 @@ pub struct DaemonOptions {
     pub has_conversation: Option<HasConversation>,
     /// The environment the inventory scan and assistant jobs run with (default: this process's).
     pub env: Option<Vec<(String, String)>>,
+    /// ADR-0021: `CONDUCTOR_SUPERVISED` (launchd, systemd, schtasks), set by the service unit.
+    /// None: run by hand, so an update is staged but never switched to.
+    pub supervised: Option<String>,
+    /// Default: `update::stage` from the orchestrator's HTTP origin.
+    pub stage_update: Option<StageUpdateFn>,
+    /// Default: log it. `run` exits 75.
+    pub on_restart_for_update: Option<OnRestartForUpdate>,
+    /// Test seams: `UPDATE_MAX_DRAIN_MS` and `UPDATE_TRIAL_REGISTER_MS` (the defaults).
+    pub update_max_drain_ms: Option<u64>,
+    pub update_trial_register_ms: Option<u64>,
 }
 
 impl DaemonOptions {
@@ -150,6 +172,11 @@ impl DaemonOptions {
             on_fatal: None,
             has_conversation: None,
             env: None,
+            supervised: None,
+            stage_update: None,
+            on_restart_for_update: None,
+            update_max_drain_ms: None,
+            update_trial_register_ms: None,
         }
     }
 }
@@ -195,6 +222,9 @@ struct AgentProc {
     nudged: bool,
     /// ADR-0035: background jobs the CLI last reported running (`background_tasks_changed`).
     background_tasks: u32,
+    /// ADR-0021: its last turn ended (`turn_end`) and no new one was started since. With
+    /// `ask_pending` it is parked, which doesn't hold up an update.
+    turn_over: bool,
     /// Tail of the assistant text (NO_OUTCOME_OUTPUT_CHARS), attached to `no_outcome`.
     last_output: String,
     /// Last STDERR_TAIL_LINES lines of stderr (STDERR_TAIL_CHARS), sent on `exit`.
@@ -268,6 +298,8 @@ struct State {
     ports: PortPool,
     next_id: u64,
     rescan_watch: Option<AbortHandle>,
+    /// ADR-0021 (MR-T14a): staging, draining, the trial timer.
+    update: updating::UpdateState,
 }
 
 impl State {
@@ -327,6 +359,14 @@ struct Core {
     ws: ReconnectingWs,
     inventory: InventoryReporter,
     assistant: AssistantJobRunner,
+    /// ADR-0021 (MR-T14a): see `updating`.
+    supervised: Option<String>,
+    stage_update: StageUpdateFn,
+    on_restart_for_update: OnRestartForUpdate,
+    update_max_drain_ms: u64,
+    update_trial_register_ms: u64,
+    /// The update policy's clock (tokio time, so paused-clock tests can drive it).
+    clock_start: tokio::time::Instant,
     state: Mutex<State>,
 }
 
@@ -654,6 +694,8 @@ impl Core {
             payload["enrollment_token"] = Value::Null;
         }
         self.send_machine("register", payload);
+        let mut st = self.lock();
+        self.update_on_open(&mut st);
     }
 
     fn on_close(&self, st: &mut State) {
@@ -740,11 +782,7 @@ impl Core {
                 self.assistant_job(&mut st, payload);
             }
             OrchestratorToDaemon::UpdateAvailable { payload, .. } => {
-                // ADR-0021 (M2-T18b contracts): the updater is MR-T14; until then, log and ignore.
-                self.log(&format!(
-                    "update_available {}: self-update not implemented yet (MR-T14)",
-                    *payload.version
-                ));
+                self.on_update_available(&mut st, payload);
             }
             OrchestratorToDaemon::FetchTranscript { payload, .. } => {
                 drop(st);
@@ -885,6 +923,7 @@ impl Core {
                 Err(e) => self.log(&format!("after registered: {e}")),
             }
             self.send_heartbeat(&mut st);
+            self.update_on_registered(&mut st);
         }
         self.inventory.on_registered().await;
         self.send_repo_inventory(true).await;
@@ -918,15 +957,17 @@ impl Core {
                 add(*sid, c.fencing_token);
             }
         }
-        self.send_machine(
-            "heartbeat",
-            json!({
-                "cpu_free": res.cpu_free,
-                "mem_free_mb": res.mem_free_mb,
-                "disk_free_mb": res.disk_free_mb,
-                "sessions": sessions,
-            }),
-        );
+        let mut payload = json!({
+            "cpu_free": res.cpu_free,
+            "mem_free_mb": res.mem_free_mb,
+            "disk_free_mb": res.disk_free_mb,
+            "sessions": sessions,
+        });
+        // ADR-0021 §2.2: the orchestrator shows the machine as draining (updating).
+        if let Some(d) = self.draining_payload(st) {
+            payload["draining"] = d;
+        }
+        self.send_machine("heartbeat", payload);
         let ms = st.heartbeat_ms;
         st.heartbeat_timer = Some(self.after(st, ms, |c, st, id| {
             if st.heartbeat_timer.as_ref().is_some_and(|t| t.id == id) {
@@ -999,6 +1040,11 @@ impl Core {
     // TD-027: request_work is sent even under memory pressure (07 only defines the start_session
     // veto); each claim is then refused and requeued, at most once per work_poll_ms.
     fn maybe_request_work(&self, st: &mut State) {
+        if st.update.holds_work() {
+            // ADR-0021 §2.2: draining asks for no new work; whatever just ended may make it idle.
+            self.check_drained(st);
+            return;
+        }
         if !st.registered || st.stopped || st.awaiting_work.is_some() || st.work_timer.is_some() {
             return;
         }
@@ -1481,6 +1527,10 @@ impl Core {
                 let mut st = c.lock();
                 let exit = matches!(ev, DriverEvent::Exit { .. });
                 c.on_driver_event(&mut st, sid, aid, &ev);
+                if matches!(ev, DriverEvent::TurnEnd { .. }) {
+                    // ADR-0021: a turn that parked may be the last work a drain waits for.
+                    c.check_drained(&mut st);
+                }
                 if exit {
                     return;
                 }
@@ -1498,6 +1548,7 @@ impl Core {
                 completed: false,
                 ask_pending: false,
                 nudged: false,
+                turn_over: false,
                 background_tasks: 0,
                 last_output: String::new(),
                 stderr_tail: String::new(),
@@ -1746,6 +1797,7 @@ impl Core {
                 self.emit(st, sid, token, json!({ "kind": "spend", "data": data }));
             }
             DriverEvent::TurnEnd { subtype, .. } => {
+                a.turn_over = true;
                 // ADR-0005: turn_end stays in the daemon. After complete_state → end() (kill
                 // after a grace period); after ask_user → parked, alive and idle.
                 if a.completed {
@@ -1884,6 +1936,7 @@ impl Core {
         }
         a.ask_pending = false;
         a.nudged = false;
+        a.turn_over = false;
         self.finish(m, true, None);
         Ok(())
     }
@@ -2770,6 +2823,7 @@ impl Core {
         for (_, t) in st.assignments.drain() {
             t.cancel();
         }
+        self.update_stop(&mut st);
         if kill_sessions {
             // ADR-0023: every held permission prompt is denied before its process is stopped.
             for p in &st.sent_permissions {
@@ -2817,6 +2871,8 @@ impl Daemon {
         let store = Arc::new(Mutex::new(DaemonStore::for_root(&config.root_dir)?));
         // Fresh checkouts / push repos a previous daemon left behind (ADR-0010).
         sweep_private(&config.root_dir);
+        // ADR-0021: a download a previous daemon was staging when it stopped.
+        crate::update::layout::sweep_staging(&config.root_dir);
         let workspace = Arc::new(Workspace::new(
             config.root_dir.clone(),
             store.clone(),
@@ -2938,6 +2994,24 @@ impl Daemon {
                 ws,
                 inventory,
                 assistant,
+                supervised: o.supervised,
+                stage_update: o.stage_update.unwrap_or_else(|| {
+                    updating::default_stage(
+                        config.root_dir.clone(),
+                        config.orchestrator_url.clone(),
+                    )
+                }),
+                on_restart_for_update: o.on_restart_for_update.unwrap_or_else(|| {
+                    let log = log.clone();
+                    Arc::new(move || log("update: restart requested (exit 75)"))
+                }),
+                update_max_drain_ms: o
+                    .update_max_drain_ms
+                    .unwrap_or(conductor_protocol::UPDATE_MAX_DRAIN_MS),
+                update_trial_register_ms: o
+                    .update_trial_register_ms
+                    .unwrap_or(conductor_protocol::UPDATE_TRIAL_REGISTER_MS),
+                clock_start: tokio::time::Instant::now(),
                 state: Mutex::new(State {
                     registered: false,
                     stopped: false,
@@ -2958,6 +3032,7 @@ impl Daemon {
                     ports,
                     next_id: 0,
                     rescan_watch: None,
+                    update: updating::UpdateState::default(),
                 }),
             }
         });
@@ -3064,6 +3139,8 @@ impl Daemon {
         self.core.transcript(request_id, session_id)
     }
 }
+
+mod updating;
 
 #[cfg(test)]
 mod tests;

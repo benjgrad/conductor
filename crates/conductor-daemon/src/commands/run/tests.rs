@@ -324,3 +324,64 @@ async fn register_carries_the_claude_code_version() {
     r.signals.send(DaemonSignal::Shutdown).unwrap();
     assert_eq!(r.exit_code().await, 0);
 }
+
+/// ADR-0021 end to end inside `run`: an announced build that is already staged (the real stage
+/// reuses it after its `--version` check), a supervised daemon with the shipped launcher, nothing
+/// running: it switches `current` and `run` returns 75. The staged "binary" is a POSIX shell
+/// script, so this runs on POSIX only (Windows would need a real exe).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_update_switches_current_and_exits_75() {
+    use crate::update::layout::{current_version, daemon_dir, read_trial};
+    if Platform::current().is_windows() {
+        return;
+    }
+    let r = Run::start(&[("CONDUCTOR_SUPERVISED", "systemd")], None, None).await;
+    r.registered().await;
+    let root = PathBuf::from(&r.env["CONDUCTOR_ROOT"]);
+    let own = crate::config::daemon_version(&r.env);
+    let d = daemon_dir(&root);
+    std::fs::create_dir_all(d.join(&own).join("bin")).unwrap();
+    crate::platform::fs::repoint_dir_link(&d, "current", &own).unwrap();
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    std::fs::write(
+        root.join("bin").join("conductor-launch"),
+        crate::commands::service::LAUNCHER,
+    )
+    .unwrap();
+    let exe = d.join("9.9.9").join("bin").join("conductor-daemon");
+    std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+    std::fs::write(&exe, "#!/bin/sh\necho 9.9.9\n").unwrap();
+    crate::platform::fs::set_executable(&exe).unwrap();
+    r.orch
+        .send(
+            &serde_json::from_value(serde_json::json!({
+                "type": "update_available",
+                "msg_id": uuid::Uuid::new_v4(),
+                "seq": null,
+                "session_id": null,
+                "fencing_token": null,
+                "payload": {
+                    "version": "9.9.9",
+                    "file": "conductor-daemon-9.9.9-x86_64-unknown-linux-gnu.tgz",
+                    "sha256": "a".repeat(64),
+                    "size": 10,
+                },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    // Keep the temp root (exit_code would drop it) to look at it afterwards.
+    let Run {
+        handle,
+        _root,
+        logs,
+        ..
+    } = r;
+    let code = tokio::time::timeout(Duration::from_secs(20), handle)
+        .await
+        .expect("run_daemon returns")
+        .unwrap();
+    assert_eq!(code, 75, "{:?}", logs.lock().unwrap());
+    assert_eq!(current_version(&root).as_deref(), Some("9.9.9"));
+    assert_eq!(read_trial(&root).map(|t| t.from), Some(own));
+}

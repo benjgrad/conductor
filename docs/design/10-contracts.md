@@ -398,6 +398,34 @@ cause: 'transition' | 'start' | 'check_failed' | 'review_unmet' | 'action_failed
 - **Mergeability (P3).** `ConditionResult` gains `mergeable?: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'`, set on a `pr_checks_green` result whose condition has `no_checks.policy: require_mergeable`. Fixtures: `M1B_WS_FIXTURES.run_action_evaluate_conditions_adr0037` / `action_result_evaluate_conditions_adr0037`.
 - **Watch and hold triggers (P1/P4). The orchestrator feeds `watch.check` and `concurrency.checked {holders}` events to `apply()`. They are sent on the poll timer, and to every session on the same repo when a PR merges (`merge_pr` ok, or a human move to a terminal state with `context.__pr`) or conductor pushes a branch.
 
+## Base refs (ADR-0039)
+
+**Status: in `packages/shared/src/workflow/schema.ts` and `bases.ts` (B1); refused "not available yet" (rule 14, feature `bases`) until B2.** Nothing resolves or uses a base yet: the daemon still adds every worktree from `origin/<default_branch>`.
+
+```ts
+// WorkflowDefinitionSchema gains
+bases?: Record<BaseName, BaseSpec>          // BaseName = /^[a-z][a-z0-9_-]*$/ ≤ 40
+BaseSpec = { ref: branch | '$default_branch' }
+         | { cmd: string(1..2000), timeout?: Duration, pr_into?: branch }  // prints one ref: a branch or a 40-hex sha
+base_default?: Partial<Record<'work' | 'personal', BaseName>>   // absent kind → $default_branch (rule 26)
+
+// ticket.base (jsonb, migration 1764000000000_ticket-base): CreateTicketRequest.base?,
+// UpdateTicketRequest.base? (null clears; only while the card is Queued, else 403 ticket_not_editable),
+// TicketDto.base?, MCP create_ticket.base?
+TicketBase = BaseName | { ref: branch | sha40, pr_into?: branch }   // a sha needs pr_into
+
+// planning result key `base` (PLAN_BASE_KEY, planBaseOf), used only when the ticket has none
+PlanBase = { name?: BaseName, ref?: branch | sha40, pr_into?: branch, reason: string(1..2000) }  // name ⊕ ref
+
+// session.base_ref (jsonb, same migration), set at start by B2; BoardCard.base_ref, TicketDetail.base_ref
+SessionBase = { name: BaseName | null, ref: string, sha: sha40 | null, pr_into: string | null }
+```
+
+- **Resolution order (B2).** Ticket `base` > planning `base` (only when the ticket has none) > `base_default[ticket.kind]` > `$default_branch`.
+- **`cmd` bases** run on the claiming machine, in the repo, and print one ref on stdout. A sha without `pr_into` is refused at run time (the validator warns). `requiredCapabilitiesOf(def, kind)` adds `cmdBaseCapability(cmd)` (`cli:az:authed` when the command runs `az`) for the kind's `base_default`; a base a ticket or plan names is checked by B2.
+- **Substitution.** `$base` expands to the resolved base branch, or `pr_into` when the base is a commit; `$base_sha` to the resolved commit (`substituteBase`). The sites are `baseSubstitutionFields`: `requires.checks[].cmd`, `entry.checks[].cmd`, `cmd` conditions in `requires` and `watch`, the `instructions` map's texts, and literal `on_unmet` / `on_broken` instructions. The match is literal: `$basement` and `${base}` are left alone, so a shell variable named `base` is written `${base}`. Rule 27 refuses a use in a workflow with no `bases`.
+- **Not changed yet.** `start_session.base_ref` stays `HEAD`, `open_pr` takes `{title, body}`, and the repo checks still say `origin/main`. All of these change in B2.
+
 ## Review and merge (ADR-0020)
 
 Semantics: [ADR-0020](../adr/0020-review-and-merge-flow.md). Frozen by M2r-T01; later M2r tasks report a needed change to the lead. Every addition is optional on the wire (absent ≡ none / `[]` / today's behaviour), so v1 / v2 definitions, pre-M2r cards, events and WS payloads parse unchanged. The contract points:
@@ -421,7 +449,7 @@ Semantics: [ADR-0020](../adr/0020-review-and-merge-flow.md). Frozen by M2r-T01; 
 | envelope `fencing_token` | `outbox.fencing_token`: the session's token **when the row was written** (after that apply), never the current one. A row whose token is below the session's current token is failed `stale_fencing_token`, not sent ([Outbox](#outbox-state-machine)) |
 | `command_id` | assigned by the wrapper (= `outbox.command_id`) |
 | `start_session.ticket_id`, `repo` | `snapshot.ticket.id`, `snapshot.ticket.repo` |
-| `start_session.base_ref` | `M1_BASE_REF` = `HEAD` of the shared clone |
+| `start_session.base_ref` | `M1_BASE_REF` = `HEAD` of the shared clone (informational until ADR-0039 B2 sends the resolved base) |
 | `start_session.branch` | `session.branch` (set by the claim) |
 | `start_session.workflow_state`, `prompt`, `tools`, `mcp`, `resume_claude_session_id`, `model`, `max_turns`, `max_budget_usd`, `review`, `transitions` | the effect (`state` → `workflow_state`; optional fields omitted when absent; `transitions` also omitted when empty). `review: true` only on a requirements reviewer's start ([ADR-0009](../adr/0009-transition-requirements-review.md)). `mcp` = `resolveMcpPolicy(def, state)` on a worker's start only; the daemon reads its absence as `{ mode: 'none' }` ([ADR-0029](../adr/0029-agents-inherit-mcp-servers.md)) |
 | `start_session.env` | `{CONDUCTOR_SESSION_ID, CONDUCTOR_TICKET_ID}`. The workflow schema has no per-state env in M1; ports and git identity (`GIT_AUTHOR_*` / `GIT_COMMITTER_*`, resolved as in §Inventory `git_identity_missing`) are added by the daemon (ADR-0005 §Spawn) |
@@ -606,7 +634,7 @@ A repo whose `remote` is null has its repo-scoped skills and agents **not report
 
 **Working copy.** The claim (T16) chooses a `machine_repo` and writes `{repo_path, mode}` into `session.context.__working_copy` (`WORKING_COPY_CONTEXT_KEY`; no migration) in the claim transaction, before `applyEvent(session.assigned)`. apply keeps unknown context keys, and `commandPayloadForEffect` copies a valid `__working_copy` into **every** `start_session` of the session (first start, resumes, reviewer starts, the re-emit after a requeue), so no caller passes it. A re-claim by another machine rewrites it; a claim that matched no repo (a non-canonical ticket repo) removes it. When several of the machine's repos have the remote, the claim takes the first by `path`. The claim's filters are in [04 §2](04-scheduler.md#2--claim-query-ticket-side). The daemon:
 - re-checks that `repo_path` with that `mode` is in its own current inventory, and refuses the start otherwise; it never uses a path it didn't scan;
-- reuses its existing worktree for the session when one exists (same session, same branch, `Workspace.ensureWorktree`); otherwise it fetches (hooks off) and adds the worktree from `origin/<default_branch>`. `base_ref` is informational.
+- reuses its existing worktree for the session when one exists (same session, same branch, `Workspace.ensureWorktree`); otherwise it fetches (hooks off) and adds the worktree from `origin/<default_branch>`. `base_ref` is informational until [ADR-0039](../adr/0039-base-refs.md) B2.
 
 Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 clone path (local mode).
 

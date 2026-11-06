@@ -195,6 +195,11 @@ export interface TicketRow {
    */
   size?: TicketSize | null;
   /**
+   * ADR-0039 (migration 1764000000000): jsonb, the ticket's own base (`TicketBase`), or null for the
+   * workflow's `base_default`. Optional only so hand-built rows in tests may leave it out.
+   */
+  base?: unknown;
+  /**
    * M2-T29c (ADR-0023 §2): the exact allow rules "Allow always" recorded for this ticket's
    * sessions, until the machine override exists (M2-T28c). Default `{}`.
    */
@@ -258,6 +263,11 @@ export interface SessionRow {
   retry_counters: Record<string, number>;
   /** numeric. */
   spend_usd: string;
+  /**
+   * ADR-0039 (migration 1764000000000): jsonb `SessionBase` {name, ref, sha, pr_into}, the base the
+   * branch started from (B2 sets it at start); null before. Optional for hand-built test rows.
+   */
+  base_ref?: unknown;
   /** jsonb: claude_session_id → last cumulative total_usd (ADR-0005; positive deltas only). */
   claude_spend_totals: Record<string, number>;
   /** numeric. Maintained by apply on each transition (10-contracts §Wall time). */

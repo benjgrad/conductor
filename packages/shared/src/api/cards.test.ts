@@ -84,6 +84,16 @@ describe('toBoardCard / toInputRequestDto', () => {
     expect(toBoardCard({ ...ticket, status: 'ready', size: 'M' }, null, null, VIEW).size).toBe('M');
   });
 
+  it('exposes the session base_ref (ADR-0039), null when absent or invalid', () => {
+    const ref = { name: 'sprint', ref: 'x-sb-1', sha: 'c'.repeat(40), pr_into: null };
+    expect(toBoardCard(ticket, { ...session, base_ref: ref }, null, VIEW).base_ref).toEqual(ref);
+    expect(toBoardCard(ticket, session, null, VIEW).base_ref).toBeNull();
+    expect(
+      toBoardCard(ticket, { ...session, base_ref: { ref: 1 } }, null, VIEW).base_ref,
+    ).toBeNull();
+    expect(toBoardCard({ ...ticket, status: 'ready' }, null, null, VIEW).base_ref).toBeNull();
+  });
+
   it('derives column, spend (numeric string), open input and the latest updated_at', () => {
     const card = BoardCardSchema.parse(toBoardCard(ticket, session, input, VIEW));
     expect(card).toMatchObject({

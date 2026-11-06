@@ -7,6 +7,7 @@ import {
   type WorkflowDefinition,
 } from './schema.js';
 import { transitionMatchesKind, transitionObject } from './transition-rules.js';
+import { cmdBaseCapability } from './bases.js';
 
 // The capability registry (ADR-0013 §Routing, ADR-0016): what a machine needs to run each part
 // of a workflow, as capability keys (10-contracts §Machines protocol v2, "Capability keys").
@@ -47,7 +48,9 @@ export const ACTION_CAPABILITIES = {
  * sorted and de-duplicated. "Every transition it could take" is read as every transition whose
  * `kinds` match (no reachability analysis): its `requires` actions, enabled conditions and review.
  * An ADR-0010 `entry` belongs to its state, so it counts for every kind. Disabled conditions add
- * nothing; any agent state or reviewer adds `claude`.
+ * nothing; any agent state or reviewer adds `claude`. ADR-0039: the kind's `base_default`, when it
+ * is a `cmd` base, adds what its command needs (`cmdBaseCapability`); kind null counts every
+ * default. A base a ticket or its plan names is not known per workflow (B2 checks it).
  */
 export function requiredCapabilitiesOf(
   def: WorkflowDefinition,
@@ -74,6 +77,15 @@ export function requiredCapabilitiesOf(
         const need = CONDITION_CAPABILITIES[c.type];
         if (conditionEnabled(c) && need !== null) out.add(need);
       }
+    }
+  }
+  const defaults = def.base_default ?? {};
+  const names = kind === null ? Object.values(defaults) : [defaults[kind]];
+  for (const name of names) {
+    const spec = name === undefined ? undefined : def.bases?.[name];
+    if (spec !== undefined && 'cmd' in spec) {
+      const need = cmdBaseCapability(spec.cmd);
+      if (need !== null) out.add(need);
     }
   }
   return [...out].sort();

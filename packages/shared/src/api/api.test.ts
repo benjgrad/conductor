@@ -135,6 +135,22 @@ describe('REST DTO defaults', () => {
     });
   });
 
+  it('base on create and PATCH (ADR-0039): a name or {ref, pr_into?}; PATCH null clears', () => {
+    const create = { title: 't', body: '', repo: 'r', kind: 'work' as const };
+    const patch = { expected_updated_at: '2026-11-06T00:00:00.000Z' };
+    const sha = 'd'.repeat(40);
+    for (const base of ['master', { ref: 'release/1' }, { ref: sha, pr_into: 'master' }]) {
+      expect(CreateTicketRequestSchema.safeParse({ ...create, base }).success).toBe(true);
+      expect(UpdateTicketRequestSchema.safeParse({ ...patch, base }).success).toBe(true);
+    }
+    for (const base of ['Master', { ref: sha }, { ref: 'x', extra: 1 }, 3]) {
+      expect(CreateTicketRequestSchema.safeParse({ ...create, base }).success).toBe(false);
+      expect(UpdateTicketRequestSchema.safeParse({ ...patch, base }).success).toBe(false);
+    }
+    expect(UpdateTicketRequestSchema.safeParse({ ...patch, base: null }).success).toBe(true);
+    expect(CreateTicketRequestSchema.safeParse({ ...create, base: null }).success).toBe(false);
+  });
+
   it('priority is P0–P4 on create, PATCH and schedules (ADR-0036)', () => {
     const create = { title: 't', body: '', repo: 'r', kind: 'work' as const };
     const schedule = { name: 'n', cron: '0 9 * * *', title: 't', repo: 'r', kind: 'work' as const };

@@ -51,11 +51,15 @@ import {
   StateNameSchema,
   TicketKindSchema,
   TicketSizeSchema,
+  TicketBaseSchema,
+  SessionBaseSchema,
   MoveActorSchema,
   MoveCauseSchema,
   WorkflowDefinitionSchema,
   conditionEnabled,
   conditionLabel,
+  type SessionBase,
+  type TicketBase,
   type TicketKind,
   type TicketSize,
   type TransitionRequires,
@@ -706,6 +710,11 @@ export const BoardCardSchema = z.object({
   kind: TicketKindSchema.nullable().default(null),
   /** ADR-0037 §4 (C2): `ticket.size` (S / M / L); null = not set. Absent ≡ null (older servers). */
   size: TicketSizeSchema.nullable().default(null),
+  /**
+   * ADR-0039 (FR-7): the base the session's branch started from (`session.base_ref`, B2 fills it);
+   * null before a start, or for a session started before B2. Absent ≡ null (older servers).
+   */
+  base_ref: SessionBaseSchema.nullable().default(null),
   /** ADR-0011: in a gate step, its live checklist (`pendingOfStep`); null otherwise. */
   pending: BoardPendingSchema.nullable().default(null),
   /** ADR-0037 P1: waiting in a watched state, the watch's last result; null otherwise. */
@@ -1301,6 +1310,11 @@ export const TicketDtoSchema = z.object({
   kind: TicketKindSchema.nullable().optional(),
   /** ADR-0037 §4 (C2): S / M / L. Optional so older servers' responses still parse; absent ≡ null. */
   size: TicketSizeSchema.nullable().optional(),
+  /**
+   * ADR-0039: the ticket's own base (a name in the workflow's `bases`, or `{ref, pr_into?}`); null /
+   * absent ≡ the workflow's `base_default`.
+   */
+  base: TicketBaseSchema.nullable().optional(),
   /** M2 (U-048): only on the POST /api/tickets response; absent ≡ none. */
   warnings: z.array(TicketWarningSchema).optional(),
   /** UX-13a: the ticket's teammate; null / absent ≡ not assigned yet. */
@@ -1331,6 +1345,8 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
   pages: z.array(TicketPageSchema).optional(),
   /** 06 §Attachments: the ticket's files, oldest first; absent ≡ [] (older servers). */
   attachments: z.array(AttachmentDtoSchema).optional(),
+  /** ADR-0039 (FR-7): as `BoardCard.base_ref` (the latest session's); absent ≡ null. */
+  base_ref: SessionBaseSchema.nullable().optional(),
 });
 export type TicketDetail = z.infer<typeof TicketDetailSchema>;
 
@@ -1429,6 +1445,11 @@ export const UpdateTicketRequestSchema = z
     body: z.string().max(TICKET_BODY_MAX).optional(),
     priority: TicketPrioritySchema.optional(),
     kind: TicketKindSchema.optional(),
+    /**
+     * ADR-0039: the ticket's base; null clears it. Only while the card is Queued (403
+     * `ticket_not_editable` otherwise); refused "not available yet" until B2.
+     */
+    base: TicketBaseSchema.nullable().optional(),
     /** 06 §Attachments: link these uploaded (unlinked) attachments to the ticket. */
     add_attachment_ids: z.array(UuidSchema).max(ATTACHMENTS_PER_TICKET_MAX).optional(),
     /** Delete these attachments of the ticket. */
@@ -1440,9 +1461,10 @@ export const UpdateTicketRequestSchema = z
       r.body !== undefined ||
       r.priority !== undefined ||
       r.kind !== undefined ||
+      r.base !== undefined ||
       (r.add_attachment_ids?.length ?? 0) > 0 ||
       (r.remove_attachment_ids?.length ?? 0) > 0,
-    { message: 'change at least one of title, body, priority, kind, attachments' },
+    { message: 'change at least one of title, body, priority, kind, base, attachments' },
   );
 export type UpdateTicketRequest = z.input<typeof UpdateTicketRequestSchema>;
 
@@ -1703,6 +1725,11 @@ export const CreateTicketRequestSchema = z.object({
    */
   size: TicketSizeSchema.nullable().default(null),
   /**
+   * ADR-0039: where the ticket's branch starts (wins over the workflow's `base_default`): a name in
+   * its `bases`, or `{ref, pr_into?}`. Refused "not available yet" (400, path `base`) until B2.
+   */
+  base: TicketBaseSchema.optional(),
+  /**
    * 06 §Attachments: uploaded attachments (POST /api/attachments) to link to the new ticket, in
    * the same transaction (400 when one is unknown or already linked).
    */
@@ -1862,7 +1889,23 @@ export interface CardSessionLike {
   return_to?: string | null;
   /** ADR-0037 P1: the watch's next check (`watching.next_check_at`); absent ≡ null. */
   watch_deadline?: Ts | null;
+  /** ADR-0039: the `session.base_ref` jsonb (`SessionBase`); absent or invalid ≡ null. */
+  base_ref?: unknown;
   updated_at: Ts;
+}
+
+/** ADR-0039: a `ticket.base` jsonb as `TicketBase`, or null (absent, null, or invalid). */
+export function ticketBaseOf(raw: unknown): TicketBase | null {
+  if (raw === undefined || raw === null) return null;
+  const parsed = TicketBaseSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+/** ADR-0039: a `session.base_ref` jsonb as `SessionBase`, or null (absent, null, or invalid). */
+export function sessionBaseOf(raw: unknown): SessionBase | null {
+  if (raw === undefined || raw === null) return null;
+  const parsed = SessionBaseSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
 }
 
 /** An `input_request` row (structurally matches InputRequestRow). */
@@ -1980,6 +2023,7 @@ export function toBoardCard(
     checking: place.checking,
     kind: ticket.kind ?? null,
     size: ticket.size ?? null,
+    base_ref: session ? sessionBaseOf(session.base_ref) : null,
     pending:
       session && place.checking ? pendingOfStep(view.def, stepOfContext(session.context)) : null,
     watching: session && !place.checking ? watchingOfSession(session) : null,

@@ -466,4 +466,16 @@ describe('create_ticket kind default (WF-T03)', () => {
     });
     expect(res.isError).toBe(true);
   });
+
+  it('takes an optional base (ADR-0039), refusing a bad shape before the create', async () => {
+    const { client } = await connectAdvisor(() => [], { auth: { mode: 'local' } });
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'create_ticket')!;
+    expect(Object.keys(tool.inputSchema.properties ?? {})).toContain('base');
+    expect(tool.inputSchema.required ?? []).not.toContain('base');
+    const res = await client.callTool({
+      name: 'create_ticket',
+      arguments: { title: 't', repo: 'acme/app', body: 'b', base: { ref: 'a'.repeat(40) } },
+    });
+    expect(res.isError).toBe(true);
+  });
 });

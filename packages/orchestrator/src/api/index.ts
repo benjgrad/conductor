@@ -489,7 +489,7 @@ export const createApi = (({
     return detail;
   });
 
-  // Edit title / body / priority / kind where the card's column allows it (`ticketEditable`).
+  // Edit title / body / priority / kind / base where the card's column allows it (`ticketEditable`).
   app.patch<IdParams>(API_PATHS.ticket(':id'), async (req, reply) => {
     const id = ticketId(req.params.id, reply);
     if (id === undefined) return reply;
@@ -515,6 +515,14 @@ export const createApi = (({
         );
       case 'attachment_error':
         return sendError(reply, res.error.status, res.error.code, res.error.message);
+      case 'bad_base':
+        return sendError(
+          reply,
+          res.error.status,
+          res.error.code,
+          res.error.message,
+          res.error.details,
+        );
       case 'updated':
         for (const ev of res.events) boardBus.publish(ev);
         return res.detail;

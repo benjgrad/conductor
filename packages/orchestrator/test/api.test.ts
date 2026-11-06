@@ -13,11 +13,13 @@ import {
   TicketDtoSchema,
   WorkflowDetailSchema,
   WorkflowSummarySchema,
+  WorkflowDefinitionSchema,
   type BoardSseEvent,
   type SessionSnapshot,
 } from '@conductor/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, UI_ACTOR } from '../src/api/index.js';
+import { removedBasesInUse } from '../src/api/workflows.js';
 import {
   FakeEngineService,
   InMemoryBoardBus,
@@ -268,6 +270,47 @@ describe('workflows', () => {
       'states.implement.on.done.requirements.on_unmet.else',
     ]);
     expect(err.details[0]!.message).toContain('must be a human state');
+  });
+
+  it('refuses to drop a base a queued ticket names (ADR-0039, B3)', async () => {
+    // `bases` isn't available until B2 (rule 14 refuses it on save), so the stored version is
+    // inserted directly and the check is called the way insertWorkflowVersion calls it.
+    const v1 = {
+      ...structuredClone(m1Basic),
+      id: 'bases_wf',
+      version: 1,
+      bases: { master: { ref: 'master' }, sprint: { cmd: 'echo x', pr_into: 'master' } },
+    };
+    await db.pool.query(
+      'INSERT INTO workflow_definition (id, version, definition) VALUES ($1, 1, $2)',
+      [v1.id, JSON.stringify(v1)],
+    );
+    const ticket = await createTicket('based');
+    await db.pool.query(
+      `UPDATE ticket SET workflow_id = 'bases_wf', base = '"master"'::jsonb WHERE id = $1`,
+      [ticket.id],
+    );
+    const parsed = WorkflowDefinitionSchema.parse(v1);
+    const without = (name: string) => {
+      const d = structuredClone(parsed);
+      delete d.bases![name];
+      return d;
+    };
+    expect(await removedBasesInUse(db.pool, without('master'))).toEqual([
+      {
+        rule: 26,
+        path: ['bases', 'master'],
+        message: '1 queued ticket uses base "master": change its base before removing it',
+      },
+    ]);
+    expect(await removedBasesInUse(db.pool, without('sprint'))).toEqual([]);
+    // A started ticket's base is fixed: it doesn't hold the base.
+    await db.pool.query(
+      'INSERT INTO session (ticket_id, workflow_id, workflow_version, workflow_state, status, ' +
+        "branch) VALUES ($1, 'bases_wf', 1, 'build', 'running', 'conductor/b')",
+      [ticket.id],
+    );
+    expect(await removedBasesInUse(db.pool, without('master'))).toEqual([]);
   });
 
   it('refuses to drop a state unfinished tickets are in (UXR-67 rule 18)', async () => {

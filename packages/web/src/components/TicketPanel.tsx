@@ -4,6 +4,7 @@
 // UXR-34: a queued ticket can also be cancelled (and reopened), reprioritised, and says why no
 // machine has taken it.
 import {
+  baseLabel,
   TICKET_PRIORITY_MAX,
   TICKET_PRIORITY_MIN,
   type BoardCardRouting,
@@ -21,6 +22,8 @@ import { ago, TICKET_KIND_LABELS } from './format.js';
 import { Markdown } from './markdown.js';
 import { SkipPermissionsSection } from './SkipPermissions.js';
 import { TicketEditor } from './TicketEditor.js';
+import { useWorkflowBases } from './useWorkflowBases.js';
+import { basesAvailable, webWorkflowFeatures } from '../workflow/features.js';
 
 /** GET /api/tickets/:id, again whenever `version` (the card's updated_at) changes. */
 export function useTicket(api: ApiClient, ticketId: string, version: string, enabled = true) {
@@ -154,6 +157,10 @@ function TicketView({
 }) {
   const queued = ticket.column === 'queued';
   const finished = ticket.status === 'done' || ticket.status === 'cancelled';
+  // ADR-0039: the base once the feature is on, or whenever the ticket names or resolved one.
+  const workflowBases = useWorkflowBases(api, ticket.workflow_id);
+  const showBase =
+    basesAvailable(webWorkflowFeatures()) || ticket.base != null || ticket.base_ref != null;
   return (
     <>
       {queued && routing && <RoutingNote routing={routing} />}
@@ -167,6 +174,21 @@ function TicketView({
             <>
               <dt>Kind</dt>
               <dd>{TICKET_KIND_LABELS[ticket.kind]}</dd>
+            </>
+          )}
+          {showBase && (
+            <>
+              <dt>Base</dt>
+              <dd>
+                {
+                  baseLabel(
+                    ticket.base ?? null,
+                    ticket.base_ref ?? null,
+                    workflowBases,
+                    ticket.kind ?? null,
+                  ).text
+                }
+              </dd>
             </>
           )}
           <dt>Priority</dt>

@@ -1,6 +1,7 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
   foldLegacyRequirements,
+  QUEUED_COLUMN_ID,
   type WorkflowDefinition,
   type WorkflowDetail,
 } from '@conductor/shared';
@@ -49,6 +50,8 @@ import { SaveBar } from './SaveBar.js';
 import { SaveReviewDialog } from './SaveReviewDialog.js';
 import { affectedOf, diffVersions, type ReadableChange } from './version-diff.js';
 import { VersionDiff } from './VersionDiff.js';
+import { BasesEditor } from './BasesEditor.js';
+import { BasePreviewContext, previewBaseOf } from './BasePreview.js';
 import { InstructionsEditor } from './InstructionsEditor.js';
 import { NotifyPolicyEditor } from './NotifyPolicyEditor.js';
 import { TransitionEditor } from './TransitionEditor.js';
@@ -143,6 +146,10 @@ export function WorkflowsView({
   const [addingAfter, setAddingAfter] = useState<string | null>(null);
   /** UXR-67: unfinished tickets per state of this workflow (from the board; {} if unknown). */
   const [ticketCounts, setTicketCounts] = useState<Record<string, number>>({});
+  /** ADR-0039: tickets in Queued per base they name (Bases refuses deleting one in use). */
+  const [queuedBaseUses, setQueuedBaseUses] = useState<Record<string, number>>({});
+  /** ADR-0039: the last save's warnings (they never block it). */
+  const [saveWarnings, setSaveWarnings] = useState<string[]>([]);
   /** Definitions read for Compare and the review, by version (versions never change). */
   const defs = useRef(new Map<number, WorkflowDefinition>());
 
@@ -180,12 +187,17 @@ export function WorkflowsView({
       (board) => {
         if (cancelled) return;
         const counts: Record<string, number> = {};
+        const bases: Record<string, number> = {};
         for (const card of board.columns.flatMap((c) => c.cards)) {
+          if (card.workflow_id === ID && card.column === QUEUED_COLUMN_ID) {
+            if (typeof card.base === 'string') bases[card.base] = (bases[card.base] ?? 0) + 1;
+          }
           if (card.workflow_id !== ID || card.workflow_state === null) continue;
           if (card.status !== null && FINISHED.has(card.status)) continue;
           counts[card.workflow_state] = (counts[card.workflow_state] ?? 0) + 1;
         }
         setTicketCounts(counts);
+        setQueuedBaseUses(bases);
       },
       // The server checks again on Save (rule 18): without counts, Remove only shows the rest.
       () => undefined,
@@ -212,6 +224,8 @@ export function WorkflowsView({
   }, [api]);
 
   const shown = draft ?? detail?.definition ?? null;
+  // ADR-0039 (FR-4): what `$base` previews as in instructions and checks.
+  const previewBase = useMemo(() => previewBaseOf(shown), [shown]);
   const dirty = draft !== null;
   /** Old versions without `columns` (pre ADR-0010) still draw as the UML state diagram. */
   const asColumns = shown?.columns !== undefined;
@@ -326,7 +340,13 @@ export function WorkflowsView({
       setDeferred(new Set());
       setProblemsOpen(false);
       setVersion(res.version);
-      toast(`Saved as v${res.version}`);
+      const warned = res.warnings ?? [];
+      setSaveWarnings(warned.map((w) => `${w.path}: ${w.message}`));
+      toast(
+        warned.length > 0
+          ? `Saved as v${res.version}, with ${warned.length} warning${warned.length === 1 ? '' : 's'}`
+          : `Saved as v${res.version}`,
+      );
     } catch (err) {
       if (err instanceof ApiRequestError && err.details.length > 0) {
         setServerErrors(err.details);
@@ -426,427 +446,448 @@ export function WorkflowsView({
   };
 
   return (
-    <div
-      className={`wf-view${panelOpen ? ' with-editor' : ''}${
-        panelOpen && selectedTransition !== null ? ' with-transition' : ''
-      }`}
-    >
-      <section className="wf-main" aria-label="Workflow" inert={panelOpen && fullScreen}>
-        {/* 11-web-ui: the editor needs room; shown only below the phone breakpoint (CSS). */}
-        <p className="mobile-note muted">The workflow editor is best on a larger screen.</p>
-        <div className="wf-toolbar">
-          <h2>Workflow</h2>
-          {latest > 0 && (
-            <label>
-              Version{' '}
-              <select
-                value={currentVersion}
-                disabled={dirty}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  showVersion(v === latest ? null : v);
-                }}
+    <BasePreviewContext.Provider value={previewBase}>
+      <div
+        className={`wf-view${panelOpen ? ' with-editor' : ''}${
+          panelOpen && selectedTransition !== null ? ' with-transition' : ''
+        }`}
+      >
+        <section className="wf-main" aria-label="Workflow" inert={panelOpen && fullScreen}>
+          {/* 11-web-ui: the editor needs room; shown only below the phone breakpoint (CSS). */}
+          <p className="mobile-note muted">The workflow editor is best on a larger screen.</p>
+          <div className="wf-toolbar">
+            <h2>Workflow</h2>
+            {latest > 0 && (
+              <label>
+                Version{' '}
+                <select
+                  value={currentVersion}
+                  disabled={dirty}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    showVersion(v === latest ? null : v);
+                  }}
+                >
+                  {[...versions].reverse().map((v) => (
+                    <option key={v} value={v}>
+                      {versionLabel(v, infoOf(v), v === latest)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {latest > 0 && (
+              <button
+                type="button"
+                aria-expanded={historyOpen}
+                onClick={() => setHistoryOpen((o) => !o)}
               >
-                {[...versions].reverse().map((v) => (
-                  <option key={v} value={v}>
-                    {versionLabel(v, infoOf(v), v === latest)}
-                  </option>
-                ))}
-              </select>
+                History
+              </button>
+            )}
+          </div>
+          {canEditWorkflows && detail?.default_available != null && latest > 0 && (
+            <DefaultBanner
+              api={api}
+              available={detail.default_available}
+              latest={latest}
+              dirty={dirty}
+              onAdopted={(v) => {
+                setDraft(null);
+                setSelected(null);
+                setServerErrors([]);
+                setLatestSeen((n) => Math.max(n, v));
+                setVersion(null);
+                setReloads((n) => n + 1);
+                toast(`Adopted the default as v${v}`);
+              }}
+              onStale={() => {
+                setVersion(null);
+                setReloads((n) => n + 1);
+              }}
+            />
+          )}
+          {shown === null && !error && <p className="muted">Loading…</p>}
+          {!dirty && detail && version !== null && version !== latest && (
+            <p className="wf-old-version" role="note">
+              <span>
+                You’re viewing v{currentVersion}
+                {shownInfo ? `, saved ${savedOn(shownInfo.created_at)}` : ''}
+                {savedBy(shownInfo?.created_by) !== null
+                  ? ` by ${savedBy(shownInfo?.created_by)}`
+                  : ''}
+                {shownInfo?.note ? `: ${shownInfo.note}` : ''}.
+              </span>
+              <button type="button" onClick={() => runCompare(currentVersion, latest)}>
+                Compare with latest
+              </button>
+            </p>
+          )}
+          {historyOpen && latest > 0 && (
+            <section className="wf-diff-section" aria-label="Version history">
+              <h3>Version history</h3>
+              <table className="wf-history">
+                <thead>
+                  <tr>
+                    <th scope="col">Version</th>
+                    <th scope="col">Saved</th>
+                    <th scope="col">By</th>
+                    <th scope="col">Note</th>
+                    <th scope="col" aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...versions].reverse().map((v) => {
+                    const info = infoOf(v);
+                    return (
+                      <tr key={v} aria-current={v === currentVersion ? 'true' : undefined}>
+                        <td>
+                          v{v}
+                          {v === latest ? ' (latest)' : ''}
+                        </td>
+                        <td>{info ? savedOn(info.created_at) : '—'}</td>
+                        <td>
+                          {savedBy(info?.created_by) ?? <span className="muted">unknown</span>}
+                        </td>
+                        <td>{info?.note ?? <span className="muted">—</span>}</td>
+                        <td>
+                          <span className="wf-history-actions">
+                            {v !== currentVersion && (
+                              <button
+                                type="button"
+                                disabled={dirty}
+                                aria-label={`View v${v}`}
+                                onClick={() => showVersion(v === latest ? null : v)}
+                              >
+                                View
+                              </button>
+                            )}
+                            {v !== latest && (
+                              <button
+                                type="button"
+                                aria-label={`Compare v${v} with latest`}
+                                onClick={() => runCompare(v, latest)}
+                              >
+                                Compare with latest
+                              </button>
+                            )}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {versions.length > 1 && (
+                <form
+                  className="wf-compare"
+                  aria-label="Compare two versions"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const from =
+                      pickFrom ?? (currentVersion === latest ? versions[0]! : currentVersion);
+                    const to = pickTo ?? latest;
+                    if (from !== to) runCompare(from, to);
+                  }}
+                >
+                  <label>
+                    From{' '}
+                    <select
+                      value={
+                        pickFrom ?? (currentVersion === latest ? versions[0]! : currentVersion)
+                      }
+                      onChange={(e) => setPickFrom(Number(e.target.value))}
+                    >
+                      {versions.map((v) => (
+                        <option key={v} value={v}>
+                          v{v}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    To{' '}
+                    <select
+                      value={pickTo ?? latest}
+                      onChange={(e) => setPickTo(Number(e.target.value))}
+                    >
+                      {versions.map((v) => (
+                        <option key={v} value={v}>
+                          v{v}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="submit">Compare</button>
+                </form>
+              )}
+            </section>
+          )}
+          {compare !== null && (
+            <section
+              className="wf-diff-section"
+              aria-label={`Changes from v${compare.from} to v${compare.to}`}
+            >
+              <div className="wf-toolbar">
+                <h3>
+                  Changes from v{compare.from} to v{compare.to}
+                </h3>
+                <button type="button" onClick={closeCompare}>
+                  Close
+                </button>
+              </div>
+              {compareError && (
+                <p role="alert" className="error">
+                  {compareError}
+                </p>
+              )}
+              {compareChanges === null && !compareError && <p className="muted">Loading…</p>}
+              {compareChanges !== null && (
+                <>
+                  {compareChanges.length > 0 && asColumns && (
+                    <p className="muted">Highlighted on the diagram below.</p>
+                  )}
+                  <VersionDiff
+                    changes={compareChanges}
+                    label={`Changes from v${compare.from} to v${compare.to}`}
+                    empty="These versions are the same."
+                  />
+                </>
+              )}
+            </section>
+          )}
+          {warning !== null && (
+            <p className="wf-note wf-version-warning" role="alert">
+              {warning}
+            </p>
+          )}
+          {dirty && (
+            <p className="muted wf-note">
+              Running tickets keep the version they started on; new tickets and reopened ones use
+              the new version.
+            </p>
+          )}
+          {!dirty && shown && asColumns && (
+            <p className="muted wf-note">
+              Each column is a state on the board, and each arrow the transitions between two
+              columns. Click a column to edit its title and work, or an arrow to edit who takes the
+              move, for which tickets and what it requires (or Tab to it and press Enter). “+”
+              between two columns adds one; drag a column’s edge handle onto another column (or
+              press it) to add a transition.
+            </p>
+          )}
+          {shapeChanged && (
+            <p className="muted wf-note" role="note">
+              Shape changes apply to new and reopened tickets; a column with tickets in it can’t be
+              removed. Saving your own <code>{ID}</code> stops newer shipped defaults installing
+              themselves.
+            </p>
+          )}
+          {shown && !asColumns && (
+            <p className="muted wf-note">
+              This version predates board columns; it is shown as a state diagram, read-only.
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+          {shown && asColumns && (
+            <label className="wf-toggle">
+              <input
+                type="checkbox"
+                checked={ticketEditableOf(shown, QUEUED_LANE)}
+                onChange={(e) => edit(setQueuedTicketEditable(shown, e.target.checked))}
+              />
+              People can edit tickets in the {QUEUED_TITLE} column
             </label>
           )}
-          {latest > 0 && (
-            <button
-              type="button"
-              aria-expanded={historyOpen}
-              onClick={() => setHistoryOpen((o) => !o)}
-            >
-              History
-            </button>
+          {shown && asColumns && (
+            <InstructionsEditor definition={shown} issues={allIssues} onChange={edit} />
           )}
-        </div>
-        {canEditWorkflows && detail?.default_available != null && latest > 0 && (
-          <DefaultBanner
-            api={api}
-            available={detail.default_available}
-            latest={latest}
-            dirty={dirty}
-            onAdopted={(v) => {
-              setDraft(null);
-              setSelected(null);
-              setServerErrors([]);
-              setLatestSeen((n) => Math.max(n, v));
-              setVersion(null);
-              setReloads((n) => n + 1);
-              toast(`Adopted the default as v${v}`);
-            }}
-            onStale={() => {
-              setVersion(null);
-              setReloads((n) => n + 1);
-            }}
-          />
-        )}
-        {shown === null && !error && <p className="muted">Loading…</p>}
-        {!dirty && detail && version !== null && version !== latest && (
-          <p className="wf-old-version" role="note">
-            <span>
-              You’re viewing v{currentVersion}
-              {shownInfo ? `, saved ${savedOn(shownInfo.created_at)}` : ''}
-              {savedBy(shownInfo?.created_by) !== null
-                ? ` by ${savedBy(shownInfo?.created_by)}`
-                : ''}
-              {shownInfo?.note ? `: ${shownInfo.note}` : ''}.
-            </span>
-            <button type="button" onClick={() => runCompare(currentVersion, latest)}>
-              Compare with latest
-            </button>
-          </p>
-        )}
-        {historyOpen && latest > 0 && (
-          <section className="wf-diff-section" aria-label="Version history">
-            <h3>Version history</h3>
-            <table className="wf-history">
-              <thead>
-                <tr>
-                  <th scope="col">Version</th>
-                  <th scope="col">Saved</th>
-                  <th scope="col">By</th>
-                  <th scope="col">Note</th>
-                  <th scope="col" aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {[...versions].reverse().map((v) => {
-                  const info = infoOf(v);
-                  return (
-                    <tr key={v} aria-current={v === currentVersion ? 'true' : undefined}>
-                      <td>
-                        v{v}
-                        {v === latest ? ' (latest)' : ''}
-                      </td>
-                      <td>{info ? savedOn(info.created_at) : '—'}</td>
-                      <td>{savedBy(info?.created_by) ?? <span className="muted">unknown</span>}</td>
-                      <td>{info?.note ?? <span className="muted">—</span>}</td>
-                      <td>
-                        <span className="wf-history-actions">
-                          {v !== currentVersion && (
-                            <button
-                              type="button"
-                              disabled={dirty}
-                              aria-label={`View v${v}`}
-                              onClick={() => showVersion(v === latest ? null : v)}
-                            >
-                              View
-                            </button>
-                          )}
-                          {v !== latest && (
-                            <button
-                              type="button"
-                              aria-label={`Compare v${v} with latest`}
-                              onClick={() => runCompare(v, latest)}
-                            >
-                              Compare with latest
-                            </button>
-                          )}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {versions.length > 1 && (
-              <form
-                className="wf-compare"
-                aria-label="Compare two versions"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const from =
-                    pickFrom ?? (currentVersion === latest ? versions[0]! : currentVersion);
-                  const to = pickTo ?? latest;
-                  if (from !== to) runCompare(from, to);
-                }}
-              >
-                <label>
-                  From{' '}
-                  <select
-                    value={pickFrom ?? (currentVersion === latest ? versions[0]! : currentVersion)}
-                    onChange={(e) => setPickFrom(Number(e.target.value))}
-                  >
-                    {versions.map((v) => (
-                      <option key={v} value={v}>
-                        v{v}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  To{' '}
-                  <select
-                    value={pickTo ?? latest}
-                    onChange={(e) => setPickTo(Number(e.target.value))}
-                  >
-                    {versions.map((v) => (
-                      <option key={v} value={v}>
-                        v{v}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button type="submit">Compare</button>
-              </form>
-            )}
-          </section>
-        )}
-        {compare !== null && (
-          <section
-            className="wf-diff-section"
-            aria-label={`Changes from v${compare.from} to v${compare.to}`}
-          >
-            <div className="wf-toolbar">
-              <h3>
-                Changes from v{compare.from} to v{compare.to}
-              </h3>
-              <button type="button" onClick={closeCompare}>
-                Close
-              </button>
-            </div>
-            {compareError && (
-              <p role="alert" className="error">
-                {compareError}
-              </p>
-            )}
-            {compareChanges === null && !compareError && <p className="muted">Loading…</p>}
-            {compareChanges !== null && (
-              <>
-                {compareChanges.length > 0 && asColumns && (
-                  <p className="muted">Highlighted on the diagram below.</p>
-                )}
-                <VersionDiff
-                  changes={compareChanges}
-                  label={`Changes from v${compare.from} to v${compare.to}`}
-                  empty="These versions are the same."
-                />
-              </>
-            )}
-          </section>
-        )}
-        {warning !== null && (
-          <p className="wf-note wf-version-warning" role="alert">
-            {warning}
-          </p>
-        )}
-        {dirty && (
-          <p className="muted wf-note">
-            Running tickets keep the version they started on; new tickets and reopened ones use the
-            new version.
-          </p>
-        )}
-        {!dirty && shown && asColumns && (
-          <p className="muted wf-note">
-            Each column is a state on the board, and each arrow the transitions between two columns.
-            Click a column to edit its title and work, or an arrow to edit who takes the move, for
-            which tickets and what it requires (or Tab to it and press Enter). “+” between two
-            columns adds one; drag a column’s edge handle onto another column (or press it) to add a
-            transition.
-          </p>
-        )}
-        {shapeChanged && (
-          <p className="muted wf-note" role="note">
-            Shape changes apply to new and reopened tickets; a column with tickets in it can’t be
-            removed. Saving your own <code>{ID}</code> stops newer shipped defaults installing
-            themselves.
-          </p>
-        )}
-        {shown && !asColumns && (
-          <p className="muted wf-note">
-            This version predates board columns; it is shown as a state diagram, read-only.
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
-        {shown && asColumns && (
-          <label className="wf-toggle">
-            <input
-              type="checkbox"
-              checked={ticketEditableOf(shown, QUEUED_LANE)}
-              onChange={(e) => edit(setQueuedTicketEditable(shown, e.target.checked))}
+          {shown && asColumns && (
+            <NotifyPolicyEditor definition={shown} issues={allIssues} onChange={edit} />
+          )}
+          {shown && asColumns && (
+            <BasesEditor
+              definition={shown}
+              issues={allIssues}
+              queuedUses={queuedBaseUses}
+              onChange={edit}
             />
-            People can edit tickets in the {QUEUED_TITLE} column
-          </label>
-        )}
-        {shown && asColumns && (
-          <InstructionsEditor definition={shown} issues={allIssues} onChange={edit} />
-        )}
-        {shown && asColumns && (
-          <NotifyPolicyEditor definition={shown} issues={allIssues} onChange={edit} />
-        )}
-        {shown && asColumns && (
-          <ColumnsDiagram
-            definition={shown}
-            selected={selectedState}
-            errors={errorStates}
-            onSelectColumn={selectColumn}
-            onSelectEdge={selectEdge}
-            selectedEdge={selectedEdge}
-            errorEdges={errorEdges}
-            {...(highlight
-              ? { changedStates: highlight.states, changedEdges: highlight.edges }
-              : {})}
-            onAddColumn={setAddingAfter}
-            onDrawTransition={(from, to) => {
-              const { definition, name } = addTransition(shown, from, columnStates(shown), to);
-              edit(definition);
-              setSelected({ kind: 'transition', from, name, created: true });
+          )}
+          {saveWarnings.length > 0 && !dirty && (
+            <ul className="muted wf-note wf-save-warnings" aria-label="Warnings from the last save">
+              {saveWarnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
+          {shown && asColumns && (
+            <ColumnsDiagram
+              definition={shown}
+              selected={selectedState}
+              errors={errorStates}
+              onSelectColumn={selectColumn}
+              onSelectEdge={selectEdge}
+              selectedEdge={selectedEdge}
+              errorEdges={errorEdges}
+              {...(highlight
+                ? { changedStates: highlight.states, changedEdges: highlight.edges }
+                : {})}
+              onAddColumn={setAddingAfter}
+              onDrawTransition={(from, to) => {
+                const { definition, name } = addTransition(shown, from, columnStates(shown), to);
+                edit(definition);
+                setSelected({ kind: 'transition', from, name, created: true });
+              }}
+            />
+          )}
+          {shown && !asColumns && <WorkflowDiagram definition={shown} />}
+          {shown && asColumns && (
+            <div className="wf-legend muted" aria-label="Legend" role="group">
+              <span className="wf-legend-kinds">
+                {LANE_KINDS.map((k) => (
+                  <span key={k} className={`wf-legend-kind wf-lane-kind-${k}`}>
+                    <span className="wf-legend-icon" aria-hidden="true">
+                      {LANE_KIND_ICONS[k]}
+                    </span>
+                    {LANE_KIND_LABELS[k]}
+                  </span>
+                ))}
+              </span>
+              <span>→ a transition (click to edit) · N ways: several on one arrow</span>
+              <span>✓ has rules (checks, review, actions or conditions)</span>
+              <span>- - - requirements not met: back, a bounded number of times</span>
+            </div>
+          )}
+          <ProposalsPanel
+            api={api}
+            dirty={dirty}
+            initialOpenId={proposalId}
+            onHighlight={setProposalHighlight}
+            onWorkflowApplied={() => {
+              // Unsaved edits stay; the panel warned that saving them stores the draft (made from
+              // the older version) on top of the applied change.
+              if (dirty) return;
+              setVersion(null);
+              setReloads((n) => n + 1);
             }}
           />
+        </section>
+        {reviewing && (
+          <SaveReviewDialog
+            latest={reviewBase?.version ?? null}
+            changes={reviewChanges}
+            error={reviewError}
+            saving={saving}
+            onSave={(note) => void save(note)}
+            onCancel={() => setReviewing(false)}
+          />
         )}
-        {shown && !asColumns && <WorkflowDiagram definition={shown} />}
-        {shown && asColumns && (
-          <div className="wf-legend muted" aria-label="Legend" role="group">
-            <span className="wf-legend-kinds">
-              {LANE_KINDS.map((k) => (
-                <span key={k} className={`wf-legend-kind wf-lane-kind-${k}`}>
-                  <span className="wf-legend-icon" aria-hidden="true">
-                    {LANE_KIND_ICONS[k]}
-                  </span>
-                  {LANE_KIND_LABELS[k]}
-                </span>
-              ))}
-            </span>
-            <span>→ a transition (click to edit) · N ways: several on one arrow</span>
-            <span>✓ has rules (checks, review, actions or conditions)</span>
-            <span>- - - requirements not met: back, a bounded number of times</span>
-          </div>
+        {addingAfter !== null && shown && asColumns && (
+          <AddColumnDialog
+            definition={shown}
+            after={addingAfter}
+            onAdd={(col) => {
+              const { definition, name } = addColumn(shown, col);
+              edit(definition);
+              setAddingAfter(null);
+              setSelected({ kind: 'column', state: name });
+            }}
+            onCancel={() => setAddingAfter(null)}
+          />
         )}
-        <ProposalsPanel
-          api={api}
-          dirty={dirty}
-          initialOpenId={proposalId}
-          onHighlight={setProposalHighlight}
-          onWorkflowApplied={() => {
-            // Unsaved edits stay; the panel warned that saving them stores the draft (made from
-            // the older version) on top of the applied change.
-            if (dirty) return;
-            setVersion(null);
-            setReloads((n) => n + 1);
-          }}
-        />
-      </section>
-      {reviewing && (
-        <SaveReviewDialog
-          latest={reviewBase?.version ?? null}
-          changes={reviewChanges}
-          error={reviewError}
-          saving={saving}
-          onSave={(note) => void save(note)}
-          onCancel={() => setReviewing(false)}
-        />
-      )}
-      {addingAfter !== null && shown && asColumns && (
-        <AddColumnDialog
-          definition={shown}
-          after={addingAfter}
-          onAdd={(col) => {
-            const { definition, name } = addColumn(shown, col);
-            edit(definition);
-            setAddingAfter(null);
-            setSelected({ kind: 'column', state: name });
-          }}
-          onCancel={() => setAddingAfter(null)}
-        />
-      )}
 
-      {selectedState && shown && asColumns && (
-        <ColumnEditor
-          key={selectedState}
-          definition={shown}
-          state={selectedState}
-          issues={allIssues.filter((i) => i.state === selectedState)}
-          onChange={edit}
-          onSelectTransition={(name) =>
-            setSelected({ kind: 'transition', from: selectedState, name })
-          }
-          onAddTransition={() => {
-            const { definition, name } = addTransition(shown, selectedState, columnStates(shown));
-            edit(definition);
-            setSelected({ kind: 'transition', from: selectedState, name, created: true });
-          }}
-          onClose={() => setSelected(null)}
-          onMove={(by) => edit(moveColumnBy(shown, selectedState, by))}
-          canMove={{
-            left: columnStates(shown).indexOf(selectedState) > 0,
-            right: columnStates(shown).indexOf(selectedState) < columnStates(shown).length - 1,
-          }}
-          removalProblems={columnRemovalProblems(shown, selectedState, ticketCounts)}
-          onRemove={() => {
-            edit(removeColumn(shown, selectedState));
-            setSelected(null);
-          }}
-          fullScreen={fullScreen}
-        />
-      )}
-      {selectedArrow && shown && asColumns && (
-        <ArrowEditor
-          definition={shown}
-          from={selectedArrow.from}
-          to={selectedArrow.to}
-          issues={allIssues.filter((i) => i.transition?.from === selectedArrow.from)}
-          onSelectTransition={(name) =>
-            setSelected({ kind: 'transition', from: selectedArrow.from, name })
-          }
-          onSelectColumn={selectColumn}
-          onClose={() => setSelected(null)}
-          fullScreen={fullScreen}
-        />
-      )}
-      {selected?.kind === 'transition' && selectedTransition && shown && asColumns && (
-        <TransitionEditor
-          definition={shown}
-          from={selected.from}
-          name={selected.name}
-          {...(selected.created ? { focusTitle: true } : {})}
-          issues={allIssues.filter((i) => i.transition?.from === selected.from)}
-          repoOverrides={repoOverrides}
-          onChange={edit}
-          onSelect={(name) => setSelected({ kind: 'transition', from: selected.from, name })}
-          onRemoved={() => {
-            // Back to the arrow's list while it still stands for several, else the column.
-            const goto = selectedTransition.goto;
-            setSelected(
-              goto !== selected.from && arrowTransitions(shown, selected.from, goto).length > 2
-                ? { kind: 'arrow', from: selected.from, to: goto }
-                : { kind: 'column', state: selected.from },
-            );
-          }}
-          onSelectColumn={selectColumn}
-          onSelectArrow={selectArrow}
-          onBack={() => setSelected(parentOf(shown, selected.from, selected.name))}
-          onClose={() => setSelected(null)}
-          fullScreen={fullScreen}
-          onDefer={(prefix) => setDeferred((d) => withDeferred(d, prefix))}
-          onReveal={(prefix) => setDeferred((d) => withoutDeferred(d, prefix))}
-          onRevealUnder={(prefix) => setDeferred((d) => withoutUnder(d, prefix))}
-        />
-      )}
-      {dirty && shown && (
-        <SaveBar
-          definition={shown}
-          issues={allIssues}
-          nextVersion={latest + 1}
-          warning={warning}
-          saving={saving}
-          problemsOpen={problemsOpen}
-          onProblemsOpen={setProblemsOpen}
-          canShow={asColumns}
-          onShow={showIssue}
-          onDiscard={discard}
-          onSave={openReview}
-        />
-      )}
-    </div>
+        {selectedState && shown && asColumns && (
+          <ColumnEditor
+            key={selectedState}
+            definition={shown}
+            state={selectedState}
+            issues={allIssues.filter((i) => i.state === selectedState)}
+            onChange={edit}
+            onSelectTransition={(name) =>
+              setSelected({ kind: 'transition', from: selectedState, name })
+            }
+            onAddTransition={() => {
+              const { definition, name } = addTransition(shown, selectedState, columnStates(shown));
+              edit(definition);
+              setSelected({ kind: 'transition', from: selectedState, name, created: true });
+            }}
+            onClose={() => setSelected(null)}
+            onMove={(by) => edit(moveColumnBy(shown, selectedState, by))}
+            canMove={{
+              left: columnStates(shown).indexOf(selectedState) > 0,
+              right: columnStates(shown).indexOf(selectedState) < columnStates(shown).length - 1,
+            }}
+            removalProblems={columnRemovalProblems(shown, selectedState, ticketCounts)}
+            onRemove={() => {
+              edit(removeColumn(shown, selectedState));
+              setSelected(null);
+            }}
+            fullScreen={fullScreen}
+          />
+        )}
+        {selectedArrow && shown && asColumns && (
+          <ArrowEditor
+            definition={shown}
+            from={selectedArrow.from}
+            to={selectedArrow.to}
+            issues={allIssues.filter((i) => i.transition?.from === selectedArrow.from)}
+            onSelectTransition={(name) =>
+              setSelected({ kind: 'transition', from: selectedArrow.from, name })
+            }
+            onSelectColumn={selectColumn}
+            onClose={() => setSelected(null)}
+            fullScreen={fullScreen}
+          />
+        )}
+        {selected?.kind === 'transition' && selectedTransition && shown && asColumns && (
+          <TransitionEditor
+            definition={shown}
+            from={selected.from}
+            name={selected.name}
+            {...(selected.created ? { focusTitle: true } : {})}
+            issues={allIssues.filter((i) => i.transition?.from === selected.from)}
+            repoOverrides={repoOverrides}
+            onChange={edit}
+            onSelect={(name) => setSelected({ kind: 'transition', from: selected.from, name })}
+            onRemoved={() => {
+              // Back to the arrow's list while it still stands for several, else the column.
+              const goto = selectedTransition.goto;
+              setSelected(
+                goto !== selected.from && arrowTransitions(shown, selected.from, goto).length > 2
+                  ? { kind: 'arrow', from: selected.from, to: goto }
+                  : { kind: 'column', state: selected.from },
+              );
+            }}
+            onSelectColumn={selectColumn}
+            onSelectArrow={selectArrow}
+            onBack={() => setSelected(parentOf(shown, selected.from, selected.name))}
+            onClose={() => setSelected(null)}
+            fullScreen={fullScreen}
+            onDefer={(prefix) => setDeferred((d) => withDeferred(d, prefix))}
+            onReveal={(prefix) => setDeferred((d) => withoutDeferred(d, prefix))}
+            onRevealUnder={(prefix) => setDeferred((d) => withoutUnder(d, prefix))}
+          />
+        )}
+        {dirty && shown && (
+          <SaveBar
+            definition={shown}
+            issues={allIssues}
+            nextVersion={latest + 1}
+            warning={warning}
+            saving={saving}
+            problemsOpen={problemsOpen}
+            onProblemsOpen={setProblemsOpen}
+            canShow={asColumns}
+            onShow={showIssue}
+            onDiscard={discard}
+            onSave={openReview}
+          />
+        )}
+      </div>
+    </BasePreviewContext.Provider>
   );
 }

@@ -2,6 +2,7 @@
 // `on_broken.instruction`): its own text, or a saved instruction picked from the workflow's
 // `instructions`, stored as a `$instructions.<slug>` ref. A ref shows its text read-only.
 import { instructionRef, type WorkflowDefinition } from '@conductor/shared';
+import { BasePreview } from './BasePreview.js';
 import { instructionsOf, refOf } from './instructions.js';
 
 interface InstructionFieldProps {
@@ -58,6 +59,7 @@ export function InstructionField({
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value.trim() === '' ? undefined : e.target.value)}
       />
+      <BasePreview text={text} />
       {slug !== null && (
         <span className="muted wf-instruction-note">
           Saved instruction <code>{slug}</code>: edit it under Instructions.

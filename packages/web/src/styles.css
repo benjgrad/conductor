@@ -1540,6 +1540,31 @@ button.link {
 .create-ticket .wide {
   grid-column: 1 / -1;
 }
+/* ADR-0039 (B3): the ticket's Base, laid out like the Repo field; a custom ref adds two inputs. */
+.base-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.base-field > select {
+  max-width: 32rem;
+}
+.base-field-custom {
+  max-width: 32rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-1) var(--space-2);
+}
+.base-field-custom .error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.base-field-note {
+  margin: 0;
+}
 /* The Repo combobox: label and input like the other fields, its list under the input. */
 .repo-field {
   position: relative;
@@ -2147,6 +2172,15 @@ button.link {
 }
 .tag-size {
   color: var(--muted);
+}
+/* ADR-0039 (B3): the card's base; a long branch name is cut, the title has it whole. */
+.tag-base {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pending-move {
   font-size: var(--text-sm);

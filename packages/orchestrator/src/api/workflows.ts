@@ -21,7 +21,7 @@ import { conductorDefaultAvailable, newestShippedConductor } from '../engine/see
 const PG_UNIQUE_VIOLATION = '23505';
 
 export type SaveWorkflowResult =
-  | { ok: true; id: string; version: number }
+  | { ok: true; id: string; version: number; warnings?: WorkflowValidationError[] }
   | { ok: false; code: 'invalid_workflow'; errors: WorkflowValidationError[] }
   | { ok: false; code: 'conflict'; latest: number | null };
 
@@ -102,13 +102,53 @@ export async function removedStatesInUse(
   });
 }
 
-/** Insert a validated definition as version max + 1 (refused by rule 18, `removedStatesInUse`). */
+/**
+ * ADR-0039 (B3): the `bases` of the latest stored version of `def.id` that `def` drops, but that a
+ * ticket still in Queued (`placeCard`: not finished, and no session with a state yet) names as its `base`. One problem
+ * per such base, at `bases.<name>` (rule 26: a ticket's base names a key of `bases`).
+ */
+export async function removedBasesInUse(
+  q: Queryable,
+  def: WorkflowDefinition,
+): Promise<WorkflowValidationError[]> {
+  const prev = await latestWorkflow(q, def.id);
+  if (prev === null) return [];
+  const prevBases = prev.def?.bases ?? {};
+  const dropped = Object.keys(prevBases).filter(
+    (n) => def.bases === undefined || !Object.prototype.hasOwnProperty.call(def.bases, n),
+  );
+  if (dropped.length === 0) return [];
+  const r = await q.query<{ name: string; n: string }>(
+    "SELECT t.base #>> '{}' AS name, count(*)::text AS n FROM ticket t " +
+      "WHERE t.workflow_id = $1 AND t.status NOT IN ('done', 'cancelled') " +
+      "AND jsonb_typeof(t.base) = 'string' AND t.base #>> '{}' = ANY($2::text[]) " +
+      'AND NOT EXISTS (SELECT 1 FROM session s ' +
+      'WHERE s.ticket_id = t.id AND s.workflow_state IS NOT NULL) ' +
+      "GROUP BY t.base #>> '{}' ORDER BY 1",
+    [def.id, dropped],
+  );
+  return r.rows.map((row) => {
+    const n = Number(row.n);
+    return {
+      rule: 26 as const,
+      path: ['bases', row.name],
+      message:
+        `${n} queued ticket${n === 1 ? ' uses' : 's use'} base "${row.name}": change ` +
+        `${n === 1 ? 'its' : 'their'} base before removing it`,
+    };
+  });
+}
+
+/**
+ * Insert a validated definition as version max + 1 (refused by rule 18, `removedStatesInUse`, and
+ * by rule 26 for a base queued tickets use, `removedBasesInUse`).
+ */
 export async function insertWorkflowVersion(
   q: Queryable,
   def: WorkflowDefinition,
   opts: SaveWorkflowOptions = {},
 ): Promise<SaveWorkflowResult> {
-  const inUse = await removedStatesInUse(q, def);
+  const inUse = [...(await removedStatesInUse(q, def)), ...(await removedBasesInUse(q, def))];
   if (inUse.length > 0) return { ok: false, code: 'invalid_workflow', errors: inUse };
   // A concurrent save of the same id loses the primary-key race and retries.
   for (let attempt = 0; ; attempt++) {
@@ -152,7 +192,11 @@ export async function saveWorkflowDefinition(
 ): Promise<SaveWorkflowResult> {
   const result = validateWorkflow(definition);
   if (!result.ok) return { ok: false, code: 'invalid_workflow', errors: result.errors };
-  return insertWorkflowVersion(q, result.def, opts);
+  const saved = await insertWorkflowVersion(q, result.def, opts);
+  // ADR-0039: warnings never block a save; the editor shows them after it.
+  return saved.ok && result.warnings !== undefined
+    ? { ...saved, warnings: result.warnings }
+    : saved;
 }
 
 export type GuardedSaveResult =

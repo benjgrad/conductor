@@ -720,6 +720,11 @@ export const BoardCardSchema = z.object({
    * null before a start, or for a session started before B2. Absent ≡ null (older servers).
    */
   base_ref: SessionBaseSchema.nullable().default(null),
+  /**
+   * ADR-0039: `ticket.base`, the ticket's own base (a name in the workflow's `bases`, or
+   * `{ref, pr_into?}`); null = the workflow's `base_default`. Absent ≡ null (older servers).
+   */
+  base: TicketBaseSchema.nullable().default(null),
   /** ADR-0011: in a gate step, its live checklist (`pendingOfStep`); null otherwise. */
   pending: BoardPendingSchema.nullable().default(null),
   /** ADR-0037 P1: waiting in a watched state, the watch's last result; null otherwise. */
@@ -1797,6 +1802,11 @@ export const SaveWorkflowRequestSchema = z.object({
 export const SaveWorkflowResponseSchema = z.object({
   id: z.string(),
   version: z.number().int().positive(),
+  /**
+   * ADR-0039: problems that don't block the save (a `cmd` base without `pr_into`), in the same
+   * `{path, message}` shape as a 400's `details`. Absent ≡ none.
+   */
+  warnings: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
 });
 
 /**
@@ -1883,6 +1893,8 @@ export interface CardTicketLike {
   kind?: TicketKind | null;
   /** ADR-0037 §4 (C2): `ticket.size`; absent ≡ null. */
   size?: TicketSize | null;
+  /** ADR-0039: the `ticket.base` jsonb (`TicketBase`); absent or invalid ≡ null. */
+  base?: unknown;
   /** UX-13a: the agent's name (joined from `agent`); absent ≡ the card omits `agent_name`. */
   agent_name?: string | null;
   /** ADR-0032: `ticket.schedule_id` and the schedule's name (joined); absent ≡ omitted. */
@@ -2048,6 +2060,7 @@ export function toBoardCard(
     kind: ticket.kind ?? null,
     size: ticket.size ?? null,
     base_ref: session ? sessionBaseOf(session.base_ref) : null,
+    base: ticketBaseOf(ticket.base),
     pending:
       session && place.checking ? pendingOfStep(view.def, stepOfContext(session.context)) : null,
     watching: session && !place.checking ? watchingOfSession(session) : null,

@@ -25,6 +25,8 @@ import {
   type TicketStatus,
   validateWorkflow,
   type WorkflowDefinition,
+  type WorkflowValidationError,
+  ticketBaseOf,
   RETRY_CHECKS,
 } from '@conductor/shared';
 import { afterRepoChecksChangedSafe } from '../api/check-config.js';
@@ -464,6 +466,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         waiting_on: waiting(c),
         kind: c.kind,
         repo: c.repo,
+        // ADR-0039: the ticket's own base (a name, or an explicit ref); absent = the default.
+        ...(c.base !== null ? { base: typeof c.base === 'string' ? c.base : c.base.ref } : {}),
         needs_input: WAITING_ON_USER.has(waiting(c)),
         ...(c.input_request ? { question: clip(c.input_request.question, QUESTION_MAX) } : {}),
         ...(c.pr_url ? { pr_url: c.pr_url } : {}),
@@ -570,7 +574,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       description:
         'One ticket: waiting_on (read it, not status), status_line, status_report, the open ' +
         'question (input_request_id), the transitions the user can take, recent moves, the PR, ' +
-        'the body, and a cursor for wait_for_updates.',
+        'the base, the body, and a cursor for wait_for_updates.',
       inputSchema: { ticket: z.string().max(64).describe('Ticket id or its first 8 characters') },
       annotations: readOnly,
     },
@@ -584,7 +588,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           body: string;
           kind: string | null;
           status: string;
-        }>('SELECT repo, body, kind, status FROM ticket WHERE id = $1', [t.id]);
+          base: unknown;
+        }>('SELECT repo, body, kind, status, base FROM ticket WHERE id = $1', [t.id]);
         const row = r.rows[0]!;
         const waiting: WaitingOn =
           row.status === 'done' || row.status === 'cancelled' ? 'nobody' : 'machine';
@@ -593,6 +598,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           title: t.title,
           repo: row.repo,
           kind: row.kind,
+          base: ticketBaseOf(row.base),
+          base_ref: null,
           column: 'queued',
           status: row.status,
           waiting_on: waiting,
@@ -635,6 +642,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         title: d.card.title,
         repo: d.card.repo,
         kind: d.card.kind,
+        base: d.card.base,
+        base_ref: d.card.base_ref,
         column: d.card.column,
         state,
         status: ticketStatus === 'cancelled' ? 'cancelled' : d.card.status,
@@ -1513,7 +1522,11 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
   } as const;
 
   /** The approval guard, then the insert; the tool result either way. */
-  const saveChecked = async (def: WorkflowDefinition, baseVersion: number | undefined) => {
+  const saveChecked = async (
+    def: WorkflowDefinition,
+    baseVersion: number | undefined,
+    warnings: WorkflowValidationError[] = [],
+  ) => {
     const res = await saveGuarded(db, def, {
       createdBy: by,
       accountId: who.scope.account_id,
@@ -1548,6 +1561,16 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       id: res.id,
       version: res.version,
       default_available: await conductorDefaultAvailable(db, res.id),
+      // ADR-0039: problems that don't block the save (a `cmd` base without `pr_into`).
+      ...(warnings.length > 0
+        ? {
+            warnings: warnings.map((w) => ({
+              rule: w.rule,
+              path: pathString(w.path),
+              message: w.message,
+            })),
+          }
+        : {}),
     });
   };
 
@@ -1585,7 +1608,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
             : {}),
         });
       }
-      return saveChecked(checked.def, base_version);
+      return saveChecked(checked.def, base_version, checked.warnings ?? []);
     },
   );
 

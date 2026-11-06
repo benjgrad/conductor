@@ -59,6 +59,7 @@ export const BOARD_CARD_FIXTURE: BoardCard = {
   kind: null,
   size: null,
   base_ref: null,
+  base: null,
   pending: null,
   watching: null,
   human_transitions: [],

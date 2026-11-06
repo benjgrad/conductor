@@ -262,6 +262,23 @@ describe('board card in a gate step (UX-5)', () => {
     const conditions = screen.getByText('Card 2').closest('article')!;
     expect(conditions.querySelector('.status-conductor')).toBeNull();
   });
+
+  it('ADR-0037 P4: a held move says "Queued behind #N", not "Conductor is checking"', () => {
+    renderCards([
+      step(1, {
+        status: 'waiting_external',
+        checking: {
+          ...mockChecking(0),
+          phase: 'held',
+          label: 'Queued behind #aaaaaaaa',
+          hold: { behind: ['aaaaaaaa'], since: '2026-11-06T12:00:00.000Z' },
+        },
+      }),
+    ]);
+    const a = article('Card 1');
+    expect(a.getByText('Queued behind #aaaaaaaa')).toBeTruthy();
+    expect(a.queryByText(/Conductor is checking/)).toBeNull();
+  });
 });
 
 /** Text a sighted user sees: `.visually-hidden` spans left out. */

@@ -14,11 +14,22 @@ export function agentIdle(card: Pick<BoardCard, 'checking'>): boolean {
 }
 
 /**
- * Conductor itself is running the step (checks, review, actions). Not in `conditions`: there the
- * session is `waiting_external` and the card keeps its "waiting for" checklist.
+ * Conductor itself is running the step (checks, review, actions). Not in `conditions` or `held`:
+ * there the session is `waiting_external` and the card keeps its "waiting for" checklist.
  */
 export function isConductorStep(card: Pick<BoardCard, 'checking'>): boolean {
-  return card.checking !== null && card.checking.phase !== 'conditions';
+  return (
+    card.checking !== null && card.checking.phase !== 'conditions' && card.checking.phase !== 'held'
+  );
+}
+
+/**
+ * ADR-0037 P4: the move waits its turn (`requires.concurrency`): "Queued behind #abcd1234", or
+ * null when the card isn't held.
+ */
+export function queuedSummary(card: Pick<BoardCard, 'checking'>): string | null {
+  if (card.checking?.phase !== 'held') return null;
+  return card.checking.label ?? 'Queued';
 }
 
 /** FR-5: the step's next check is queued behind the machine's build semaphore. */

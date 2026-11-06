@@ -24,6 +24,7 @@ import {
   swap,
   useFocusNew,
 } from './ChecksFields.js';
+import { ConcurrencyFields } from './ConcurrencyFields.js';
 import { ConditionRow } from './ConditionFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import { EditorHead, type Crumb } from './EditorHead.js';
@@ -254,6 +255,13 @@ function TransitionForm({
     const suffix = i.path.startsWith(requiresBase) ? i.path.slice(requiresBase.length) : null;
     return suffix !== null && checkSuffixes.has(suffix) ? [{ suffix, message: i.message }] : [];
   });
+  // ADR-0037 P4: the "One at a time" block shows its own problems (relative to it).
+  const concBase = `${base}.requires.concurrency`;
+  const concIssues = issues.flatMap((i) => {
+    if (i.path !== concBase && !i.path.startsWith(`${concBase}.`)) return [];
+    shownPaths.add(i.path);
+    return [{ suffix: i.path.slice(concBase.length), message: i.message }];
+  });
   const items = r.review?.items ?? [];
   const setItems = (next: string[]) =>
     setR({ review: r.review ? { ...r.review, items: next } : { items: next } });
@@ -290,6 +298,7 @@ function TransitionForm({
   // until a new problem appears in it (which opens it again).
   const errors: Record<TransitionSection, number> = {
     who: nameInvalid ? 1 : 0,
+    concurrency: 0,
     checks: 0,
     review: 0,
     actions: 0,
@@ -304,6 +313,7 @@ function TransitionForm({
   }
   const content: Record<TransitionSection, boolean> = {
     who: true,
+    concurrency: r.concurrency !== undefined,
     checks: checks.length > 0,
     review: items.length > 0,
     actions: actions.length > 0,
@@ -547,6 +557,29 @@ function TransitionForm({
           {columnTitle(definition, t.goto)} has requirements to enter (old version). Saved as
           transition requirements: saving moves them onto this transition.
         </p>
+      )}
+
+      {/* ADR-0037 P4 (rule 20): only an agent's move can be held. */}
+      {((t.actor ?? inferred) === 'agent' || r.concurrency !== undefined) && (
+        <Section
+          title="One at a time"
+          status={
+            r.concurrency === undefined
+              ? '(off)'
+              : `(${r.concurrency.max_in_flight} per ${
+                  r.concurrency.key === '$repo' ? 'repo' : 'repo and kind'
+                }${r.concurrency.overlap === 'planned_files' ? ', files overlap' : ''})`
+          }
+          {...section('concurrency')}
+        >
+          <ConcurrencyFields
+            uid={`${uid}-conc`}
+            definition={definition}
+            value={r.concurrency}
+            onChange={(next) => setR({ concurrency: next })}
+            issues={concIssues}
+          />
+        </Section>
       )}
 
       <Section title="Checks" status={`(${checks.length})`} {...section('checks')}>
@@ -869,6 +902,7 @@ function TransitionForm({
 
 const SECTIONS: readonly TransitionSection[] = [
   'who',
+  'concurrency',
   'checks',
   'review',
   'actions',

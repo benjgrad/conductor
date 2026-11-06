@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SessionStatusSchema } from '../domain.js';
 import { BOARD_CARD_FIXTURE, BOARD_SSE_FIXTURES, OUTPUT_CHUNK_FIXTURE } from './fixtures.js';
 import { CONDUCTOR_V1_DEF, boardColumns } from '../workflow/conductor.js';
-import {
-  BoardCardSchema,
-  CreateTicketRequestSchema,
-  UpdateTicketRequestSchema,
-} from './rest.js';
+import { BoardCardSchema, CreateTicketRequestSchema, UpdateTicketRequestSchema } from './rest.js';
 import { CreateScheduleRequestSchema } from './schedules.js';
 import {
   BOARD_SSE_EVENT_TYPES,
@@ -169,7 +165,8 @@ describe('REST DTO defaults', () => {
     }
     expect(CreateTicketRequestSchema.parse(create).size).toBeNull();
     expect(CreateTicketRequestSchema.safeParse({ ...create, size: 'XL' }).success).toBe(false);
-    const { size: _omit, ...older } = BOARD_CARD_FIXTURE;
+    const older: Record<string, unknown> = { ...BOARD_CARD_FIXTURE };
+    delete older.size;
     expect(BoardCardSchema.parse(older).size).toBeNull();
   });
 

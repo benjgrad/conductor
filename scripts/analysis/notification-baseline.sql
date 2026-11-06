@@ -8,6 +8,9 @@
 --           The input and permission rows are rebuilt from input_request / permission_request, so
 --           the count holds even for days when push was off or nobody had subscribed. Transition
 --           pushes can't be rebuilt that way, so they come from the outbox.
+--           Permission pushes were written only from the UXR-32 deploy on (PR #156, merged
+--           2026-11-05 12:17 UTC, live on gradyserver from about 12:30 UTC). Before that, no build
+--           enqueued them, even while push was on for questions; `coverage` counts them apart.
 --   outbox  what was actually enqueued (outbox push_* rows). A push is one idempotency key; one
 --           row is written per subscribed user, so `deliveries` counts the rows. `coverage`
 --           compares the two over the period the outbox has push rows for.
@@ -313,7 +316,15 @@ report AS (
       'legacy_pushes_since_first_outbox_push',
         (SELECT count(*) FROM flagged, outbox_span WHERE flagged.at >= outbox_span.first_at),
       'of_them_in_outbox',
-        (SELECT count(*) FROM flagged JOIN outbox_pushes o ON o.key = flagged.key)
+        (SELECT count(*) FROM flagged JOIN outbox_pushes o ON o.key = flagged.key),
+      -- The same pair for permission prompts alone: they were enqueued only from the UXR-32
+      -- deploy on (see the header), so a gap here before that date is not a missed push.
+      'permissions_since_first_outbox_push',
+        (SELECT count(*) FROM flagged, outbox_span
+          WHERE flagged.kind = 'permission' AND flagged.at >= outbox_span.first_at),
+      'permissions_in_outbox',
+        (SELECT count(*) FROM flagged JOIN outbox_pushes o ON o.key = flagged.key
+          WHERE flagged.kind = 'permission')
     ),
     'v6_estimate', jsonb_build_object(
       'pushes', (SELECT count(*) FROM v6),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkFailureRates,
+  classOf,
   FindingSchema,
   FINDING_RULES,
   GROUPS_MAX,
@@ -609,5 +610,14 @@ describe('presetUses (ADR-0037 P5)', () => {
   it('nothing when no saved reply was offered', () => {
     expect(presetUses([])).toEqual({});
     expect(presetUses([row('t1', 'x', [])])).toEqual({});
+  });
+});
+
+describe('classOf (ADR-0037 P8)', () => {
+  it('a handoff kind is a hand-off; an agent_question a question; anything else a stop', () => {
+    expect(classOf({ kind: 'handoff' })).toBe('handoff');
+    expect(classOf({ kind: 'agent_question' })).toBe('question');
+    expect(classOf({ kind: 'timeout' })).toBe('stop');
+    expect(classOf({ kind: 'handoff', class: 'question' })).toBe('question');
   });
 });

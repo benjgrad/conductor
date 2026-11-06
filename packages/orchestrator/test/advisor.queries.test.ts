@@ -243,4 +243,24 @@ describe('loadAdvisorRows (ADR-0033)', () => {
       typed: 1,
     });
   });
+
+  it('a handoff-kind input (ADR-0037 P8) is a hand-off, not a question', async () => {
+    const d = await account('D');
+    const md = await machine(d);
+    const { sessionId } = await advisorHistory(db.pool, {
+      accountId: d,
+      machineId: md,
+      repo: 'github.com/acme/app',
+      ago: 3,
+      now: NOW,
+    });
+    await db.pool.query(
+      'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at) ' +
+        "VALUES ($1, $2, 'handoff', 'Added /health.', 'implementing', $3)",
+      [randomUUID(), sessionId, daysAgo(3, 90)],
+    );
+    const rows = await loadAdvisorRows(db.pool, { accountId: d, windowDays: 30, now: NOW });
+    expect(rows.inputs.find((i) => i.kind === 'handoff')).toMatchObject({ class: 'handoff' });
+    expect(processMetrics(rows, 'state').totals).toMatchObject({ questions: 1, handoffs: 1 });
+  });
 });

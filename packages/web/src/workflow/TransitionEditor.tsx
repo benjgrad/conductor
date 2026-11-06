@@ -99,6 +99,28 @@ export interface TransitionEditorProps {
 
 const KIND_TEXT: Record<TicketKind, string> = { work: 'Work', personal: 'Personal' };
 
+/** ADR-0037 P8: what a transition's `reason` is: plain, a question, or a hand-off for review. */
+type AskMode = 'plain' | 'question' | 'handoff';
+
+const ASK_MODES: readonly { mode: AskMode; text: string }[] = [
+  { mode: 'plain', text: 'Plain' },
+  { mode: 'question', text: 'Asks a question (the agent’s reason is the question)' },
+  { mode: 'handoff', text: 'Hands off for review (the agent’s reason is its summary)' },
+];
+
+function askMode(t: Pick<TransitionObject, 'question' | 'handoff'>): AskMode {
+  if (t.handoff === true) return 'handoff';
+  return t.question === true ? 'question' : 'plain';
+}
+
+/** The fields one mode sets; the other is cleared (rule 22: not both). */
+function askPatch(mode: AskMode): Partial<TransitionObject> {
+  return {
+    question: mode === 'question' ? true : undefined,
+    handoff: mode === 'handoff' ? true : undefined,
+  };
+}
+
 export function TransitionEditor(props: TransitionEditorProps) {
   const { definition, from, name, onClose, onSelectColumn, onSelectArrow, onBack } = props;
   const fullScreen = props.fullScreen ?? false;
@@ -388,15 +410,22 @@ function TransitionForm({
           ))}
         </fieldset>
         {at('.kinds')}
-        <label className="wf-toggle">
-          <input
-            type="checkbox"
-            checked={t.question === true}
-            onChange={(e) => patch({ question: e.target.checked ? true : undefined })}
-          />
-          Asks a question (the agent’s reason is the question)
-        </label>
+        <fieldset className="wf-kinds">
+          <legend>The agent’s reason</legend>
+          {ASK_MODES.map(({ mode, text }) => (
+            <label key={mode} className="wf-toggle">
+              <input
+                type="radio"
+                name={`${uid}-ask`}
+                checked={askMode(t) === mode}
+                onChange={() => patch(askPatch(mode))}
+              />
+              {text}
+            </label>
+          ))}
+        </fieldset>
         {at('.question')}
+        {at('.handoff')}
         <label className="wf-toggle">
           <input
             type="checkbox"

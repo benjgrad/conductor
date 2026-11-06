@@ -137,6 +137,7 @@ function matchRequest(
 /** What a request that routed to a human is, in words. */
 function requestLabel(r: Pick<SessionInputRequest, 'kind' | 'question'>, agent: string): string {
   if (r.kind === 'agent_question') return `${agent} asked`;
+  if (r.kind === 'handoff') return `${agent} handed off for review`;
   if (classifyRequest(r) === 'step_failed') return 'Step failed';
   return KIND_LABELS[r.kind];
 }

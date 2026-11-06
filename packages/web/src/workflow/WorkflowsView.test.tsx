@@ -334,9 +334,17 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(panel().getByRole('button', { name: 'Back to Planning → Needs input' }));
     expect(arrowPanel().getByRole('list', { name: 'Transitions on this arrow' })).toBeTruthy();
     fireEvent.click(arrowPanel().getByRole('button', { name: /^Scope changed/ }));
+    expect(panel().getByRole<HTMLInputElement>('radio', { name: /Asks a question/ }).checked).toBe(
+      true,
+    );
+    // ADR-0037 P8: the three-way choice; a hand-off clears the question.
+    fireEvent.click(panel().getByRole('radio', { name: /Hands off for review/ }));
     expect(
-      panel().getByRole<HTMLInputElement>('checkbox', { name: /Asks a question/ }).checked,
+      panel().getByRole<HTMLInputElement>('radio', { name: /Hands off for review/ }).checked,
     ).toBe(true);
+    expect(panel().getByRole<HTMLInputElement>('radio', { name: /Asks a question/ }).checked).toBe(
+      false,
+    );
     fireEvent.click(panel().getByRole('button', { name: 'Planning → Needs input' }));
     expect(arrowPanel().getByRole('heading', { name: 'Planning → Needs input' })).toBeTruthy();
     fireEvent.click(arrowPanel().getByRole('button', { name: 'Back to Planning' }));

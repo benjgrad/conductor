@@ -64,14 +64,15 @@ export interface InputRow {
   transition?: string | null;
   /**
    * `inputClass`: a question to a human, a hand-off of finished work (a PR-ready summary), or an
-   * engine stop. Absent: an `agent_question` is a question, anything else a stop.
+   * engine stop. Absent: a `handoff` is a hand-off, an `agent_question` a question, anything else
+   * a stop.
    */
   class?: InputClass;
 }
 
 /** The input's class (`InputRow.class`, else from its kind). */
 export const classOf = (r: Pick<InputRow, 'kind' | 'class'>): InputClass =>
-  r.class ?? (r.kind === 'agent_question' ? 'question' : 'stop');
+  r.class ?? (r.kind === 'handoff' ? 'handoff' : r.kind === 'agent_question' ? 'question' : 'stop');
 
 /** One ADR-0023 permission prompt. */
 export interface PermissionRow {

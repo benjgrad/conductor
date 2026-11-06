@@ -2,6 +2,8 @@ import {
   checkIdentity,
   defKey,
   inputClass,
+  MoveCauseSchema,
+  offeredPresets,
   pageLimitsOf,
   pagesOfContext,
   repoChecksKey,
@@ -14,9 +16,11 @@ import {
   type CheckRunRow,
   type InputRow,
   type JsonObject,
+  type MoveCause,
   type MoveRow,
   type PageCountRow,
   type PermissionRow,
+  type PresetTextRow,
   type RepoChecks,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -155,6 +159,12 @@ export async function loadCheckRuns(
   return { rows, since: since.toISOString(), truncated: checks.rows.length >= limit };
 }
 
+/** A stored ADR-0037 cause; absent (a row before it) or unknown → null. */
+function causeOf(raw: string | null): MoveCause | null {
+  const p = MoveCauseSchema.safeParse(raw);
+  return p.success ? p.data : null;
+}
+
 export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<LoadedRows> {
   const { since, args } = windowArgs(f, ROW_LIMIT);
 
@@ -168,12 +178,15 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     from: string | null;
     to: string;
     transition: string | null;
+    actor: string | null;
+    cause: string | null;
     visit: number;
     ts: Date;
   }>(
     'SELECT e.session_id, s.ticket_id, t.repo, s.workflow_id, s.workflow_version, s.machine_id, ' +
       `e.payload->>'from' AS "from", e.payload->>'to' AS "to", ` +
-      "e.payload->>'transition' AS transition, " +
+      "e.payload->>'transition' AS transition, e.payload->>'actor' AS actor, " +
+      "e.payload->>'cause' AS cause, " +
       "COALESCE((e.payload->>'visit')::int, 1) AS visit, e.ts " +
       `${SCOPE.replace('FROM session s', 'FROM event e JOIN session s ON s.id = e.session_id')} ` +
       "AND e.type = 'state.entered' AND e.ts >= $2 AND e.payload ? 'to' " +
@@ -197,10 +210,15 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     answered_at: Date | null;
     transition: string | null;
     origin_from: string | null;
+    origin_cause: string | null;
+    answer: string | null;
+    answered_by: string | null;
   }>(
     'SELECT i.session_id, s.ticket_id, t.repo, s.machine_id, s.workflow_id, s.workflow_version, ' +
       'i.return_to AS state, i.kind::text AS kind, i.created_at, i.answered_at, ' +
-      "se.payload->>'transition' AS transition, se.payload->>'from' AS origin_from " +
+      'i.answer, i.answered_by, ' +
+      "se.payload->>'transition' AS transition, se.payload->>'from' AS origin_from, " +
+      "se.payload->>'cause' AS origin_cause " +
       `${SCOPE.replace(
         'FROM session s',
         'FROM input_request i JOIN session s ON s.id = i.session_id ' +
@@ -265,6 +283,8 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     from: r.from,
     to: r.to,
     transition: r.transition,
+    actor: r.actor,
+    cause: causeOf(r.cause),
     visit: r.visit,
     at: r.ts.toISOString(),
   }));
@@ -281,13 +301,9 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
 
   const pages = await loadPageCounts(db, moveRows, defOf);
 
-  return {
-    since: since.toISOString(),
-    truncated,
-    ...(pages.length > 0 ? { pages } : {}),
-    moves: moveRows,
-    checks: checkRows,
-    inputs: inputs.rows.map((r): InputRow => ({
+  const inputRows = inputs.rows.map((r) => ({
+    raw: r,
+    row: {
       session_id: r.session_id,
       ticket_id: r.ticket_id,
       repo: r.repo,
@@ -298,10 +314,44 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
       answered_at: iso(r.answered_at),
       transition: r.transition,
       class: inputClass(
-        { kind: r.kind, transition: r.transition, from: r.origin_from ?? r.state },
+        {
+          kind: r.kind,
+          transition: r.transition,
+          from: r.origin_from ?? r.state,
+          cause: causeOf(r.origin_cause),
+        },
         defOf(r.workflow_id, r.workflow_version),
       ),
-    })),
+    } satisfies InputRow,
+  }));
+  // ADR-0037 P5: a person's answer to a hand-off (the review: Request changes on the board posts
+  // the transition, which answers the request with its text; the panel's composer answers it
+  // directly), where the pinned definition offers saved replies.
+  const presetTexts: PresetTextRow[] = [];
+  for (const { raw, row } of inputRows) {
+    if (row.class !== 'handoff' || raw.answer === null || raw.answered_by === null) continue;
+    const def = defOf(raw.workflow_id, raw.workflow_version);
+    const presets = def === undefined ? [] : offeredPresets(def);
+    if (presets.length === 0) continue;
+    presetTexts.push({
+      session_id: raw.session_id,
+      ticket_id: raw.ticket_id,
+      workflow_id: raw.workflow_id,
+      source: 'answer',
+      transition: null,
+      text: raw.answer,
+      presets,
+    });
+  }
+
+  return {
+    since: since.toISOString(),
+    truncated,
+    ...(pages.length > 0 ? { pages } : {}),
+    ...(presetTexts.length > 0 ? { preset_texts: presetTexts } : {}),
+    moves: moveRows,
+    checks: checkRows,
+    inputs: inputRows.map((r) => r.row),
     waits: waitsOf(
       [...defs.values()],
       [...moveRows.map((m) => stateKey(m.to)), ...checkRows.map((c) => c.state)],

@@ -559,8 +559,11 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
       await board.card(id, 'done', (c) => c.column === 'done' && c.status === 'done');
       const detail = await api.session(sid);
       expect(detail.workflow_version).toBe(v1);
-      // M1 records: unnamed outcomes carry no transition name.
-      expect((detail.moves ?? []).every((m) => m.transition === null)).toBe(true);
+      // ADR-0037 P7: every move says why. The first is the start; the v1 path's unnamed outcomes
+      // are recorded as transitions under their own names; none is an engine route.
+      const moves = detail.moves ?? [];
+      expect(moves[0]).toMatchObject({ cause: 'start', transition: null });
+      for (const m of moves) expect(['start', 'transition', 'answer_routed']).toContain(m.cause);
     } finally {
       if (!restored) await api.saveWorkflow(CONDUCTOR_V2_FAST);
     }

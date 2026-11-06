@@ -225,6 +225,34 @@ describe('rule 21: instructions', () => {
   });
 });
 
+describe('rule 21 with instructions available (T8)', () => {
+  /** Rule 21 and 14 errors, strict (instructions are available; the rest of the draft is not). */
+  const strict = (input: unknown) => {
+    const r = validateWorkflow(input);
+    return r.ok
+      ? []
+      : r.errors
+          .map((e) => `${e.rule} ${e.path.join('.')}`)
+          .filter((e) => e.startsWith('21 ') || /instructions|presets|instruction$/.test(e));
+  };
+
+  it("the draft's refs and presets pass without allowUnavailable", () => {
+    expect(strict(v6())).toEqual([]);
+  });
+
+  it('an unresolved ref is still refused by rule 21', () => {
+    const d = v6();
+    tr(d, 'implementing', 'pr_ready_for_review').on_unmet.instruction = '$instructions.gone';
+    expect(strict(d)).toEqual([`21 ${PR}.on_unmet.instruction`]);
+  });
+
+  it('presets on an agent transition are refused by rule 21', () => {
+    const d = v6();
+    tr(d, 'implementing', 'pr_ready_for_review').presets = ['resync_main'];
+    expect(strict(d)).toEqual([`21 ${PR}.presets`]);
+  });
+});
+
 describe('rule 22: hand-off', () => {
   it('not with question; only into a human state', () => {
     const d = v6();
@@ -285,8 +313,8 @@ describe('rules 24 and 25: condition placement, no-CI policy', () => {
 });
 
 describe('rule 14: not available yet', () => {
-  it('T5 and T3: the new condition types, no_checks and handoff are available; nothing else yet', () => {
-    expect(AVAILABLE_WORKFLOW_FEATURES).toEqual(['no_checks', 'handoff']);
+  it('T5, T3 and T8: the new condition types, no_checks, handoff and instructions are available; nothing else yet', () => {
+    expect(AVAILABLE_WORKFLOW_FEATURES).toEqual(['no_checks', 'instructions', 'handoff']);
     expect(AVAILABLE_CONDITION_TYPES).toEqual(
       expect.arrayContaining(['cmd', 'pr_mergeable', 'age_below']),
     );

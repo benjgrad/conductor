@@ -11,6 +11,7 @@ export * from './workflow/tools.js';
 export * from './workflow/mcp.js';
 export * from './workflow/validate.js';
 export * from './workflow/transition-rules.js';
+export * from './workflow/instructions.js';
 export * from './workflow/fold.js';
 export * from './workflow/fixtures.js';
 export * from './workflow/capabilities.js';

@@ -1,4 +1,5 @@
 import type { JsonObject } from '../domain.js';
+import { instructionRef } from '../workflow/schema.js';
 import { REVIEW_GIT_COMMANDS } from '../workflow/tools.js';
 import type { SessionSnapshot } from './types.js';
 
@@ -234,7 +235,8 @@ export function renderReviewFeedback(f: ReviewFeedback): string {
     lines.push(`- ${u.item}: ${u.reason || '(no reason given)'}`);
     if (u.output) lines.push(fenced(u.output));
   }
-  if (f.instruction) lines.push('', f.instruction);
+  // ADR-0037 P5: a ref is resolved at the move; one that wasn't (an old snapshot) is never shown.
+  if (f.instruction && instructionRef(f.instruction) === null) lines.push('', f.instruction);
   return lines.join('\n');
 }
 

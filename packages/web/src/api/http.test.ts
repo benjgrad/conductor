@@ -358,6 +358,9 @@ describe('createHttpApi REST', () => {
       groups: [],
       more_groups: 0,
       transitions: [],
+      // ADR-0037 P7 (defaults when an older server leaves them out).
+      causes: [],
+      loops: [],
     };
     const findings = { window_days: 7, since, findings: [], next_cursor: null, total: 0 };
     const report = {

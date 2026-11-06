@@ -55,6 +55,7 @@ describe('EngineService: ADR-0011 wrapper writes', () => {
             transition: ev.type === 'human.transition' ? ev.name : null,
             reason: ev.type === 'human.transition' ? ev.text : null,
             actor: 'human',
+            cause: 'transition',
           },
           { type: 'session_status', from: 'needs_input', to: 'waiting_external' },
         ],
@@ -99,6 +100,7 @@ describe('EngineService: ADR-0011 wrapper writes', () => {
         transition: 'waiting_on_someone',
         reason: 'Dana, for the API review',
         actor: 'human',
+        cause: 'transition',
       },
     ]);
   });
@@ -151,6 +153,7 @@ describe('EngineService: ADR-0011 wrapper writes', () => {
       transition: null,
       reason: null,
       actor: null,
+      cause: null,
     });
   });
 });

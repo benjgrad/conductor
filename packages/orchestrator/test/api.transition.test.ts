@@ -79,6 +79,7 @@ describe('POST /api/sessions/:id/transition', () => {
           transition: ev.type === 'human.transition' ? ev.name : null,
           reason: ev.type === 'human.transition' ? ev.text : null,
           actor: 'human',
+          cause: 'transition',
         },
         { type: 'session_status', from: 'needs_input', to: 'waiting_external' },
       ],
@@ -115,6 +116,7 @@ describe('POST /api/sessions/:id/transition', () => {
         transition: 'waiting_on_someone',
         reason: 'Dana',
         actor: 'human',
+        cause: 'transition',
       },
     ]);
   });

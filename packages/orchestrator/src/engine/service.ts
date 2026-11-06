@@ -334,8 +334,9 @@ export class EngineServiceImpl implements EngineService {
               'RETURNING id',
             [
               sessionId,
-              // ADR-0011: the move's transition, reason and actor when apply set them
-              // (StateEnteredPayload; the detail panel's `moves`, absent ≡ null).
+              // ADR-0011: the move's transition, reason and actor when apply set them, and
+              // ADR-0037 P7 its cause, always (StateEnteredPayload; the detail panel's `moves`,
+              // absent ≡ null).
               JSON.stringify({
                 from: effect.from,
                 to: effect.to,
@@ -343,6 +344,7 @@ export class EngineServiceImpl implements EngineService {
                 ...(effect.transition !== undefined ? { transition: effect.transition } : {}),
                 ...(effect.reason !== undefined ? { reason: effect.reason } : {}),
                 ...(effect.actor !== undefined ? { actor: effect.actor } : {}),
+                cause: effect.cause,
               }),
             ],
           );

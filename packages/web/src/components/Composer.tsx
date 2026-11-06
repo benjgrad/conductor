@@ -6,8 +6,9 @@ import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 're
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { displayState } from '../workflow/review.js';
 import { isConductorStep } from './ConductorChecks.js';
+import { PresetChips } from './PresetChips.js';
 import { TERMINAL_STATUSES } from './format.js';
-import { detailRequestTone, type RequestTone } from './request-preview.js';
+import { detailRequestTone, reviewPresets, type RequestTone } from './request-preview.js';
 import { useMediaQuery } from './useMediaQuery.js';
 import {
   availableCommands,
@@ -291,6 +292,8 @@ export function Composer({
     fromAgent: request !== null && isAgentRequest(request.kind),
   });
   const hint = finePointer && (answering || m.mode === 'message');
+  // ADR-0037 P5: answering a review, the text button's saved instructions fill the box.
+  const presets = answering ? reviewPresets(detail) : undefined;
 
   return (
     <div className="composer">
@@ -365,6 +368,14 @@ export function Composer({
           ))}
         </ul>
       )}
+      <PresetChips
+        presets={presets}
+        disabled={busy}
+        onPick={(t) => {
+          change(t);
+          box.current?.focus();
+        }}
+      />
       <div className={`composer-box${m.mode === 'off' ? ' off' : ''}`}>
         <label htmlFor={inputId} className="visually-hidden">
           {label}

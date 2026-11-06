@@ -205,6 +205,8 @@ function history(now: Date): Stamped {
   return { rows, insights, finished };
 }
 
+const RESYNC = { slug: 'resync_main', text: 'Merge main, then finish the step again.' };
+
 function windowed(h: Stamped, now: Date, days: number) {
   const since = new Date(now.getTime() - days * DAY).toISOString();
   const inside = <T extends { at?: string; created_at?: string; started_at?: string }>(list: T[]) =>
@@ -218,6 +220,18 @@ function windowed(h: Stamped, now: Date, days: number) {
       permissions: inside(h.rows.permissions),
       // The approval wait before Done is by design: not slow, marked "waiting on others".
       waits: { 'implementing.ready_for_testing': { ceiling_minutes: 3 * 24 * 60 } },
+      // ADR-0037 P5: review replies where the re-sync recipe was on offer; two sent as is.
+      preset_texts: inside(h.rows.inputs)
+        .slice(0, 3)
+        .map((r, i) => ({
+          session_id: r.session_id,
+          ticket_id: r.ticket_id,
+          workflow_id: 'conductor',
+          source: 'answer' as const,
+          transition: null,
+          text: i < 2 ? RESYNC.text : 'Please rebase on main',
+          presets: [RESYNC],
+        })),
     },
     insights: inside(h.insights),
     finished: inside(h.finished),

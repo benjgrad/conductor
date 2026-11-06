@@ -10,6 +10,7 @@ import {
   median,
   percentile,
   permissionStats,
+  presetUses,
   processMetrics,
   ProcessMetricsSchema,
   rankFindings,
@@ -165,6 +166,57 @@ describe('loopCounts', () => {
     expect(res.tickets).toEqual([
       { ticket_id: 'a', state: 'implementing', extra_visits: 2, qa_fail: 2 },
     ]);
+  });
+
+  it('ADR-0037 P7: keys loops by (from, transition, cause); engine routes are not transitions', () => {
+    // The same gate under two versions (v4 → needs_input, v5 → in_review) sends the ticket back
+    // with check_failed: one loop, whatever the gate's target.
+    const gate = (to: string) => `implementing → ${to} (move: personal_pr_ready_for_review)`;
+    const back = (ticket: string, to: string): MoveRow[] =>
+      walk(ticket, [
+        ['implementing', 0],
+        [gate(to), 10, 'personal_pr_ready_for_review'],
+        ['implementing', 12, 'personal_pr_ready_for_review'],
+      ]).map((m, i) =>
+        i === 2
+          ? { ...m, cause: 'check_failed', actor: 'system' }
+          : { ...m, cause: i === 0 ? 'start' : 'transition', actor: 'agent' },
+      );
+    // A row from before P7 (no cause).
+    const old = walk('c', [
+      ['implementing', 0],
+      ['qa', 10, 'ready_for_testing'],
+      ['implementing', 20, 'requirements_unmet'],
+    ]).map((m, i) => (i === 2 ? { ...m, actor: 'engine' } : m));
+    const res = loopCounts([...back('a', 'needs_input'), ...back('b', 'in_review'), ...old]);
+    expect(res.loops).toEqual([
+      {
+        from: 'implementing.personal_pr_ready_for_review',
+        transition: 'personal_pr_ready_for_review',
+        cause: 'check_failed',
+        count: 2,
+        tickets: 2,
+        examples: ['a', 'b'],
+      },
+      { from: '*', transition: '*', cause: 'unrecorded', count: 1, tickets: 1, examples: ['c'] },
+    ]);
+    // The engine routes (new: a cause; old: actor engine) are not counted as transitions.
+    expect(res.transitions).toEqual([
+      { name: 'personal_pr_ready_for_review', count: 2 },
+      { name: 'ready_for_testing', count: 1 },
+    ]);
+    expect(res.causes).toEqual([
+      { cause: 'check_failed', count: 2 },
+      { cause: 'start', count: 2 },
+      { cause: 'transition', count: 2 },
+    ]);
+    // processMetrics exposes them, and they parse.
+    const m = processMetrics({ ...EMPTY, moves: [...back('a', 'needs_input'), ...old] }, 'state');
+    expect(
+      ProcessMetricsSchema.parse(m)
+        .loops.map((l) => l.cause)
+        .sort(),
+    ).toEqual(['check_failed', 'unrecorded']);
   });
 
   it('lists no ticket that went straight through', () => {
@@ -570,6 +622,45 @@ describe('what is counted (the 2026-11 metric fixes)', () => {
         .map((f) => f.id)
         .sort(),
     ).toEqual(['slow_state:implementing.ready_for_testing', 'slow_state:waiting_external']);
+  });
+});
+
+describe('presetUses (ADR-0037 P5)', () => {
+  const RESYNC = { slug: 'resync_main', text: 'Merge main, then finish.' };
+  const FIX = { slug: 'fix', text: 'Fix it.' };
+  const row = (ticket: string, text: string, presets = [RESYNC, FIX]) => ({
+    session_id: `s-${ticket}`,
+    ticket_id: ticket,
+    workflow_id: 'conductor',
+    source: 'transition' as const,
+    transition: 'request_changes',
+    text,
+    presets,
+  });
+
+  it('counts texts equal to a saved reply (trimmed) per reply, and the rest as typed', () => {
+    expect(
+      presetUses([
+        row('t1', '  Merge main, then finish.\n'),
+        row('t2', 'Merge main, then finish.'),
+        row('t3', 'Please merge main first'),
+        row('t4', 'Fix it.'),
+        row('t5', 'anything', []),
+      ]),
+    ).toEqual({
+      presets: {
+        uses: [
+          { workflow_id: 'conductor', slug: 'resync_main', used: 2, examples: ['t1', 't2'] },
+          { workflow_id: 'conductor', slug: 'fix', used: 1, examples: ['t4'] },
+        ],
+        typed: 1,
+      },
+    });
+  });
+
+  it('nothing when no saved reply was offered', () => {
+    expect(presetUses([])).toEqual({});
+    expect(presetUses([row('t1', 'x', [])])).toEqual({});
   });
 });
 

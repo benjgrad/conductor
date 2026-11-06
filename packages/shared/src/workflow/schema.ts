@@ -71,7 +71,7 @@ export const OnUnmetSchema = z.strictObject({
   goto: StateNameSchema,
   /**
    * Plain-language instruction for the agent on the way back. ADR-0037 P5: or a
-   * `$instructions.<slug>` ref into the workflow's `instructions` (rule 21; refused until T8).
+   * `$instructions.<slug>` ref into the workflow's `instructions` (rule 21), resolved at the move.
    */
   instruction: z.string().trim().min(1).max(4_000).optional(),
   retries: z.number().int().min(0).max(10).default(2),
@@ -171,12 +171,46 @@ export const TransitionActorSchema = z.enum(['agent', 'human', 'system']);
 export type TransitionActor = z.infer<typeof TransitionActorSchema>;
 
 /**
- * Who made a recorded move (`state_entered`, MoveDto): a transition's actor, or `engine` for a
- * route conductor took on its own (requirements not met, a step that failed, a fallback to a
- * human, the budget, a lost machine). Never valid in a definition (`TransitionActorSchema`).
+ * Who made a recorded move (`state_entered`, MoveDto): a transition's actor. Since ADR-0037 (P7) a
+ * route conductor took on its own is recorded with actor `system` and a `cause` other than
+ * `transition`; `engine` is read on rows written before that (requirements not met, a step that
+ * failed, a fallback to a human, the budget, a lost machine) and no longer written. Never valid in
+ * a definition (`TransitionActorSchema`).
  */
 export const MoveActorSchema = z.enum(['agent', 'human', 'system', 'engine']);
 export type MoveActor = z.infer<typeof MoveActorSchema>;
+
+/**
+ * ADR-0037 P7: why a session entered a state, on every `state_entered` (`MoveDto.cause`; null on
+ * rows written before it). `transition`: a named transition an agent, a human or an event took;
+ * `start`: the first entry into the start state; `answer_routed`: a human's answer routed the
+ * session; every other value is an engine move (actor `system`, `ENGINE_CAUSES`).
+ */
+export const MOVE_CAUSES = [
+  'transition',
+  'start',
+  'check_failed',
+  'review_unmet',
+  'action_failed',
+  'condition_unmet',
+  'condition_timeout',
+  'watch_broken',
+  'concurrency_released',
+  'timeout',
+  'retry',
+  'retries_exhausted',
+  'budget_exceeded',
+  'machine_lost',
+  'answer_routed',
+  'fallback',
+] as const;
+export const MoveCauseSchema = z.enum(MOVE_CAUSES);
+export type MoveCause = z.infer<typeof MoveCauseSchema>;
+
+/** The causes conductor produces on its own (recorded with actor `system`). */
+export const ENGINE_CAUSES: readonly MoveCause[] = MOVE_CAUSES.filter(
+  (c) => c !== 'transition' && c !== 'start' && c !== 'answer_routed',
+);
 
 /**
  * ADR-0011 (U-061): the `goto` of a human transition that returns to the state that routed into
@@ -352,7 +386,11 @@ export const WORKFLOW_FEATURES = [
   'handoff',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
-export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = ['no_checks', 'handoff'];
+export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
+  'no_checks',
+  'instructions',
+  'handoff',
+];
 
 /** `enabled` defaults to true. */
 export function conditionEnabled(c: Condition): boolean {
@@ -533,7 +571,7 @@ export const TransitionObjectSchema = z.strictObject({
   text: z.enum(['required', 'optional']).optional(),
   /**
    * ADR-0037 P5: saved instructions offered as chips that fill this human button's text box. Only
-   * on a human-actor transition with `text` (rule 21); refused until T8 (rule 14).
+   * on a human-actor transition with `text` (rule 21).
    */
   presets: z.array(InstructionSlugSchema).min(1).max(10).optional(),
   requires: TransitionRequiresSchema.optional(),

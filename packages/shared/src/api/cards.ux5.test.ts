@@ -170,7 +170,7 @@ describe('BoardCard.checking: a held move (ADR-0037 P4, T7)', () => {
     const def = structuredClone(CONDUCTOR_V2_DEF);
     const s = def.states.implementing!;
     if (s.type !== 'agent') throw new Error('agent');
-    const t = s.on.personal_pr_ready_for_review!;
+    const t = s.on!.personal_pr_ready_for_review!;
     if (typeof t === 'string') throw new Error('object');
     t.requires = {
       ...t.requires,

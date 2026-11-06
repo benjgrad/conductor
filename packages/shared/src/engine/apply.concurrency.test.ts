@@ -324,7 +324,7 @@ describe('planned_files: no evidence, no hold', () => {
   const rule = (() => {
     const s = DEF.states.implementing!;
     if (s.type !== 'agent') throw new Error('agent');
-    const t = s.on.pr_ready!;
+    const t = s.on!.pr_ready!;
     if (typeof t === 'string') throw new Error('object');
     return t.requires!.concurrency!;
   })();

@@ -188,6 +188,15 @@ The workflow editor's diffs are in the editor's words (`workflow/version-diff.ts
 
 An agent column's panel has the checkbox "Agents may propose follow-up tickets" (`FollowUpsFields`, `workflow/ColumnEditor.tsx`). It shows the effective setting (`followUpsOf`): ticked for `plan_template` / `implement_template` while `follow_ups` is unset ([05 §Follow-up tickets](05-workflow-engine.md#follow-up-tickets-adr-0034)). Ticked, it shows At most (1–10) and Guidance, and editing either stores `follow_ups {enabled: true, …}`. Unticking it stores `enabled: false` where unset means on, and removes the key elsewhere (`setFollowUps(…, null)`). The proposals themselves are decided in Needs input ([06 §Proposed tickets](06-human-input.md#proposed-tickets)).
 
+## Watches in the workflow editor and on the card (ADR-0037 P1)
+
+A human or event column's panel has **While here, keep checking** (`WatchFields`, `workflow/WatchFields.tsx`; `watchOfColumn` / `setWatch` in `columns.ts`). Ticked, it stores a `watch`: GitHub mergeability, sent back to the agent column that hands off into this one, 2 retries, then Needs input. Below it:
+- the conditions (`ConditionRow`, as on a transition), checked in order, and *Add condition…* over every available type (`age_below`, "Here less than", only here);
+- *Check every* (`poll`, `2m` by default, at least 30s);
+- **If one breaks**: *Send it back* (Back to, With instruction (`InstructionField`, saved replies included), *Come back to <column> when done* (`return_to: $self`), Up to (times), Then a person column) or *Notify me* (`{notify: escalate}`).
+
+Unticking removes the key. While a ticket waits in a watched column, its card shows one line, `Watching: <label> ✓ · next check 14:02` (`watchingSummary`, from `BoardCard.watching`), with the last note (no machine, the last check failed) after it.
+
 ## Waiting on you (UXR-32)
 
 Two things wait on a person: an open question (`input_request`, the card is in Needs input) and a pending tool permission (ADR-0023, `sub_status: needs_permission`; the card stays in its agent's column with Allow once / Deny / Review). Every count of what waits on Ben counts both, through one helper (`board/waiting.ts` `waitingOnYou`); a card with both counts once, as a question.

@@ -12,6 +12,7 @@ import { stateTitle } from '../workflow/conductor.js';
 import { resolveInstruction } from '../workflow/instructions.js';
 import {
   AVAILABLE_TRANSITION_ACTIONS,
+  NOTIFY_VIA_WATCH_ESCALATE,
   parseDuration,
   RETURN_TO,
   resultKeys,
@@ -23,6 +24,7 @@ import {
   type RequirementsGate,
   type Transition,
   type TransitionAction,
+  type Watch,
   type WorkflowDefinition,
   type WorkflowState,
 } from '../workflow/schema.js';
@@ -106,6 +108,19 @@ import {
   type QaState,
 } from './qa.js';
 import { applySpend } from './spend.js';
+import {
+  freshWatch,
+  inOrderOutcome,
+  prefixVerdict,
+  watchCounterKey,
+  watchFeedbackHeading,
+  watchMatches,
+  watchOf,
+  watchReturnOf,
+  watchRuntime,
+  withWatch,
+  withWatchReturn,
+} from './watch.js';
 import { NO_CONVERSATION_REASON } from '../protocol/ws.js';
 import type { QuestionOptions } from '../protocol/question-options.js';
 import {
@@ -137,6 +152,7 @@ import {
   type GateStep,
   type PendingAnswer,
   type SessionSnapshot,
+  type WatchRuntime,
 } from './types.js';
 
 export {
@@ -203,6 +219,11 @@ class Step {
   setDeadline(state: string, deadline: string | null): void {
     this.s.state_deadline = deadline;
     this.emit({ type: 'set_deadline', state, deadline });
+  }
+
+  /** ADR-0037 P1: the watch timer (`session.watch_deadline`; the wrapper persists the snapshot). */
+  setWatchDeadline(deadline: string | null): void {
+    this.s.watch_deadline = deadline;
   }
 }
 
@@ -273,6 +294,8 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return onExternal(st, e.name, e.data);
     case 'timer.fired':
       return onTimer(st, e.state, e.deadline);
+    case 'watch.fired':
+      return onWatchTimer(st, e.state, e.deadline);
     case 'budget.exceeded':
       return onBudget(st, e);
     case 'operator.cancel':
@@ -281,8 +304,9 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     case 'operator.message':
       return onMessage(st, e.text);
     case 'action.completed':
-      // Only an entry step's actions phase waits for one (handleStep).
-      return 'unexpected_event';
+      // A gate step's actions / conditions phase waits for one (handleStep); outside one, only a
+      // watch's evaluation (ADR-0037 P1).
+      return onWatchResult(st, e);
     case 'human.transition':
       return onHumanTransition(st, e);
     case 'human.fresh_conversation':
@@ -356,9 +380,11 @@ function onAssigned(st: Step, machineId: string): ApplyIgnoreReason | null {
       return null;
     case 'event':
       st.setStatus('waiting_external');
+      if (watchRuntime(st.s.context) === null) armWatch(st, name);
       return null;
     case 'human':
       st.setStatus('needs_input');
+      if (watchRuntime(st.s.context) === null) armWatch(st, name);
       return null;
     case 'terminal':
       st.setStatus('done');
@@ -443,8 +469,8 @@ function onRefused(
       return null;
     }
     case 'run_action':
-      // Only an entry step runs actions (handleStep).
-      return 'unexpected_event';
+      // Only a gate step runs actions (handleStep); outside one, a watch's evaluation (ADR-0037).
+      return watchNoAnswer(st, `the machine refused the check (${e.reason})`);
   }
 }
 
@@ -507,6 +533,9 @@ function onComplete(
     // 05 §Transitions: a question's non-empty result (e.g. plan_needs_approval's plan) is kept, so
     // the human can read what they are asked to approve. Its keys and guard are not checked.
     if (Object.keys(result).length > 0) st.s.context = { ...st.s.context, [name]: result };
+    // ADR-0037 P1 `return_to`: after a watch sent the ticket back, its next hand-off comes back to
+    // the watched state (the transition's `requires` still run first).
+    const back = plan.handoff ? watchReturnOf(st.s.context) : null;
     takeOutcome(
       st,
       outcome,
@@ -514,6 +543,7 @@ function onComplete(
       {
         ...(move !== undefined ? { move } : {}),
         kind: plan.handoff ? 'handoff' : 'agent_question',
+        ...(back !== null && st.def.states[back.state] !== undefined ? { goto: back.state } : {}),
       },
     );
     return null;
@@ -569,6 +599,8 @@ function onHumanTransition(
 ): ApplyIgnoreReason | null {
   const plan = planHumanTransition(st.def, st.s, e.name);
   if (!plan.ok) return plan.reason;
+  // A human decided where the ticket goes: a broken watch's way back no longer applies.
+  st.s.context = withWatchReturn(st.s.context, null);
   // ADR-0020 §2: a human sending the ticket back opens a new round of QA ("Back with this
   // answer", `$return_to`, continues the round it interrupted).
   if (plan.transition.goto !== RETURN_TO) resetQaRounds(st, plan.goto);
@@ -1004,7 +1036,13 @@ function takeOutcome(
   st: Step,
   outcome: string,
   info: OutcomeInfo,
-  opts: { move?: MoveRecord; record?: MoveFields; kind?: InputRequestKind } = {},
+  opts: {
+    move?: MoveRecord;
+    record?: MoveFields;
+    kind?: InputRequestKind;
+    /** ADR-0037 P1: land here instead of the transition's own `goto` (a watch's `return_to`). */
+    goto?: string;
+  } = {},
 ): void {
   const from = st.stateName ?? st.def.start;
   const state = st.state;
@@ -1054,7 +1092,7 @@ function takeOutcome(
     return;
   }
   if (typeof t === 'string') {
-    enter(st, t, {
+    enter(st, opts.goto ?? t, {
       ...NO_ROUTE,
       kind,
       question,
@@ -1077,12 +1115,13 @@ function takeOutcome(
         actor: transitionActor(st.def, from, outcome, t),
       })
     : undefined;
+  const target = opts.goto ?? t.goto;
   const step = (attachment: PromptAttachment | null) =>
     enterStep(st, {
       kind: moveStep ? 'move' : 'transition',
       from,
       outcome,
-      to: t.goto,
+      to: target,
       attachment,
       info,
       ...(stepMove !== undefined ? { move: stepMove } : {}),
@@ -1095,7 +1134,7 @@ function takeOutcome(
       step(null);
       return;
     }
-    enter(st, t.goto, {
+    enter(st, target, {
       ...NO_ROUTE,
       kind,
       question,
@@ -1121,7 +1160,7 @@ function takeOutcome(
       step(attachment);
       return;
     }
-    enter(st, t.goto, {
+    enter(st, target, {
       ...NO_ROUTE,
       kind,
       question,
@@ -1308,6 +1347,7 @@ function enterStep(
       : p.kind === 'move'
         ? moveStateLabel(p.from, p.to, p.move?.transition ?? p.outcome)
         : reviewStateLabel(p.from, p.to);
+  disarmWatch(st);
   addWallTime(st);
   const visit = (s.state_visits[label] ?? 0) + 1;
   s.state_visits = { ...s.state_visits, [label]: visit };
@@ -1731,6 +1771,9 @@ function handleStep(
       onActionCompleted(st, spec, r, action, e);
       return null;
     }
+    case 'watch.fired':
+      // A gate step is never a watched state (the watch was disarmed when it started).
+      return 'stale_timer';
     case 'timer.fired': {
       const current = s.state_deadline;
       if (
@@ -2588,6 +2631,8 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     return;
   }
   const from = s.workflow_state;
+  // ADR-0037 P1: leaving a watched state disarms its watch (an entry step disarms it too).
+  disarmWatch(st);
   // ADR-0010: an outcome into a state with `entry` requirements runs the entry step first; the
   // session stays in `from` (its column) until every requirement is met.
   if (toState.entry !== undefined && opts.skipEntry !== true && !opts.assigning && from !== null) {
@@ -2615,6 +2660,10 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
   s.state_visits = { ...s.state_visits, [target]: visit };
   s.workflow_state = target;
   s.return_to = toState.type === 'human' ? from : null;
+  // ADR-0037 P1: a broken watch's way back is used up once the ticket reaches a human (or ends).
+  if (toState.type === 'human' || toState.type === 'terminal') {
+    s.context = withWatchReturn(s.context, null);
+  }
   st.emit({
     type: 'state_entered',
     from: opts.auditFrom ?? from,
@@ -2685,9 +2734,11 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     case 'event':
       s.pending_answer = null;
       st.setStatus('waiting_external');
+      armWatch(st, target);
       return;
     case 'human':
       s.pending_answer = null;
+      armWatch(st, target);
       st.emit({
         type: 'create_input_request',
         kind: opts.kind,
@@ -2808,8 +2859,300 @@ function failSession(st: Step, ticket: TicketStatus, reason: string, kill = true
     st.setDeadline(s.workflow_state, null);
   s.pending_answer = null;
   s.step = null;
+  disarmWatch(st);
   st.setStatus('failed');
   st.ticket(ticket);
+}
+
+// ---------------------------------------------------------------- watch (ADR-0037 P1, T6)
+//
+// A human or event state keeps checking the conditions its `watch` lists while a ticket waits in
+// it (watch.ts holds the pure parts; 05 §Watch). Entering the state arms `watch_deadline` (the
+// first check is one poll after entry); leaving it disarms. Each `watch.fired` checks the
+// conditions in declared order and stops at the first one not met: engine-only ones (`age_below`)
+// here, the rest in one `run_action evaluate_conditions` (`short_circuit`) on the session's
+// machine. `failed` takes `on_broken`; anything else (pending, an error, no machine, no answer
+// yet) re-arms with a note: the watch never fires on missing evidence. A watch never kills a
+// process (human and event states run none).
+
+/** Arm `state`'s watch, if it has one: fresh statuses, the base poll, the first check one poll out. */
+function armWatch(st: Step, state: string): void {
+  const w = watchOf(st.def, state);
+  if (w === undefined) return;
+  const s = st.s;
+  const rt = freshWatch(state, s.state_visits[state] ?? 1, w, basePollMs(w.poll));
+  s.context = withWatch(s.context, rt);
+  st.setWatchDeadline(new Date(st.now.getTime() + rt.poll_ms).toISOString());
+}
+
+/** Leave the watch: no runtime, no timer (a late answer then finds nothing `running`). */
+function disarmWatch(st: Step): void {
+  const s = st.s;
+  if (watchRuntime(s.context) !== null) s.context = withWatch(s.context, null);
+  if (s.watch_deadline != null) st.setWatchDeadline(null);
+}
+
+/** Store `rt` and arm the next check, `poll_ms` from now. */
+function rearmWatch(st: Step, rt: WatchRuntime): void {
+  st.s.context = withWatch(st.s.context, rt);
+  st.setWatchDeadline(new Date(st.now.getTime() + rt.poll_ms).toISOString());
+}
+
+/** The session is parked in `state` (human: needs_input, event: waiting_external). */
+function parkedIn(st: Step, state: string): boolean {
+  const def = st.def.states[state];
+  if (def?.type === 'human') return st.s.status === 'needs_input';
+  if (def?.type === 'event') return st.s.status === 'waiting_external';
+  return false;
+}
+
+/** Statuses as observed (value and detail per enabled one), to tell an unchanged answer. */
+function sameAnswers(a: WatchRuntime['conditions'], b: WatchRuntime['conditions']): boolean {
+  return a.every(
+    (c, i) =>
+      c.checked_at !== null &&
+      b[i] !== undefined &&
+      c.status === b[i].status &&
+      c.value === b[i].value &&
+      c.detail === b[i].detail,
+  );
+}
+
+/** The poll after an answer: back to the base after a change, doubled (capped) when unchanged. */
+function nextWatchPoll(w: Watch, rt: WatchRuntime, unchanged: boolean): number {
+  return nextPollMs(rt.poll_ms, basePollMs(w.poll), unchanged);
+}
+
+/** `watch.fired`: one check of the watch, unless the timer is stale. */
+function onWatchTimer(st: Step, state: string, deadline: string): ApplyIgnoreReason | null {
+  const s = st.s;
+  const current = s.watch_deadline ?? null;
+  const rt = watchRuntime(s.context);
+  if (
+    state !== st.stateName ||
+    current === null ||
+    Date.parse(deadline) !== Date.parse(current) ||
+    rt === null ||
+    rt.state !== state ||
+    !parkedIn(st, state)
+  ) {
+    return 'stale_timer';
+  }
+  const w = watchOf(st.def, state);
+  if (w === undefined) {
+    // The definition was repinned to one without this watch.
+    disarmWatch(st);
+    return null;
+  }
+  // A repinned definition whose conditions differ: start its checklist afresh.
+  const live = watchMatches(rt, w) ? rt : freshWatch(state, rt.visit, w, basePollMs(w.poll));
+  if (live !== rt) live.escalated = rt.escalated;
+  const pre = prefixVerdict(w.conditions, live.conditions, s.state_entered_at, st.now);
+  const checked: WatchRuntime = { ...live, conditions: pre.statuses };
+  switch (pre.outcome) {
+    case 'failed':
+      checked.last_checked_at = st.now.toISOString();
+      checked.note = null;
+      watchBroken(st, w, checked);
+      return null;
+    case 'pending':
+    case 'met': {
+      const unchanged = sameAnswers(live.conditions, pre.statuses);
+      checked.last_checked_at = st.now.toISOString();
+      checked.note = null;
+      checked.poll_ms = nextWatchPoll(w, live, unchanged);
+      rearmWatch(st, checked);
+      return null;
+    }
+    case 'continue':
+      break;
+  }
+  if (s.machine_id === null || live.conditions.some((c) => c.status === 'running')) {
+    // TD-105 applies: an evaluation the daemon never answers stays `running`, and no second one is
+    // sent while it is in flight. Without a machine nothing can be checked (TD-104).
+    rearmWatch(st, { ...checked, note: CONDITIONS_NO_MACHINE_NOTE });
+    return null;
+  }
+  st.emit({
+    type: 'run_action',
+    state,
+    target_state: state,
+    action: EVALUATE_CONDITIONS,
+    idempotency_key: conditionsIdempotencyKey(s.id, state, st.now),
+    // ADR-0037 P1: never pinned to a commit (a human pushing to a PR in review isn't a break); a
+    // `cmd` runs in a fresh checkout of the PR head, after the repo's setup (ADR-0030).
+    args: evaluateConditionsArgs(s, null, w.conditions, {
+      setup: s.repo_checks?.setup ?? null,
+      short_circuit: true,
+    }),
+    expected_sha: null,
+  });
+  rearmWatch(st, { ...checked, conditions: markRunning(checked.conditions) });
+  return null;
+}
+
+/** `action.completed` outside a gate step: a watch's `evaluate_conditions` answer, if one is out. */
+function onWatchResult(
+  st: Step,
+  e: Extract<EngineEvent, { type: 'action.completed' }>,
+): ApplyIgnoreReason | null {
+  const s = st.s;
+  const state = st.stateName;
+  const rt = watchRuntime(s.context);
+  // TD-103 applies: the answer isn't matched to its command, only to an evaluation in flight here.
+  if (
+    e.action !== EVALUATE_CONDITIONS ||
+    state === null ||
+    rt === null ||
+    rt.state !== state ||
+    !rt.conditions.some((c) => c.status === 'running')
+  ) {
+    return 'unexpected_event';
+  }
+  const w = watchOf(st.def, state);
+  if (w === undefined || !watchMatches(rt, w)) {
+    disarmWatch(st);
+    armWatch(st, state);
+    return null;
+  }
+  if (!parkedIn(st, state)) return 'wrong_status';
+  if (e.error !== null) return watchNoAnswer(st, `the last check failed: ${e.error}`);
+  const v = mergeResults(rt.conditions, w.conditions, e.result, st.now, {
+    stateEnteredAt: s.state_entered_at,
+  });
+  if (v.type === 'malformed') {
+    return watchNoAnswer(st, `the last check returned an unusable result (${v.why})`);
+  }
+  const ordered = inOrderOutcome(w.conditions, v.statuses);
+  const checked: WatchRuntime = {
+    ...rt,
+    conditions: ordered.statuses,
+    note: null,
+    last_checked_at: st.now.toISOString(),
+  };
+  if (ordered.outcome === 'failed') {
+    watchBroken(st, w, checked);
+    return null;
+  }
+  checked.poll_ms = nextWatchPoll(w, rt, v.unchanged);
+  rearmWatch(st, checked);
+  return null;
+}
+
+/**
+ * The evaluation came back without an answer (refused, an error, unusable): unchanged statuses,
+ * a note, the next check one poll out. Ignored when no watch evaluation is in flight.
+ */
+function watchNoAnswer(st: Step, note: string): ApplyIgnoreReason | null {
+  const rt = watchRuntime(st.s.context);
+  if (
+    rt === null ||
+    rt.state !== st.stateName ||
+    !rt.conditions.some((c) => c.status === 'running')
+  ) {
+    return 'unexpected_event';
+  }
+  rearmWatch(st, { ...rt, conditions: unmarkRunning(rt.conditions), note });
+  return null;
+}
+
+/**
+ * A watched condition is false: `on_broken`. The escalate form notifies once per stay and keeps
+ * watching. The move form enters `goto` as an engine move (`watch_broken`, counted under
+ * `watch:<state>`) with the failed conditions and the instruction as the agent's feedback, then
+ * `else` (a human, rule 19) once the retries are used up.
+ */
+function watchBroken(st: Step, w: Watch, rt: WatchRuntime): void {
+  const s = st.s;
+  const state = rt.state;
+  const evidence = rt.conditions.filter((c) => c.status === 'failed').map(failedEvidence);
+  const ob = w.on_broken;
+  if (!('goto' in ob)) {
+    if (!rt.escalated) {
+      st.emit({
+        type: 'watch_escalated',
+        state,
+        visit: rt.visit,
+        reason: clipReason(
+          `Waiting in ${stateTitle(st.def, state)}: ${evidence
+            .map((u) => `${u.item} ${u.reason}`)
+            .join('; ')}`,
+        ),
+        notify_decision: { via: NOTIFY_VIA_WATCH_ESCALATE, mode: 'every', decision: 'push' },
+      });
+    }
+    rearmWatch(st, { ...rt, escalated: true });
+    return;
+  }
+  // A revoked machine's park is Cancel only (10-contracts §Lost machines): keep watching.
+  if (isRevokedPark(s)) {
+    rearmWatch(st, rt);
+    return;
+  }
+  const key = watchCounterKey(state);
+  const taken = s.retry_counters[key] ?? 0;
+  const cap = ob.retries;
+  const goto = ob.goto;
+  const target = st.def.states[goto];
+  if (taken < cap && target !== undefined) {
+    s.retry_counters = { ...s.retry_counters, [key]: taken + 1 };
+    const feedback: ReviewFeedback = {
+      heading: watchFeedbackHeading(stateTitle(st.def, state)),
+      unmet: evidence,
+      // ADR-0037 P5: resolved now against the pinned definition, frozen into the feedback.
+      instruction: resolveInstruction(st.def, ob.instruction) ?? null,
+    };
+    const toAgent = target.type === 'agent';
+    leaveLostPark(st, toAgent || target.type === 'command', false);
+    leaveParkedAgent(st, target);
+    enter(st, goto, {
+      ...NO_ROUTE,
+      kind: 'retries_exhausted',
+      question: `${renderReviewFeedback(feedback)}\n\nRetry, skip, or abort?`,
+      feedback,
+      // Without a machine `enter` requeues and only a pending answer survives the claim.
+      answer:
+        toAgent && s.machine_id === null
+          ? { input_request_id: null, answer: renderReviewFeedback(feedback) }
+          : null,
+      skipEntry: true,
+      record: engineMove('watch_broken', null, unmetReason(evidence)),
+    });
+    if (ob.return_to !== undefined && toAgent) {
+      const back = ob.return_to === '$self' ? state : ob.return_to;
+      if (st.def.states[back] !== undefined) {
+        s.return_to = back;
+        s.context = withWatchReturn(s.context, { state: back, from_watch: state });
+      }
+    }
+    return;
+  }
+  const n = taken + 1;
+  const lines = [
+    `The watch on ${stateTitle(st.def, state)} broke ${n} time${n === 1 ? '' : 's'} (retry limit ${cap}):`,
+    ...evidence.map((u) => `- ${u.item}: ${u.reason}`),
+    '',
+    'Retry, skip, or abort?',
+  ];
+  const elseTarget = st.def.states[ob.else];
+  if (elseTarget === undefined) {
+    toFallbackHuman(
+      st,
+      'retries_exhausted',
+      lines.join('\n'),
+      engineMove('retries_exhausted', null, `${unmetReason(evidence)} (retry limit ${cap})`),
+    );
+    return;
+  }
+  leaveLostPark(st, elseTarget.type === 'agent' || elseTarget.type === 'command', false);
+  leaveParkedAgent(st, elseTarget);
+  enter(st, ob.else, {
+    ...NO_ROUTE,
+    kind: 'retries_exhausted',
+    question: lines.join('\n'),
+    skipEntry: true,
+    record: engineMove('retries_exhausted', null, `${unmetReason(evidence)} (retry limit ${cap})`),
+  });
 }
 
 // ---------------------------------------------------------------- the QA state (ADR-0020 §2, qa.ts)

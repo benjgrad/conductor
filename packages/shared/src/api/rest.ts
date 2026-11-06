@@ -22,8 +22,10 @@ import {
 } from '../domain.js';
 import { StructuralChangeSchema } from '../advisor/proposal.js';
 import { machineLostMarkOf } from '../engine/machine-lost.js';
+import { watchRuntime } from '../engine/watch.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
+  ConditionStatusSchema,
   ConditionStatusValueSchema,
   GateStepSchema,
   isNamedMove,
@@ -658,6 +660,20 @@ export type BoardCardPermission = z.infer<typeof BoardCardPermissionSchema>;
 export const TicketScheduleRefSchema = z.object({ id: UuidSchema, name: z.string() });
 export type TicketScheduleRef = z.infer<typeof TicketScheduleRefSchema>;
 
+/**
+ * ADR-0037 P1 (T6): the watch of the human / event state a card waits in: its checklist (the
+ * last answer per condition, in declared order), a note (no machine, the last check failed),
+ * and when it checked last and checks next.
+ */
+export const BoardWatchingSchema = z.object({
+  state: z.string(),
+  conditions: z.array(ConditionStatusSchema),
+  note: z.string().nullable(),
+  last_checked_at: IsoDateTimeSchema.nullable(),
+  next_check_at: IsoDateTimeSchema.nullable(),
+});
+export type BoardWatching = z.infer<typeof BoardWatchingSchema>;
+
 /** One card. A ticket with no session yet has `session_id: null` and `status: null`. */
 export const BoardCardSchema = z.object({
   ticket_id: UuidSchema,
@@ -687,6 +703,8 @@ export const BoardCardSchema = z.object({
   kind: TicketKindSchema.nullable().default(null),
   /** ADR-0011: in a gate step, its live checklist (`pendingOfStep`); null otherwise. */
   pending: BoardPendingSchema.nullable().default(null),
+  /** ADR-0037 P1: waiting in a watched state, the watch's last result; null otherwise. */
+  watching: BoardWatchingSchema.nullable().default(null),
   /**
    * ADR-0011: one button per human-actor transition out of the current state, for the ticket's
    * kind (`humanTransitionOptions`). Filled only while the session is `needs_input` in a human
@@ -1828,6 +1846,8 @@ export interface CardSessionLike {
   context: Record<string, unknown>;
   /** ADR-0011: resolves a `$return_to` button's `goto`; absent ≡ null (left as `$return_to`). */
   return_to?: string | null;
+  /** ADR-0037 P1: the watch's next check (`watching.next_check_at`); absent ≡ null. */
+  watch_deadline?: Ts | null;
   updated_at: Ts;
 }
 
@@ -1947,6 +1967,7 @@ export function toBoardCard(
     kind: ticket.kind ?? null,
     pending:
       session && place.checking ? pendingOfStep(view.def, stepOfContext(session.context)) : null,
+    watching: session && !place.checking ? watchingOfSession(session) : null,
     human_transitions: humanTransitionsOfCard(
       ticket,
       session,
@@ -1971,6 +1992,23 @@ export function toBoardCard(
 }
 
 // ---------------------------------------------------------------- ADR-0011 card fields
+
+/**
+ * ADR-0037 P1: `BoardCard.watching`, while the session waits in the watched state (parked: a
+ * human state's `needs_input`, an event state's `waiting_external`); null otherwise.
+ */
+export function watchingOfSession(session: CardSessionLike): BoardWatching | null {
+  if (session.status !== 'needs_input' && session.status !== 'waiting_external') return null;
+  const rt = watchRuntime(session.context as Parameters<typeof watchRuntime>[0]);
+  if (rt === null || rt.state !== session.workflow_state) return null;
+  return {
+    state: rt.state,
+    conditions: rt.conditions,
+    note: rt.note,
+    last_checked_at: rt.last_checked_at,
+    next_check_at: session.watch_deadline == null ? null : iso(session.watch_deadline),
+  };
+}
 
 /** A conductor action's checklist label. */
 export function actionLabel(action: string): string {

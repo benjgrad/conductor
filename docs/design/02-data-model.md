@@ -186,6 +186,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | notified_transitions | text[] | [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P6 (`1763600000000_notify-policy`): the `once` transitions that already pushed on the ticket; a reopen copies it, so `once` is per ticket. Written by apply only under a workflow `notify` policy |
 | state_entered_at | timestamptz | when the current state was entered |
 | state_deadline | timestamptz null | when the current state's `timeout` fires; read by the timeout sweep (M1-T04) |
+| watch_deadline | timestamptz null | [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P1 (`1763700000000_session-watch-deadline`, T6): when the current human / event state's `watch` checks next; read by the same sweep (`watch.fired`), set to now by a merge or push on the repo (the nudge). Partial index where not null. The watch's checklist lives in `context.__watch` |
 | waiting_for_build_slot | bool | card badge, **not** a status ([10](10-contracts.md)); set from session_event `build_slot` |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, updated_at | | |

@@ -254,6 +254,7 @@ const session: ColumnSpec<SessionRow> = {
   notified_transitions: col('_text', NN),
   state_entered_at: col('timestamptz', NN),
   state_deadline: col('timestamptz', NULL),
+  watch_deadline: col('timestamptz', NULL),
   waiting_for_build_slot: col('bool', NN),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),

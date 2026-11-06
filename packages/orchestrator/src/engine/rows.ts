@@ -179,6 +179,8 @@ export function toSnapshot(
     branch: session.branch,
     // ADR-0037 P6: the ticket's `once` memory (absent on rows read before the migration).
     notified_transitions: session.notified_transitions ?? [],
+    // ADR-0037 P1 (T6): the watch timer (absent on rows read before the migration).
+    watch_deadline: session.watch_deadline == null ? null : iso(session.watch_deadline),
   };
 }
 
@@ -221,7 +223,8 @@ export async function writeSession(
        claude_session_id = $6, agent_command_id = $7, agent_process_live = $8,
        pending_answer = $9, retry_counters = $10, state_visits = $11, state_entered_at = $12,
        state_deadline = $13, return_to = $14, spend_usd = $15, claude_spend_totals = $16,
-       wall_seconds = $17, context = $18, updated_at = $19, notified_transitions = $20
+       wall_seconds = $17, context = $18, updated_at = $19, notified_transitions = $20,
+       watch_deadline = $21
      WHERE id = $1`,
     [
       s.id,
@@ -244,6 +247,7 @@ export async function writeSession(
       JSON.stringify(joinStep(s)),
       now,
       s.notified_transitions ?? [],
+      s.watch_deadline ?? null,
     ],
   );
 }

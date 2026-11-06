@@ -35,6 +35,7 @@ export {
 } from './engine/apply.js';
 export * from './engine/review.js';
 export * from './engine/notify.js';
+export * from './engine/watch.js';
 export { applyRepoChecks, PIN_CHECK, type GateSpec } from './engine/move-step.js';
 export * from './engine/spend.js';
 export * from './engine/qa.types.js';

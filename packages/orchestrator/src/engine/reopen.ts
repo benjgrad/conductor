@@ -5,6 +5,7 @@ import {
   type BoardSseEvent,
   type PendingAnswer,
   type SessionStatus,
+  withoutWatch,
 } from '@conductor/shared';
 import { insertBoardEvents } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
@@ -92,7 +93,8 @@ export async function reopenSession(
         JSON.stringify(pending),
         // ADR-0009: never carry a review step (a session that ended mid-review); the reopened
         // session starts at def.start and resumes the worker's Claude session, never a reviewer's.
-        JSON.stringify(splitStep(old.context).context),
+        // ADR-0037 P1: nor a watch (the reopened session arms its own on entering a watched state).
+        JSON.stringify(withoutWatch(splitStep(old.context).context)),
         JSON.stringify(old.claude_spend_totals),
         // ADR-0037 P6: `once` is per ticket, so a reopen keeps what already pushed.
         old.notified_transitions ?? [],

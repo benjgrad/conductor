@@ -28,8 +28,13 @@ import { withTransaction } from '../db/index.js';
 import type { InputRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
 import { expireOnApply, readCardPermission, withPermission } from '../permissions/store.js';
-import { enqueueNeedsInputPush, enqueueTransitionPush } from '../push/enqueue.js';
-import { transitionPayload } from '../push/payload.js';
+import {
+  enqueueNeedsInputPush,
+  enqueueTransitionPush,
+  enqueueWatchEscalatePush,
+} from '../push/enqueue.js';
+import { transitionPayload, watchEscalatePayload, watchEscalateTag } from '../push/payload.js';
+import { nudgeSameRepoWatches, nudgesWatches } from './watch-nudge.js';
 import { CardViews, MachineCardFields } from './board-view.js';
 import {
   DefinitionCache,
@@ -265,6 +270,28 @@ export class EngineServiceImpl implements EngineService {
       coalesce === undefined
         ? undefined
         : notifyBucketKey(ticket.id, state, now, parseDuration(coalesce) / 1000);
+    // ADR-0037 P1: a watch moved the ticket out of the human state it waited in. Nobody answered
+    // its question, so close it here (before the landing opens its own, if any).
+    if (
+      (event.type === 'watch.fired' || event.type === 'action.completed') &&
+      before.step === null &&
+      before.status === 'needs_input' &&
+      s1.workflow_state !== before.workflow_state
+    ) {
+      const closed = await tx.query<InputRequestRow>(
+        "UPDATE input_request SET answer = '[the watch moved the ticket]', answered_by = 'system', " +
+          'answered_at = $2 WHERE session_id = $1 AND answer IS NULL RETURNING *',
+        [sessionId, now],
+      );
+      for (const row of closed.rows) {
+        drafts.push({
+          type: 'input.answered',
+          session_id: sessionId,
+          input_request_id: row.id,
+          answered_by: 'system',
+        });
+      }
+    }
     for (const effect of res.effects) {
       switch (effect.type) {
         case 'start_session': {
@@ -458,6 +485,53 @@ export class EngineServiceImpl implements EngineService {
             now,
           ]);
           break;
+        case 'watch_escalated': {
+          // ADR-0037 P1 / P6: a watch's `notify: escalate` always pushes (the user asked for it),
+          // in legacy mode too; once per stay (the tag is the idempotency key).
+          await tx.query(
+            "INSERT INTO event (session_id, type, payload) VALUES ($1, 'watch.escalated', $2)",
+            [
+              sessionId,
+              JSON.stringify({
+                state: effect.state,
+                visit: effect.visit,
+                reason: effect.reason,
+                notify: effect.notify_decision,
+              }),
+            ],
+          );
+          const tag = watchEscalateTag(sessionId, effect.state, effect.visit);
+          const notification = watchEscalatePayload({
+            ticketId: ticket.id,
+            ticketTitle: ticket.title,
+            stateTitle: stateTitle(def, effect.state),
+            reason: effect.reason,
+            tag,
+          });
+          if (this.deps.pushEnabled) {
+            const n = await enqueueWatchEscalatePush(tx, {
+              accountId: ticket.account_id,
+              sessionId,
+              ticketId: ticket.id,
+              notification,
+              idempotencyKey: tag,
+              now,
+            });
+            if (n > 0) wrotePush = true;
+          }
+          notices.push({
+            type: 'transition.notified',
+            session_id: sessionId,
+            ticket_id: ticket.id,
+            from: effect.state,
+            to: effect.state,
+            transition: effect.notify_decision.via,
+            title: notification.title,
+            body: notification.body,
+            tag: notification.tag,
+          });
+          break;
+        }
       }
     }
 
@@ -503,6 +577,15 @@ export class EngineServiceImpl implements EngineService {
     }
 
     await writeSession(tx, s1, token, now);
+    // ADR-0037 P1 (Q1): a merge or a push on this repo: check the repo's other watched tickets now.
+    if (nudgesWatches(event, before, s1)) {
+      await nudgeSameRepoWatches(tx, {
+        accountId: ticket.account_id,
+        repo: ticket.repo,
+        exceptSessionId: sessionId,
+        now,
+      });
+    }
     // ADR-0023: a session that no longer holds its agent process expires its pending permission
     // requests here, so the card never shows a prompt nobody can answer (10-contracts §Permission
     // prompts, Expiry).

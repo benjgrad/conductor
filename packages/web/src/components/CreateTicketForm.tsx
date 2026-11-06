@@ -2,14 +2,22 @@ import {
   CONDUCTOR_WORKFLOW_ID,
   DEFAULT_TICKET_PRIORITY,
   TICKET_KINDS,
+  TICKET_SIZES,
+  TicketSizeSchema,
   type RepoSuggestion,
   type TicketKind,
+  type TicketSize,
 } from '@conductor/shared';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { AttachmentPicker, useAttachmentUploads } from './AttachmentPicker.js';
-import { priorityChoices, priorityLabel, TICKET_KIND_LABELS } from './format.js';
+import {
+  priorityChoices,
+  priorityLabel,
+  TICKET_KIND_LABELS,
+  TICKET_SIZE_LABELS,
+} from './format.js';
 import { RepoCombobox } from './RepoCombobox.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
 import { TicketBodyField } from './ticket-editor/TicketBodyField.js';
@@ -47,6 +55,7 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
   const [reposKey, setReposKey] = useState(0);
   const [priority, setPriority] = useState(DEFAULT_TICKET_PRIORITY);
   const [kind, setKind] = useState<TicketKind | null>(null);
+  const [size, setSize] = useState<TicketSize | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 06 §Attachments: uploaded as they are picked, linked when the ticket is created.
@@ -129,6 +138,7 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
         priority,
         // Always sent: the shared contract makes it required once M1b-T04 merges.
         kind,
+        ...(size !== null ? { size } : {}),
         ...(uploads.ids.length > 0 ? { attachment_ids: uploads.ids } : {}),
       });
       uploads.reset();
@@ -136,6 +146,7 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
       setBody(TICKET_TEMPLATE);
       setBodyKey((k) => k + 1);
       setKind(null);
+      setSize(null);
       // The repo stays chosen; its ranking changed.
       repoTouched.current = true;
       setReposKey((k) => k + 1);
@@ -174,6 +185,23 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
           {priorityChoices().map((p) => (
             <option key={p} value={p}>
               {priorityLabel(p)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label title="L: the planner splits it into follow-up tickets">
+        Size
+        <select
+          value={size ?? ''}
+          onChange={(e) => {
+            const parsed = TicketSizeSchema.safeParse(e.target.value);
+            setSize(parsed.success ? parsed.data : null);
+          }}
+        >
+          <option value="">—</option>
+          {TICKET_SIZES.map((s) => (
+            <option key={s} value={s}>
+              {s} · {TICKET_SIZE_LABELS[s]}
             </option>
           ))}
         </select>

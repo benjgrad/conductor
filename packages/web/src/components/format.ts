@@ -6,6 +6,7 @@ import type {
   InputRequestKind,
   SessionStatus,
   TicketKind,
+  TicketSize,
 } from '@conductor/shared';
 import { displayState, parseReviewState } from '../workflow/review.js';
 
@@ -71,6 +72,13 @@ export function duration(seconds: number): string {
 export const TICKET_KIND_LABELS: Record<TicketKind, string> = {
   work: 'Work',
   personal: 'Personal',
+};
+
+/** ADR-0037 §4 (C2): a ticket's size, for the create form and the card tag's hover text. */
+export const TICKET_SIZE_LABELS: Record<TicketSize, string> = {
+  S: 'Small',
+  M: 'Medium',
+  L: 'Large',
 };
 
 /**

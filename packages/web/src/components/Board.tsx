@@ -28,7 +28,15 @@ import { waitingOnYou } from '../board/waiting.js';
 import { routeHash } from '../nav.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
-import { ago, cardMeta, humanize, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
+import {
+  ago,
+  cardMeta,
+  humanize,
+  KIND_LABELS,
+  TICKET_KIND_LABELS,
+  TICKET_SIZE_LABELS,
+  usd,
+} from './format.js';
 import { usePlanAnswer } from './plan-answer.js';
 import { CardAllowOnce, CardOptionButton } from './CardActions.js';
 import { cardAction } from './card-action.js';
@@ -788,6 +796,11 @@ function Card({
       <div className="card-meta">
         {card.kind && (
           <span className={`tag tag-kind tag-${card.kind}`}>{TICKET_KIND_LABELS[card.kind]}</span>
+        )}
+        {card.size && (
+          <span className="tag tag-size" title={`Size: ${TICKET_SIZE_LABELS[card.size]}`}>
+            {card.size}
+          </span>
         )}
         <span
           className="card-agent"

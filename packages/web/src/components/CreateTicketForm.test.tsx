@@ -63,6 +63,25 @@ describe('CreateTicketForm (ADR-0010, ADR-0011)', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
     expect(submit.disabled).toBe(false);
   });
+
+  it('size is optional: none by default, L when picked (ADR-0037 §4, C2)', async () => {
+    const { sent, state, submit } = await setup();
+    const size = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Size' });
+    expect(size.value).toBe('');
+    fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
+    fireEvent.click(submit);
+    await waitFor(() => expect(state.created).toBe(true));
+    expect(sent[0]).not.toHaveProperty('size');
+
+    state.created = false;
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Big' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
+    fireEvent.change(size, { target: { value: 'L' } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(state.created).toBe(true));
+    expect(sent[1]).toMatchObject({ size: 'L' });
+    expect(size.value).toBe('');
+  });
 });
 
 const REPOS: RepoSuggestion[] = [

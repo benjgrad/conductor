@@ -1,4 +1,5 @@
 import {
+  type Concurrency,
   type Condition,
   type EntryCheck,
   type OnUnmet,
@@ -33,6 +34,8 @@ export interface GateSpec {
   condition_timeout?: string | undefined;
   /** ADR-0011: the first poll interval; default DEFAULT_CONDITION_POLL (move steps only). */
   condition_poll?: string | undefined;
+  /** ADR-0037 P4: the `held` phase's rule (move steps only); absent = no hold. */
+  concurrency?: Concurrency | undefined;
   on_unmet: OnUnmet;
 }
 
@@ -97,6 +100,7 @@ export function moveSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | nul
     conditions: req.conditions ?? [],
     condition_timeout: req.condition_timeout,
     condition_poll: req.condition_poll,
+    concurrency: req.concurrency,
     on_unmet: t.on_unmet ?? {
       goto: r.from,
       retries: 0,

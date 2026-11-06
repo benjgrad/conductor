@@ -380,7 +380,7 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * are gated by AVAILABLE_CONDITION_TYPES instead.
  * - `watch` (P1, T6, available): a state's `watch`;
  * - `no_checks` (P3, T5, available): `pr_checks_green.no_checks`;
- * - `concurrency` (P4, T7): `requires.concurrency`;
+ * - `concurrency` (P4, T7, available): `requires.concurrency`;
  * - `instructions` (P5, T8): the `instructions` map, `$instructions.<slug>` refs and `presets`;
  * - `notify_policy` (P6, T4, available): the workflow `notify` block and string transition
  *   `notify` values;
@@ -401,6 +401,7 @@ export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
 export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
   'watch',
   'no_checks',
+  'concurrency',
   'instructions',
   'notify_policy',
   'handoff',

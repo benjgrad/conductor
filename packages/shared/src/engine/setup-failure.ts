@@ -27,7 +27,6 @@ export type SetupSource =
   /** `override_without_setup`: a repo override exists but sets no setup (so it was auto-detected). */
   | { type: 'auto'; repo: string; override_without_setup: boolean };
 
-
 /**
  * The source of the failed setup: the repo override when it sets a setup, else the workflow
  * gate's own `setup` (a command, or '' for none), else auto-detected from the lockfile.
@@ -119,7 +118,10 @@ export function setupFailureMessage(i: SetupFailureInput): {
   const shown = i.cmd !== null ? `\`${cmd}\`` : cmd;
   const summary = `Setup failed before any check ran: ${shown} (${describeSource(i.source)}).`;
   const base = i.baseRef !== undefined && i.baseRef !== '' ? `\`${i.baseRef}\`` : 'the base branch';
-  const lines = [summary, `It failed (${i.how}) in a fresh checkout, so \`${i.check}\` did not run.`];
+  const lines = [
+    summary,
+    `It failed (${i.how}) in a fresh checkout, so \`${i.check}\` did not run.`,
+  ];
   switch (i.onBase) {
     case 'fail':
       lines.push(

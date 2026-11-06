@@ -2181,7 +2181,8 @@ function stepConfigFailed(
     actor: r.actor,
     reason: r.reason,
   };
-  const question = output.trim() === '' ? msg.text : `${msg.text}\n\nLast output of the setup:\n${output}`;
+  const question =
+    output.trim() === '' ? msg.text : `${msg.text}\n\nLast output of the setup:\n${output}`;
   leaveStep(st, false);
   enter(st, spec.on_unmet.else, {
     ...NO_ROUTE,
@@ -2234,8 +2235,7 @@ function onGateRetry(st: Step): ApplyIgnoreReason | null {
   delete rest[CHECK_CONFIG_KEY];
   s.context = rest;
   const transition = typeof g.transition === 'string' ? g.transition : null;
-  const actor =
-    g.actor === 'agent' || g.actor === 'human' || g.actor === 'system' ? g.actor : null;
+  const actor = g.actor === 'agent' || g.actor === 'human' || g.actor === 'system' ? g.actor : null;
   // The step runs on the session's machine, or requeues without one (enterStep).
   enterStep(st, {
     kind: g.kind,

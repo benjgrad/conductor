@@ -165,7 +165,9 @@ export const ASK_USER_DESCRIPTION =
   `If the answer is one of a few choices, list them in \`options\` (${ASK_USER_OPTIONS_MIN}-${ASK_USER_OPTIONS_MAX}, short labels, the recommended one first): the human clicks one and its label is the answer. Set \`multi_select\` when several may be chosen (the answer is the labels joined with ", "). The human can still type a different answer.`;
 
 /** The tool result for an invalid `proposed_checks` (the question was not asked). */
-export function proposedChecksInvalidText(issues: readonly { path: PropertyKey[]; message: string }[]): string {
+export function proposedChecksInvalidText(
+  issues: readonly { path: PropertyKey[]; message: string }[],
+): string {
   const what = issues
     .slice(0, 5)
     .map((i) => `${i.path.map(String).join('.') || 'proposed_checks'}: ${i.message}`)

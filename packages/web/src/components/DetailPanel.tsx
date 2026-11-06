@@ -644,8 +644,8 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
           : request.kind === 'check_config'
             ? "Conductor's check config failed, not the branch"
             : fromAgent
-            ? `${agent} asks`
-            : 'Conductor needs a decision'
+              ? `${agent} asks`
+              : 'Conductor needs a decision'
       }
       ariaLabel="Pending input"
     >

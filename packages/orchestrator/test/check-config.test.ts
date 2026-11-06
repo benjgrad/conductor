@@ -175,11 +175,18 @@ describe('a repo-checks change retries the gates waiting on it', () => {
       'ben@example.com',
     );
     expect(res.ok).toBe(true);
-    const out = await afterRepoChecksChanged({ db: db.pool, engine: make() }, LOCAL_ACCOUNT_ID, REPO);
+    const out = await afterRepoChecksChanged(
+      { db: db.pool, engine: make() },
+      LOCAL_ACCOUNT_ID,
+      REPO,
+    );
     expect(out).toEqual({ answered: 0, retried: 1 });
     expect(seen).toHaveLength(1);
     expect(seen[0]!.id).toBe(mine.sessionId);
-    expect(seen[0]!.repo_checks).toEqual({ setup: '', checks: [{ name: 'Build', cmd: 'npm run build' }] });
+    expect(seen[0]!.repo_checks).toEqual({
+      setup: '',
+      checks: [{ name: 'Build', cmd: 'npm run build' }],
+    });
     expect(seen[0]!.repo_checks_meta).toMatchObject({ updated_by: 'ben@example.com' });
     // The wrapper answers the check_config request.
     const [req] = await openRequest(mine.sessionId);

@@ -82,7 +82,7 @@ describe('a setup that fails on the base branch too (conductor’s check config)
     expect(q.split('\n')[0]).toBe(
       `Setup failed before any check ran: \`${INCIDENT.setup}\` (from the repo checks override for ${REPO}, saved 2026-11-06 14:28 UTC by ben@example.com).`,
     );
-    expect(q).toContain("not your branch");
+    expect(q).toContain('not your branch');
     expect(q).toContain(`set_repo_checks for ${REPO}`);
     expect(q).toContain('fails on `main` too');
     expect(q).toContain(FATAL);

@@ -54,7 +54,10 @@ describe('describeSource', () => {
       `from the repo checks override for ${REPO}`,
     ],
     [{ type: 'workflow', at: 'X' }, "from the workflow's checks at X"],
-    [{ type: 'auto', repo: REPO, override_without_setup: false }, 'auto-detected from the lockfile'],
+    [
+      { type: 'auto', repo: REPO, override_without_setup: false },
+      'auto-detected from the lockfile',
+    ],
     [
       { type: 'auto', repo: REPO, override_without_setup: true },
       `auto-detected from the lockfile (the repo checks override for ${REPO} sets no setup)`,
@@ -80,7 +83,9 @@ describe('setupFailureMessage', () => {
       `Setup failed before any check ran: \`git fetch -q origin\` (from the repo checks override for ${REPO}).`,
     );
     expect(m.text).toContain("conductor's check config, not your branch");
-    expect(m.text).toContain(`Fix it with set_repo_checks for ${REPO}, or on the board's repo checks`);
+    expect(m.text).toContain(
+      `Fix it with set_repo_checks for ${REPO}, or on the board's repo checks`,
+    );
     expect(m.text).toContain('so `npm test` did not run');
   });
 

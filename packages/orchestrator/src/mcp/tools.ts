@@ -10,6 +10,7 @@ import {
   checksGatesOf,
   TicketKindSchema,
   TicketSizeSchema,
+  TicketBaseSchema,
   TicketPrioritySchema,
   httpForApplyResult,
   inputClass,
@@ -844,6 +845,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         ),
         size: TicketSizeSchema.optional().describe(
           'Optional S, M or L. The planner splits an L ticket into follow-ups unless the body says otherwise',
+        ),
+        base: TicketBaseSchema.optional().describe(
+          'Where the branch starts: a name in the workflow bases, or {ref, pr_into?}. Not available yet',
         ),
         workflow_id: z.string().min(1).max(100).optional(),
       },

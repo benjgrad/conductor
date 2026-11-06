@@ -130,6 +130,70 @@ describe('POST /api/tickets size (ADR-0037 §4, C2)', () => {
   });
 });
 
+describe('ticket base (ADR-0039, not available yet)', () => {
+  const SHA = 'b'.repeat(40);
+
+  it('POST with a base is refused at path base; a bad shape is a 400 too', async () => {
+    const post = (base: unknown) =>
+      send('POST', API_PATHS.tickets, {
+        title: 'Based',
+        body: 'b',
+        repo: 'acme/app',
+        workflow_id: 'edit_wf',
+        kind: 'work',
+        base,
+      });
+    const res = await post('master');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({
+      code: 'bad_request',
+      details: [{ path: 'base', message: 'a ticket base is not available yet' }],
+    });
+    expect((await post({ ref: SHA })).status).toBe(400);
+  });
+
+  it('PATCH base: refused while Queued, 403 once a session started, null clears', async () => {
+    const t = await createTicket();
+    expect(t.base ?? null).toBeNull();
+    const d = await getTicket(t.id);
+    const refused = await send('PATCH', API_PATHS.ticket(t.id), {
+      expected_updated_at: d.updated_at,
+      base: { ref: 'master' },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toMatchObject({ details: [{ path: 'base' }] });
+    const cleared = await send('PATCH', API_PATHS.ticket(t.id), {
+      expected_updated_at: d.updated_at,
+      base: null,
+    });
+    expect(cleared.status).toBe(200);
+    expect(TicketDetailSchema.parse(cleared.body).base ?? null).toBeNull();
+
+    // edit_wf v2 makes the agent column editable, but not the base.
+    const t2 = await createTicket();
+    await seedSession(t2.id, 'implement', 'running', 2);
+    const d2 = await getTicket(t2.id);
+    expect(d2.editable).toBe(true);
+    const late = await send('PATCH', API_PATHS.ticket(t2.id), {
+      expected_updated_at: d2.updated_at,
+      base: null,
+    });
+    expect(late.status).toBe(403);
+  });
+
+  it('exposes session.base_ref on the detail', async () => {
+    const t = await createTicket();
+    const sessionId = await seedSession(t.id, 'implement', 'running', 1);
+    expect((await getTicket(t.id)).base_ref ?? null).toBeNull();
+    const ref = { name: 'sprint', ref: 'x-sb-1', sha: SHA, pr_into: null };
+    await db.pool.query('UPDATE session SET base_ref = $2 WHERE id = $1', [
+      sessionId,
+      JSON.stringify(ref),
+    ]);
+    expect((await getTicket(t.id)).base_ref).toEqual(ref);
+  });
+});
+
 describe('GET /api/tickets/:id', () => {
   it('a queued ticket: its body, no session, editable by default', async () => {
     const t = await createTicket();

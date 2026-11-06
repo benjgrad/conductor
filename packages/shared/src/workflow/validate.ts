@@ -28,6 +28,7 @@ import {
   checkPrimitives,
   type PrimitiveAvailability,
 } from './validate-primitives.js';
+import { basesWarnings, checkBases, checkBasesAvailability } from './validate-bases.js';
 
 // Workflow validation on save (M1-T03, 05 §Validation on save). The schema (T12) checks shape;
 // this adds the graph rules. Consumers: T08 (save/list → 400 with `errors`).
@@ -46,6 +47,7 @@ import {
  * still holds tickets can't be removed) needs the database, so the orchestrator checks it on save
  * (`insertWorkflowVersion`), never `validateWorkflow`. Rules 19–25 (ADR-0037, the workflow
  * primitives P1–P8) are in `validate-primitives.ts`, with rule 14's "not available yet" refusals.
+ * Rules 26–27 (ADR-0039, base refs) are in `validate-bases.ts`.
  */
 export type WorkflowRule =
   | 1
@@ -72,7 +74,9 @@ export type WorkflowRule =
   | 22
   | 23
   | 24
-  | 25;
+  | 25
+  | 26
+  | 27;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -81,8 +85,13 @@ export interface WorkflowValidationError {
   message: string;
 }
 
+/**
+ * ADR-0039: `warnings` never block a save (a `cmd` base without `pr_into`); present only when
+ * there is at least one.
+ */
 export type WorkflowValidationResult =
-  { ok: true; def: WorkflowDefinition } | { ok: false; errors: WorkflowValidationError[] };
+  | { ok: true; def: WorkflowDefinition; warnings?: WorkflowValidationError[] }
+  | { ok: false; errors: WorkflowValidationError[]; warnings?: WorkflowValidationError[] };
 
 interface Edge {
   from: string;
@@ -146,11 +155,15 @@ export function checkAvailability(
   def: WorkflowDefinition,
   available: Availability = { tools: AVAILABLE_TOOL_ALIASES, resultKinds: AVAILABLE_RESULT_KINDS },
 ): WorkflowValidationError[] {
-  const errors: WorkflowValidationError[] = checkPrimitiveAvailability(def, {
-    actions: available.actions ?? AVAILABLE_TRANSITION_ACTIONS,
-    conditions: available.conditions ?? AVAILABLE_CONDITION_TYPES,
-    features: available.features ?? AVAILABLE_WORKFLOW_FEATURES,
-  });
+  const features = available.features ?? AVAILABLE_WORKFLOW_FEATURES;
+  const errors: WorkflowValidationError[] = [
+    ...checkPrimitiveAvailability(def, {
+      actions: available.actions ?? AVAILABLE_TRANSITION_ACTIONS,
+      conditions: available.conditions ?? AVAILABLE_CONDITION_TYPES,
+      features,
+    }),
+    ...checkBasesAvailability(def, features),
+  ];
   for (const [name, state] of Object.entries(def.states)) {
     if (state.type !== 'agent') continue;
     (state.tools ?? []).forEach((tool, i) => {
@@ -178,7 +191,7 @@ export function checkAvailability(
   return errors;
 }
 
-/** Parse a workflow definition and check rules 1–17 and 19–25. Never throws. */
+/** Parse a workflow definition and check rules 1–17 and 19–27. Never throws. */
 export function validateWorkflow(
   input: unknown,
   opts: ValidateOptions = {},
@@ -250,6 +263,7 @@ export function validateWorkflow(
   errors.push(...checkEntry(def, has));
   errors.push(...checkTransitions(def, has));
   errors.push(...checkPrimitives(def, has));
+  errors.push(...checkBases(def));
 
   // Graph rules 2–5 only on a graph whose start and targets all exist, so a missing target
   // reports once (rule 1) instead of cascading into unreachable/dead-end noise.
@@ -260,7 +274,9 @@ export function validateWorkflow(
     errors.push(...checkRefs(def, edges));
   }
 
-  return errors.length === 0 ? { ok: true, def } : { ok: false, errors };
+  const warnings = basesWarnings(def);
+  const extra = warnings.length > 0 ? { warnings } : {};
+  return errors.length === 0 ? { ok: true, def, ...extra } : { ok: false, errors, ...extra };
 }
 
 /**

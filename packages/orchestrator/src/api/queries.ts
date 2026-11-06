@@ -1,6 +1,7 @@
 import {
   compareQueued,
   CONDUCTOR_WORKFLOW_ID,
+  ticketBaseOf,
   toBoardCard,
   type BoardCard,
   type BoardColumnInfo,
@@ -154,6 +155,7 @@ export function toTicketDto(
     created_at: row.created_at.toISOString(),
     kind: row.kind,
     size: row.size ?? null,
+    base: ticketBaseOf(row.base),
     agent_name: agentName,
     // ADR-0032: the schedule's name is joined by TICKET_SELECT; a bare row only knows the id.
     schedule:

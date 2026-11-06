@@ -249,6 +249,8 @@ describe('BoardCard backward compatibility', () => {
       checking: null,
       kind: null,
       size: null,
+      // ADR-0039: an older card has no base_ref.
+      base_ref: null,
       pending: null,
       human_transitions: [],
       // ADR-0037 P1: an older card has no watch line.

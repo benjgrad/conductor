@@ -385,6 +385,8 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * - `notify_policy` (P6, T4, available): the workflow `notify` block and string transition
  *   `notify` values;
  * - `handoff` (P8, T3, available): `handoff: true`.
+ * - `bases` (ADR-0039, B1 → B2): `bases`, `base_default`, `$base` / `$base_sha` substitution, and a
+ *   ticket's or planning result's `base`.
  */
 export const WORKFLOW_FEATURES = [
   'watch',
@@ -393,6 +395,7 @@ export const WORKFLOW_FEATURES = [
   'instructions',
   'notify_policy',
   'handoff',
+  'bases',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
 export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
@@ -837,6 +840,109 @@ export const RESERVED_CONTEXT_KEYS = [
 ] as const;
 export type ReservedContextKey = (typeof RESERVED_CONTEXT_KEYS)[number];
 
+// ---------------------------------------------------------------- base refs (ADR-0039)
+
+/** ADR-0039: a key of the workflow's `bases` map (`sprint`, `hotfix`, `master`). */
+export const BaseNameSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_-]*$/, 'lower-case slug (a-z, 0-9, _ and -)')
+  .max(40);
+export type BaseName = z.infer<typeof BaseNameSchema>;
+
+/** ADR-0039: a `{ref}` base meaning the repo's default branch (`origin/HEAD`). */
+export const DEFAULT_BRANCH_REF = '$default_branch';
+
+const COMMIT_SHA_RE = /^[0-9a-f]{40}$/;
+/** ADR-0039: a full 40-hex commit sha. */
+export const CommitShaSchema = z.string().regex(COMMIT_SHA_RE, 'expected a 40-hex commit sha');
+/** True for a full 40-hex commit sha (a base ref that is not a branch). */
+export function isCommitSha(ref: string): boolean {
+  return COMMIT_SHA_RE.test(ref);
+}
+
+/** A git branch name (the inventory's rule): no whitespace, no leading `-`, no `..`. */
+export const GitBranchNameSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine(
+    (b) => !/[\s\0]/.test(b) && !b.startsWith('-') && !b.includes('..') && !b.startsWith('$'),
+    'expected a branch name',
+  );
+
+/**
+ * ADR-0039: where a ticket's branch starts. `{ref}`: a branch, or `$default_branch`. `{cmd}`: a
+ * command run on the claiming machine that prints one ref (a branch or a 40-hex sha) on stdout;
+ * `pr_into` is the PR target when it prints a sha (without it, a sha is refused at run time).
+ */
+export const BaseSpecSchema = z.union([
+  z.strictObject({
+    ref: z.union([z.literal(DEFAULT_BRANCH_REF), GitBranchNameSchema]),
+  }),
+  z.strictObject({
+    cmd: z.string().trim().min(1).max(2_000),
+    timeout: DurationSchema.optional(),
+    pr_into: GitBranchNameSchema.optional(),
+  }),
+]);
+export type BaseSpec = z.infer<typeof BaseSpecSchema>;
+
+/** ADR-0039: the base per ticket kind; an absent kind starts from `$default_branch`. */
+export const BaseDefaultSchema = z.partialRecord(TicketKindSchema, BaseNameSchema);
+export type BaseDefault = z.infer<typeof BaseDefaultSchema>;
+
+const explicitRef = {
+  ref: z.union([CommitShaSchema, GitBranchNameSchema]),
+  pr_into: GitBranchNameSchema.optional(),
+};
+const SHA_NEEDS_PR_INTO = 'a commit sha ref needs pr_into (the branch its PR goes to)';
+
+/**
+ * ADR-0039: a ticket's own base, winning over `base_default`: a name in the workflow's `bases`,
+ * or an explicit `{ref, pr_into?}` (a sha ref needs `pr_into`).
+ */
+export const TicketBaseSchema = z.union([
+  BaseNameSchema,
+  z.strictObject(explicitRef).refine((b) => !isCommitSha(b.ref) || b.pr_into !== undefined, {
+    message: SHA_NEEDS_PR_INTO,
+    path: ['pr_into'],
+  }),
+]);
+export type TicketBase = z.infer<typeof TicketBaseSchema>;
+
+/**
+ * ADR-0039: the planning result's `base`, used only when the ticket has none. Exactly one of
+ * `name` / `ref`; `reason` says why (e.g. "spans several Jira tickets: branch off master").
+ */
+export const PlanBaseSchema = z
+  .strictObject({
+    name: BaseNameSchema.optional(),
+    ref: explicitRef.ref.optional(),
+    pr_into: GitBranchNameSchema.optional(),
+    reason: z.string().trim().min(1).max(2_000),
+  })
+  .refine((b) => (b.name === undefined) !== (b.ref === undefined), {
+    message: 'set exactly one of name or ref',
+  })
+  .refine((b) => b.ref === undefined || !isCommitSha(b.ref) || b.pr_into !== undefined, {
+    message: SHA_NEEDS_PR_INTO,
+    path: ['pr_into'],
+  });
+export type PlanBase = z.infer<typeof PlanBaseSchema>;
+
+/**
+ * ADR-0039 (FR-7): `session.base_ref`, the base resolved when the session starts (B2 fills it).
+ * `name` null for an explicit ref; `sha` the commit the branch started from; `pr_into` the PR
+ * target when it isn't `ref`.
+ */
+export const SessionBaseSchema = z.object({
+  name: BaseNameSchema.nullable(),
+  ref: z.string().min(1),
+  sha: CommitShaSchema.nullable(),
+  pr_into: z.string().min(1).nullable(),
+});
+export type SessionBase = z.infer<typeof SessionBaseSchema>;
+
 export const BudgetSchema = z.strictObject({
   usd: z.number().positive(),
   minutes: z.number().positive(),
@@ -869,6 +975,13 @@ export const WorkflowDefinitionSchema = z.strictObject({
   instructions: z.record(InstructionSlugSchema, InstructionTextSchema).optional(),
   /** ADR-0037 P6: the notification policy; absent = legacy mode. */
   notify: NotifyPolicySchema.optional(),
+  /**
+   * ADR-0039: named places a ticket's branch can start from (and its PR go to). Refused "not
+   * available yet" (rule 14, feature `bases`) until B2.
+   */
+  bases: z.record(BaseNameSchema, BaseSpecSchema).optional(),
+  /** ADR-0039: the base per ticket kind (a key of `bases`, rule 26); absent → `$default_branch`. */
+  base_default: BaseDefaultSchema.optional(),
 });
 /** A parsed definition (defaults applied). */
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;

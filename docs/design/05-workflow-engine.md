@@ -310,6 +310,7 @@ Rules 10–14 are the transition rules of [ADR-0011](../adr/0011-transition-rule
     - A transition into the start state can't carry `requires` (`….requires`).
     - An agent state's known tool alias outside `AVAILABLE_TOOL_ALIASES` (`states.<s>.tools.<i>`), or result kind outside `AVAILABLE_RESULT_KINDS` (`states.<s>.result.<i>`), is "not available yet" (`checkAvailability`, ADR-0038 under ADR-0037's pattern). `pages` (alias and kind) is available.
     - So is an ADR-0037 primitive outside `AVAILABLE_WORKFLOW_FEATURES` (`no_checks` since T5, `instructions` since T8: the map, its refs and `presets`; the `notify` block and string `notify` values since T4), at its path: `watch` (`states.<s>.watch`), `requires.concurrency`, the `instructions` map (`instructions`), `$instructions.<slug>` refs and `presets`, the `notify` block (`notify`) and string transition `notify` values, `handoff: true`. A watch's enabled conditions are checked like `requires.conditions`.
+    - So is the ADR-0039 feature `bases` (not available until B2): the `bases` map (`bases`), `base_default` (`base_default`), and every `$base` / `$base_sha` use at its field (rule 27's sites). A ticket's `base` and a planning result's `base` are refused the same way by `ticketBaseProblems` / `planBaseProblems` (the create and PATCH routes answer 400 at path `base`).
     - Every "not available yet" refusal is `checkAvailability`'s; `validateWorkflow(def, {allowUnavailable: true})` skips them all (tests and drafts only; no save path sets it). The start-state refusal above is not one of them.
 
 Rules 15–16 are the review-and-merge rules of [ADR-0020](../adr/0020-review-and-merge-flow.md) (M2r-T02, the same file). The PR actions `inspect_pr`, `merge_pr` and `close_pr` are available (`AVAILABLE_TRANSITION_ACTIONS`), so rule 14 doesn't refuse them. Neither rule fires on a definition without the new fields or `merge_pr` (v1, v2):
@@ -335,6 +336,14 @@ Rules 19–25 are [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-pr
 - 25, `no_checks` ⊕ `no_checks_after`.
 
 `docs/design/workflows/conductor.v6.draft.json` passes `validateWorkflow(draft, {allowUnavailable: true})`; without it, only rule 14 refuses (`conductor.v6-draft.test.ts`).
+
+Rules 26–27 are [ADR-0039](../adr/0039-base-refs.md#validation-on-save-rules-2627)'s (base refs), in `validate-bases.ts` (`checkBases`, B1):
+- 26, `base_default` needs `bases`, and each of its values names a key of `bases` (`base_default.<kind>`). A ticket's or plan's base name is checked against the same map when it is set (`ticketBaseProblems`, `planBaseProblems`);
+- 27, `$base` / `$base_sha` in a check `cmd`, a `cmd` condition (`requires` or `watch`), an `instructions` text or a literal `on_unmet` / `on_broken` instruction needs the workflow's `bases`. A definition can't know a repo's default branch, so declaring `bases` (at least `{"default": {"ref": "$default_branch"}}`) is the opt-in.
+
+**Warnings.** `validateWorkflow` also returns `warnings` (same shape as errors, present only when non-empty), which never block a save. Today there is one: a `cmd` base without `pr_into` (`bases.<name>.pr_into`, numbered 26), because B2 refuses a sha result it can't open a PR from. The save routes don't return warnings yet (B3).
+
+`docs/design/workflows/conductor.v7.draft.json` (v6 plus `bases`) passes with `allowUnavailable` and one warning (`conductor.v7-draft.test.ts`).
 
 ADR-0011 changes how rules 1–5 read the graph:
 - **Edges.** A transition's `on_unmet.goto` / `else` are edges too. `$return_to` is not an edge, like `answered`.

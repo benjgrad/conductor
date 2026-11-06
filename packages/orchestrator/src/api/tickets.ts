@@ -1,7 +1,10 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
+  QUEUED_COLUMN_ID,
   ROUTINE_WORKFLOW_ID,
   canonicalRepo,
+  sessionBaseOf,
+  ticketBaseProblems,
   ticketEditable,
   toBoardCard,
   type AccountScope,
@@ -9,6 +12,7 @@ import {
   type BoardSseEvent,
   type CreateTicketRequestSchema,
   type TicketDetail,
+  type TicketBase,
   type TicketDto,
   type TicketKind,
   type TicketSize,
@@ -90,6 +94,7 @@ async function toDetail(
     column,
     column_title: view.columns.find((c) => c.id === column)?.title ?? column,
     editable: ticketEditable(def, state),
+    base_ref: sessionBaseOf(session?.base_ref),
     proposals: await loadProposals(q, ticket.id, session),
     ...(await pagesField(q, session)),
     attachments: (await loadTicketAttachments(q, ticket.id)).map(toAttachmentDto),
@@ -135,7 +140,9 @@ export type UpdateTicketResult =
   | { status: 'not_found' }
   | { status: 'not_editable'; detail: TicketDetail }
   | { status: 'conflict' }
-  | { status: 'attachment_error'; error: AttachmentLinkError };
+  | { status: 'attachment_error'; error: AttachmentLinkError }
+  /** ADR-0039: the `base` is refused (not available yet, or not in the workflow's bases). */
+  | { status: 'bad_base'; error: Extract<CreateTicketResult, { ok: false }> };
 
 /** Columns a session holds before any state runs: a claim, not the engine, locks them. */
 const PRE_CLAIM = new Set(['queued', 'assigned']);
@@ -190,15 +197,32 @@ async function updateTicketTx(
 
     const before = await toDetail(tx, ticket, session);
     if (!before.editable) return { status: 'not_editable', detail: before };
+    // ADR-0039: the base is fixed once a session starts (B2 resolves it then).
+    if (patch.base !== undefined && before.column !== QUEUED_COLUMN_ID) {
+      return { status: 'not_editable', detail: before };
+    }
+    if (patch.base != null) {
+      const bad = await baseProblem(tx, ticket.workflow_id, patch.base);
+      if (bad !== null) return { status: 'bad_base', error: bad };
+    }
     if (Date.parse(patch.expected_updated_at) !== ticket.updated_at.getTime()) {
       return { status: 'conflict' };
     }
 
     const res = await tx.query<TicketCardRow>(
       'UPDATE ticket SET title = coalesce($2, title), body = coalesce($3, body), ' +
-        'priority = coalesce($4, priority), kind = coalesce($5, kind), updated_at = now() ' +
+        'priority = coalesce($4, priority), kind = coalesce($5, kind), ' +
+        'base = CASE WHEN $6 THEN $7::jsonb ELSE base END, updated_at = now() ' +
         'WHERE id = $1 RETURNING *',
-      [id, patch.title ?? null, patch.body ?? null, patch.priority ?? null, patch.kind ?? null],
+      [
+        id,
+        patch.title ?? null,
+        patch.body ?? null,
+        patch.priority ?? null,
+        patch.kind ?? null,
+        patch.base !== undefined,
+        patch.base == null ? null : JSON.stringify(patch.base),
+      ],
     );
     // 06 §Attachments: removals first, so a swap within the limits passes.
     await removeAttachments(tx, id, patch.remove_attachment_ids ?? []);
@@ -210,6 +234,32 @@ async function updateTicketTx(
       : await sessionlessCardUpserted(tx, row);
     return { status: 'updated', detail: await toDetail(tx, row, session), events };
   });
+}
+
+/**
+ * ADR-0039: a ticket `base` checked against the latest definition of its workflow (the one a
+ * queued ticket will be pinned to), as the 400 to return; null = fine.
+ */
+async function baseProblem(
+  q: Queryable,
+  workflowId: string,
+  base: TicketBase,
+): Promise<Extract<CreateTicketResult, { ok: false }> | null> {
+  const r = await q.query<{ v: number | null }>(
+    'SELECT max(version) AS v FROM workflow_definition WHERE id = $1',
+    [workflowId],
+  );
+  const version = r.rows[0]?.v ?? null;
+  const def = version === null ? null : await defs.get(q, workflowId, version).catch(() => null);
+  const problems = ticketBaseProblems(def, base);
+  if (problems.length === 0) return null;
+  return {
+    ok: false,
+    status: 400,
+    code: 'bad_request',
+    message: problems[0]!.message,
+    details: problems.map((p) => ({ path: p.path.join('.'), message: p.message })),
+  };
 }
 
 /** The `card.upserted` of a ticket with no session yet (a new or edited queued ticket). */
@@ -301,6 +351,10 @@ export async function createTicket(
   const prepared = await prepareNewTicket(deps, body);
   if (!prepared.ok) return prepared;
   const { repo } = prepared;
+  if (body.base !== undefined) {
+    const bad = await baseProblem(db, body.workflow_id, body.base);
+    if (bad !== null) return bad;
+  }
   // WF-T03: an explicit kind wins; else the repo's last ticket's; else the caller must say.
   const kind = body.kind ?? (await lastTicketKind(db, scope.account_id, repo));
   if (kind === null) {
@@ -349,6 +403,7 @@ async function insertNewTicket(
       priority: body.priority,
       kind,
       size: body.size,
+      base: body.base ?? null,
     }))!;
     // 06 §Attachments: linked before the commit, so no claim sees the ticket without its files.
     await linkAttachments(tx, scope.account_id, row.id, body.attachment_ids ?? []);
@@ -407,6 +462,8 @@ export interface NewTicket {
   kind: TicketKind;
   /** ADR-0037 §4 (C2): S / M / L; absent ≡ null (schedule runs, approved proposals). */
   size?: TicketSize | null;
+  /** ADR-0039: the ticket's own base; absent ≡ null (the workflow's `base_default`). */
+  base?: TicketBase | null;
   /** ADR-0032: the schedule run it comes from; both or neither. */
   schedule_id?: string | null;
   scheduled_for?: Date | null;
@@ -419,8 +476,8 @@ export interface NewTicket {
 export async function insertTicketRow(tx: Queryable, t: NewTicket): Promise<TicketRow | null> {
   const res = await tx.query<TicketRow>(
     'INSERT INTO ticket (external_ref, repo, title, body, workflow_id, required_tags, ' +
-      'repo_allow_machines, priority, kind, account_id, schedule_id, scheduled_for, size) ' +
-      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ' +
+      'repo_allow_machines, priority, kind, account_id, schedule_id, scheduled_for, size, base) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) ' +
       'ON CONFLICT (schedule_id, scheduled_for) WHERE schedule_id IS NOT NULL DO NOTHING ' +
       'RETURNING *',
     [
@@ -437,6 +494,7 @@ export async function insertTicketRow(tx: Queryable, t: NewTicket): Promise<Tick
       t.schedule_id ?? null,
       t.scheduled_for ?? null,
       t.size ?? null,
+      t.base == null ? null : JSON.stringify(t.base),
     ],
   );
   return res.rows[0] ?? null;

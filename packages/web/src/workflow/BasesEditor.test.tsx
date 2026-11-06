@@ -7,9 +7,19 @@ import {
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import V7_DRAFT from '../../../../docs/design/workflows/conductor.v7.draft.json';
 import { BasesEditor } from './BasesEditor.js';
 import { issueAt, validateColumns } from './columns.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+// Read at run time, not imported: the deploy image has no docs/ (.dockerignore) and its
+// `tsc -b` typechecks tests, so a static import of a docs/ file breaks `pnpm build`.
+const V7_DRAFT: unknown = JSON.parse(
+  readFileSync(
+    join(import.meta.dirname, '../../../../docs/design/workflows/conductor.v7.draft.json'),
+    'utf8',
+  ),
+);
 
 // ADR-0039 (B3, FR-3): the designer's Bases section, on the v7 draft.
 

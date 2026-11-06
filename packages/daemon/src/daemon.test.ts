@@ -1149,9 +1149,70 @@ describe('daemon core: run_cmd and kill', () => {
       exit_code: 2,
       setup_failed: true,
       output_tail: 'deps: no such target\n',
+      setup_cmd: 'make deps',
+      // The branch is the base's tip (no commit yet): the same commit fails the same way.
+      setup_on_base: 'fail',
     });
+    expect(typeof exit.base_ref).toBe('string');
     expect(runner.calls.map((c) => c.cmd)).toEqual(['make deps']);
     expect(existsSync(runner.calls[0]!.cwd)).toBe(false);
+  });
+
+  // A real git worktree and clone (the probe's fetch and checkout are what's under test); the
+  // setup itself is the fake runner, decided by what its checkout contains.
+  const setupProbe = async (prepare: (wt: string) => void) => {
+    const runner = new FakeCommandRunner(1, true).scriptBy('make deps', (o) =>
+      existsSync(join(o.cwd, 'BROKEN'))
+        ? { exitCode: 2, output: 'deps: broken\n' }
+        : { exitCode: 0 },
+    );
+    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid, {}, 3));
+    await orch.until(() => orch.events('exit')[0]);
+    const wt = orch.eventData('started')[0]!.worktree_path;
+    writeFileSync(join(wt, 'BROKEN'), 'x');
+    execFileSync('git', ['add', '.'], { cwd: wt });
+    execFileSync('git', ['-c', 'user.email=t@x', '-c', 'user.name=t', 'commit', '-qm', 'b'], {
+      cwd: wt,
+    });
+    prepare(wt);
+    orch.send(
+      cmdMsg(sid, {
+        command_id: randomUUID(),
+        workflow_state: 'x',
+        cmd: 'npm run build',
+        cwd: null,
+        timeout_ms: 5000,
+        require_clean: true,
+        checkout: { sha: null, setup: 'make deps', last: false },
+      }),
+    );
+    const exit = await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+    return { exit, runner };
+  };
+
+  it('a setup that fails only on the branch passes on the base: setup_on_base pass', async () => {
+    const { exit, runner } = await setupProbe(() => undefined);
+    expect(exit).toMatchObject({
+      setup_failed: true,
+      setup_cmd: 'make deps',
+      setup_on_base: 'pass',
+      output_tail: 'deps: broken\n',
+    });
+    // The branch's setup, then the base's; the check never ran and both checkouts are gone.
+    expect(runner.calls.map((c) => c.cmd)).toEqual(['make deps', 'make deps']);
+    expect(runner.calls[0]!.cwd).not.toBe(runner.calls[1]!.cwd);
+    for (const c of runner.calls) expect(existsSync(c.cwd)).toBe(false);
+  });
+
+  it('without origin/HEAD the probe cannot run: setup_on_base unknown', async () => {
+    const { exit, runner } = await setupProbe((wt) => {
+      execFileSync('git', ['symbolic-ref', '--delete', 'refs/remotes/origin/HEAD'], { cwd: wt });
+    });
+    expect(exit).toMatchObject({ setup_failed: true, setup_on_base: 'unknown' });
+    expect(runner.calls.map((c) => c.cmd)).toEqual(['make deps']);
   });
 
   it('ADR-0010: a require_clean check on a dirty worktree is not run; cmd_exit reports dirty', async () => {

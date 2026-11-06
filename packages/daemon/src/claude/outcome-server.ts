@@ -57,6 +57,8 @@ import {
   type PermissionBehavior,
   type PermissionScope,
   type QuestionOptions,
+  ProposedChecksSchema,
+  type ProposedChecks,
 } from '@conductor/shared';
 
 export const OUTCOME_SERVER_NAME = 'conductor';
@@ -162,6 +164,15 @@ export const ASK_USER_DESCRIPTION =
   'Ask the human operator one clear question when you cannot proceed without a decision. The call returns at once; then end your turn. The answer arrives as the next user message. ' +
   `If the answer is one of a few choices, list them in \`options\` (${ASK_USER_OPTIONS_MIN}-${ASK_USER_OPTIONS_MAX}, short labels, the recommended one first): the human clicks one and its label is the answer. Set \`multi_select\` when several may be chosen (the answer is the labels joined with ", "). The human can still type a different answer.`;
 
+/** The tool result for an invalid `proposed_checks` (the question was not asked). */
+export function proposedChecksInvalidText(issues: readonly { path: PropertyKey[]; message: string }[]): string {
+  const what = issues
+    .slice(0, 5)
+    .map((i) => `${i.path.map(String).join('.') || 'proposed_checks'}: ${i.message}`)
+    .join('; ');
+  return `Not asked: proposed_checks is invalid (${what}). Fix it, or ask without it.`;
+}
+
 const ASK_USER_INPUT_SHAPE = {
   question: z.string().min(1).describe('One clear question for the human'),
   options: z
@@ -183,6 +194,23 @@ const ASK_USER_INPUT_SHAPE = {
       `Optional: ${ASK_USER_OPTIONS_MIN}-${ASK_USER_OPTIONS_MAX} choices shown as buttons, the recommended one first`,
     ),
   multi_select: z.boolean().optional().describe('The human may choose several options'),
+  proposed_checks: z
+    .object({
+      title: z.string(),
+      rationale: z.string(),
+      checks: z
+        .object({
+          setup: z.string().optional(),
+          checks: z.array(
+            z.object({ name: z.string(), cmd: z.string(), timeout: z.string().optional() }),
+          ),
+        })
+        .nullable(),
+    })
+    .optional()
+    .describe(
+      "Only when a check or its setup fails because of conductor's check config, not your branch: the repo's full corrected checks ({setup?, checks: [{name, cmd, timeout?}]}; null = the workflow's checks), a title and why. Ben applies it; you never change the checks yourself.",
+    ),
 };
 
 const TOKEN_PATH = /^\/mcp\/([a-f0-9]{32})$/;
@@ -283,7 +311,7 @@ export function boundedSuggestions(v: unknown): JsonObject[] | undefined {
 export interface OutcomeHandlers {
   onCompleteState(result: Record<string, unknown>, meta: CompleteStateMeta): void;
   /** `options`: the agent's bounded choices; absent when none were given or they were invalid. */
-  onAskUser(question: string, options?: QuestionOptions): void;
+  onAskUser(question: string, options?: QuestionOptions, proposedChecks?: ProposedChecks): void;
   /**
    * ADR-0023: a permission prompt is now held. Absent → every prompt is denied at once
    * (PERMISSION_NO_HANDLER).
@@ -464,13 +492,19 @@ function buildServer(entry: Entry): McpServer {
       inputSchema: ASK_USER_INPUT_SHAPE,
       _meta: ALWAYS_LOAD,
     },
-    ({ question, options, multi_select }) => {
+    ({ question, options, multi_select, proposed_checks }) => {
       if (entry.completed) return text(ASK_USER_AFTER_COMPLETE);
       if (entry.questionPending) return text(ASK_USER_PENDING_QUESTION);
+      let proposed: ProposedChecks | undefined;
+      if (proposed_checks !== undefined) {
+        const parsed = ProposedChecksSchema.safeParse(proposed_checks);
+        // Refused, not asked: the agent fixes the proposal (or asks without it) and calls again.
+        if (!parsed.success) return text(proposedChecksInvalidText(parsed.error.issues));
+        proposed = parsed.data;
+      }
       entry.questionPending = true;
       const bounded = boundedQuestionOptions(options, multi_select);
-      if (bounded !== undefined) entry.handlers.onAskUser(question, bounded);
-      else entry.handlers.onAskUser(question);
+      entry.handlers.onAskUser(question, bounded, proposed);
       return text(ASK_USER_RETURN);
     },
   );

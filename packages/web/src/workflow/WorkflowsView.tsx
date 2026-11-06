@@ -49,6 +49,7 @@ import { SaveBar } from './SaveBar.js';
 import { SaveReviewDialog } from './SaveReviewDialog.js';
 import { affectedOf, diffVersions, type ReadableChange } from './version-diff.js';
 import { VersionDiff } from './VersionDiff.js';
+import { InstructionsEditor } from './InstructionsEditor.js';
 import { TransitionEditor } from './TransitionEditor.js';
 import { ArrowEditor } from './ArrowEditor.js';
 import { addTransition, arrowTransitions, getTransitionObject, parentOf } from './transitions.js';
@@ -675,6 +676,9 @@ export function WorkflowsView({
             />
             People can edit tickets in the {QUEUED_TITLE} column
           </label>
+        )}
+        {shown && asColumns && (
+          <InstructionsEditor definition={shown} issues={allIssues} onChange={edit} />
         )}
         {shown && asColumns && (
           <ColumnsDiagram

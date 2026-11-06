@@ -2186,6 +2186,17 @@ button.link {
   gap: 4px;
   font-size: var(--text-sm);
 }
+/* ADR-0037 P5: saved instructions that fill a text box. */
+.preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.preset-chip {
+  font-size: var(--text-xs);
+  border-radius: 10px;
+  padding: 1px var(--space-2);
+}
 .transition-text-actions {
   display: flex;
   gap: 8px;

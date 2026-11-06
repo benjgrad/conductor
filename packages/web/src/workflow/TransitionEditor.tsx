@@ -27,6 +27,8 @@ import {
 import { ConditionRow } from './ConditionFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import { EditorHead, type Crumb } from './EditorHead.js';
+import { InstructionField } from './InstructionField.js';
+import { instructionsOf, setPresets } from './instructions.js';
 import { RepoOverridesHint } from './RepoOverridesHint.js';
 import {
   ACTION_SHORT,
@@ -433,6 +435,38 @@ function TransitionForm({
           Notify me when this is taken
         </label>
         {at('.notify')}
+        {/* ADR-0037 P5: shown while set, so a refused one (rule 21) can be unticked. */}
+        {(t.presets !== undefined ||
+          ((t.actor ?? inferred) === 'human' &&
+            t.text !== undefined &&
+            instructionsOf(definition).length > 0)) && (
+          <fieldset className="wf-kinds">
+            <legend>Saved replies (fill the text box)</legend>
+            {[
+              ...new Set([...instructionsOf(definition).map(([k]) => k), ...(t.presets ?? [])]),
+            ].map((slug) => (
+              <label key={slug} className="wf-toggle">
+                <input
+                  type="checkbox"
+                  checked={(t.presets ?? []).includes(slug)}
+                  onChange={(e) => {
+                    const now = t.presets ?? [];
+                    onChange(
+                      setPresets(
+                        definition,
+                        from,
+                        name,
+                        e.target.checked ? [...now, slug] : now.filter((x) => x !== slug),
+                      ),
+                    );
+                  }}
+                />
+                {slug}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {at('.presets')}
 
         <div className="wf-advanced">
           <button
@@ -723,16 +757,15 @@ function TransitionForm({
               ))}
             </select>
             <label htmlFor={`${uid}-instruction`}>With instruction</label>
-            <textarea
+            <InstructionField
+              definition={definition}
               id={`${uid}-instruction`}
-              rows={3}
-              value={u.instruction ?? ''}
+              value={u.instruction}
               placeholder="What the agent should do about it (optional)"
-              onChange={(e) => {
+              onChange={(v) => {
                 const rest = { ...u };
                 delete rest.instruction;
-                const v = e.target.value;
-                patch({ on_unmet: v.trim() === '' ? rest : { ...rest, instruction: v } });
+                patch({ on_unmet: v === undefined ? rest : { ...rest, instruction: v } });
               }}
             />
             <label htmlFor={`${uid}-retries`}>Up to (times)</label>

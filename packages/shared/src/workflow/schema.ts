@@ -71,7 +71,7 @@ export const OnUnmetSchema = z.strictObject({
   goto: StateNameSchema,
   /**
    * Plain-language instruction for the agent on the way back. ADR-0037 P5: or a
-   * `$instructions.<slug>` ref into the workflow's `instructions` (rule 21; refused until T8).
+   * `$instructions.<slug>` ref into the workflow's `instructions` (rule 21), resolved at the move.
    */
   instruction: z.string().trim().min(1).max(4_000).optional(),
   retries: z.number().int().min(0).max(10).default(2),
@@ -352,7 +352,11 @@ export const WORKFLOW_FEATURES = [
   'handoff',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
-export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = ['no_checks', 'handoff'];
+export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
+  'no_checks',
+  'instructions',
+  'handoff',
+];
 
 /** `enabled` defaults to true. */
 export function conditionEnabled(c: Condition): boolean {
@@ -533,7 +537,7 @@ export const TransitionObjectSchema = z.strictObject({
   text: z.enum(['required', 'optional']).optional(),
   /**
    * ADR-0037 P5: saved instructions offered as chips that fill this human button's text box. Only
-   * on a human-actor transition with `text` (rule 21); refused until T8 (rule 14).
+   * on a human-actor transition with `text` (rule 21).
    */
   presets: z.array(InstructionSlugSchema).min(1).max(10).optional(),
   requires: TransitionRequiresSchema.optional(),

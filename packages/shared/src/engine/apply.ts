@@ -9,6 +9,7 @@ import {
 import { evaluateGuard } from '../workflow/guards.js';
 import { resolveMcpPolicy } from '../workflow/mcp.js';
 import { stateTitle } from '../workflow/conductor.js';
+import { resolveInstruction } from '../workflow/instructions.js';
 import {
   AVAILABLE_TRANSITION_ACTIONS,
   parseDuration,
@@ -2158,7 +2159,9 @@ function stepUnmet(st: Step, spec: GateSpec, r: GateStep, unmet: ReviewFeedback[
   const feedback: ReviewFeedback = {
     heading: feedbackHeading({ kind: r.kind, from: r.from, to: r.to, title: spec.title }),
     unmet,
-    instruction: spec.on_unmet.instruction ?? null,
+    // ADR-0037 P5: a `$instructions.<slug>` ref resolves now, against the pinned definition, and
+    // the text is frozen into the feedback, so a later version doesn't change this ticket.
+    instruction: resolveInstruction(st.def, spec.on_unmet.instruction) ?? null,
   };
   const key =
     r.kind === 'entry'

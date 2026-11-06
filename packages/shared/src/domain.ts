@@ -60,6 +60,11 @@ export const InputRequestKindSchema = z.enum([
    * request's `question` is the agent's summary, not a question.
    */
   'handoff',
+  /**
+   * A gate's setup failed on conductor's check config (it fails on the base branch too): the
+   * question says what broke and where to fix it. Not counted against `on_unmet.retries`.
+   */
+  'check_config',
 ]);
 export type InputRequestKind = z.infer<typeof InputRequestKindSchema>;
 

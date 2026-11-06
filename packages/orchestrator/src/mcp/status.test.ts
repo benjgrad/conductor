@@ -100,6 +100,19 @@ describe('statusLine', () => {
     expect(statusLine({ card: handedOff, waiting: 'you' })).toBe(
       'Ready for review: "Added /health. Look at the route first."',
     );
+    // A setup that fails on the base branch too: the summary line, the source and the fix.
+    const config = card({
+      status: 'needs_input',
+      input_request: question(
+        'check_config',
+        'Setup failed before any check ran: `git fetch -q origin` (from the repo checks override for github.com/x/app).\nIt failed (exit code 128)…',
+      ),
+    });
+    expect(statusLine({ card: config, waiting: 'you' })).toBe(
+      "Waiting on you: conductor's check config failed (not the branch). Setup failed before any " +
+        'check ran: `git fetch -q origin` (from the repo checks override for github.com/x/app). ' +
+        "Fix it with set_repo_checks (or the board's repo checks); the checks then re-run (or take_transition $retry_checks).",
+    );
     // A cancel ends the session `failed`; the ticket says it was cancelled.
     expect(
       statusLine({

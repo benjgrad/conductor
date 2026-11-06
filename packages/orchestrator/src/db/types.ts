@@ -691,6 +691,10 @@ export interface ChangeProposalRow {
   /** The last ProposalReview. */
   review: Record<string, unknown> | null;
   reviewed_at: Date | null;
+  /** uuid, FK ticket (ON DELETE SET NULL): an agent's proposal (ask_user `proposed_checks`). */
+  ticket_id: string | null;
+  /** uuid, FK input_request (ON DELETE SET NULL): the question it was proposed with. */
+  input_request_id: string | null;
 }
 
 /** 06 §Attachments: one file attached to a ticket (metadata; the bytes are in attachment_content). */

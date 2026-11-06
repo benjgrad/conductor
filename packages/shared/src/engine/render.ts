@@ -242,6 +242,13 @@ const PLAN_INSTRUCTIONS = [
   'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>", "files": ["<path or glob>", …]}`.',
 ].join('\n');
 
+/**
+ * The implement prompt's line on check-config failures: the repo checks are conductor's config,
+ * which the agent may only propose a change to (ask_user `proposed_checks`), never edit.
+ */
+export const CHECK_CONFIG_HINT =
+  "If a check or its setup fails because of conductor's check config rather than your branch (for example a setup command that can't work in a fresh checkout), don't retry: propose the fix with `ask_user`'s `proposed_checks` (the repo's full corrected checks) and Ben confirms it.";
+
 const IMPLEMENT_INSTRUCTIONS = [
   '## Your step: implementing',
   '',
@@ -249,6 +256,7 @@ const IMPLEMENT_INSTRUCTIONS = [
   IMPLEMENT_SCOPE_INSTRUCTION,
   IMPLEMENT_TESTS_INSTRUCTION,
   'Add or update tests. Before you finish, commit everything on the current branch (`git add` and `git commit`) so that `git status` is clean: only committed changes are checked and pushed, and a worktree with uncommitted changes is sent back to you. Do not push. Conductor then checks that the build and the tests pass on your last commit, pushes it and opens the pull request itself.',
+  CHECK_CONFIG_HINT,
   PROPOSALS_HINT,
   'Finish with `complete_state` and a result that includes `"summary"`: a short description of the change, used as the pull request description.',
 ].join('\n');

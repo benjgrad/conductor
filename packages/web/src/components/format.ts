@@ -18,6 +18,7 @@ export const KIND_LABELS: Record<InputRequestKind, string> = {
   approval: 'Approval',
   machine_lost: 'Machine lost',
   handoff: 'Ready for review',
+  check_config: 'Check config',
 };
 
 export const STATUS_LABELS: Record<SessionStatus, string> = {

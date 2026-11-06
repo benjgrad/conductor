@@ -73,6 +73,7 @@ import {
 } from './move-step.js';
 import { renderPrompt, type PromptAttachment } from './render.js';
 import { notifyDecision } from './notify.js';
+import { CHECK_CONFIG_KEY, setupFailureMessage, setupSource } from './setup-failure.js';
 import {
   DEFAULT_CHECK_TIMEOUT,
   ENTRY_ACTION_TIMEOUT,
@@ -311,6 +312,8 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return onHumanTransition(st, e);
     case 'human.fresh_conversation':
       return onFreshConversation(st, e);
+    case 'gate.retry':
+      return onGateRetry(st);
   }
 }
 
@@ -1394,6 +1397,7 @@ function enterStep(
     approvals: null,
     // ADR-0030: pinned for this step; the next attempt reads the session's again.
     repo_checks: s.repo_checks ?? null,
+    repo_checks_meta: s.repo_checks_meta ?? null,
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit, ...moveFields(p.record) });
   if (s.machine_id === null) {
@@ -1829,6 +1833,7 @@ function handleStep(
     case 'input.provided':
     case 'human.transition':
     case 'human.fresh_conversation':
+    case 'gate.retry':
       return 'wrong_status';
     case 'external.event':
       return conditionsOverride(st, r, e.name, e.data);
@@ -2112,15 +2117,36 @@ function onCheckExited(
   check: EntryCheck,
   e: Extract<EngineEvent, { type: 'command.exited' }>,
 ): void {
-  // The fresh checkout's setup failed: unmet like a failed check, its output as evidence.
+  // The fresh checkout's setup failed. The daemon ran it once more on the base branch's tip:
+  // failing there too, it is conductor's check config (a human, uncounted); else the branch's.
   if (e.setup_failed === true) {
     if (r.index === 0) r.head_sha = e.head_sha ?? null;
+    const how = e.timed_out
+      ? 'timed out'
+      : e.exit_code === null
+        ? 'killed by a signal'
+        : `exit code ${e.exit_code}`;
+    const msg = setupFailureMessage({
+      cmd: e.setup_cmd ?? (spec.setup !== null && spec.setup !== '' ? spec.setup : null),
+      source: setupSource({
+        repoChecks: r.repo_checks,
+        meta: r.repo_checks_meta,
+        workflowSetup: definitionSpecOf(st.def, r)?.setup ?? null,
+        at: gateAt(st.def, r),
+        repo: st.s.ticket.repo,
+      }),
+      repo: st.s.ticket.repo,
+      how,
+      check: check.cmd,
+      onBase: e.setup_on_base,
+      baseRef: e.base_ref,
+    });
+    if (msg.config) {
+      stepConfigFailed(st, spec, r, msg, e.output_tail);
+      return;
+    }
     stepUnmet(st, spec, r, [
-      {
-        item: 'Setup',
-        reason: `the setup in a fresh checkout failed (${e.timed_out ? 'timed out' : e.exit_code === null ? 'killed by a signal' : `exit code ${e.exit_code}`}), so \`${check.cmd}\` did not run`,
-        output: e.output_tail,
-      },
+      { item: 'Setup', reason: msg.text, output: e.output_tail, config: true },
     ]);
     return;
   }
@@ -2167,6 +2193,112 @@ function onCheckExited(
   stepUnmet(st, spec, r, [
     { item: check.name, reason: `\`${check.cmd}\` failed (${detail})`, output: e.output_tail },
   ]);
+}
+
+/** Where a gate is in the workflow, for a setup failure's source. */
+function gateAt(def: WorkflowDefinition, r: GateStep): string {
+  if (r.kind === 'move') return `"${r.from}" → ${moveName(r)}`;
+  if (r.kind === 'entry') return `the entry of "${stateTitle(def, r.to)}"`;
+  return `"${r.from}" → "${r.to}"`;
+}
+
+/**
+ * A setup that fails on the base branch too: conductor's check config, not the branch. Straight to
+ * `on_unmet.else` (a human), kind `check_config`, never counted against `on_unmet.retries`; the
+ * gate is remembered (`context.__check_config`) so `gate.retry` can run it again once fixed.
+ */
+function stepConfigFailed(
+  st: Step,
+  spec: GateSpec,
+  r: GateStep,
+  msg: { summary: string; text: string },
+  output: string,
+): void {
+  const label = st.s.workflow_state!;
+  const gate = {
+    kind: r.kind,
+    from: r.from,
+    outcome: r.outcome,
+    to: r.to,
+    transition: r.transition,
+    actor: r.actor,
+    reason: r.reason,
+  };
+  const question =
+    output.trim() === '' ? msg.text : `${msg.text}\n\nLast output of the setup:\n${output}`;
+  leaveStep(st, false);
+  enter(st, spec.on_unmet.else, {
+    ...NO_ROUTE,
+    kind: 'check_config',
+    question,
+    auditFrom: label,
+    skipEntry: true,
+    record: engineMove('check_failed', gateTransition(r), msg.summary),
+  });
+  const at = st.s.workflow_state;
+  if (at === null || st.s.status !== 'needs_input') return;
+  st.s.context = {
+    ...st.s.context,
+    [CHECK_CONFIG_KEY]: { ...gate, at, visit: st.s.state_visits[at] ?? 0 },
+  };
+}
+
+/**
+ * `gate.retry`: run the gate remembered by `stepConfigFailed` again, from its source state, with
+ * the session's current repo checks (enterStep pins them). Only while the session still waits in
+ * the very visit of the human state that setup failure opened.
+ */
+function onGateRetry(st: Step): ApplyIgnoreReason | null {
+  const s = st.s;
+  const raw = s.context[CHECK_CONFIG_KEY];
+  if (s.status !== 'needs_input' || raw === undefined) return 'wrong_status';
+  const g = raw as {
+    kind?: unknown;
+    from?: unknown;
+    outcome?: unknown;
+    to?: unknown;
+    transition?: unknown;
+    actor?: unknown;
+    reason?: unknown;
+    at?: unknown;
+    visit?: unknown;
+  };
+  if (
+    g.at !== s.workflow_state ||
+    g.visit !== s.state_visits[s.workflow_state ?? ''] ||
+    (g.kind !== 'entry' && g.kind !== 'move' && g.kind !== 'transition') ||
+    typeof g.from !== 'string' ||
+    typeof g.outcome !== 'string' ||
+    typeof g.to !== 'string' ||
+    st.def.states[g.from] === undefined
+  ) {
+    return 'wrong_status';
+  }
+  const rest = { ...s.context };
+  delete rest[CHECK_CONFIG_KEY];
+  s.context = rest;
+  const transition = typeof g.transition === 'string' ? g.transition : null;
+  const actor = g.actor === 'agent' || g.actor === 'human' || g.actor === 'system' ? g.actor : null;
+  // The step runs on the session's machine, or requeues without one (enterStep).
+  enterStep(st, {
+    kind: g.kind,
+    from: g.from,
+    outcome: g.outcome,
+    to: g.to,
+    attachment: null,
+    info: { detail: 'retry the checks after a check-config fix' },
+    ...(g.kind === 'move'
+      ? {
+          move: {
+            transition: transition ?? g.outcome,
+            actor: actor ?? 'human',
+            reason: typeof g.reason === 'string' ? g.reason : null,
+          },
+        }
+      : {}),
+    record: engineMove('retry', transition ?? g.outcome, 'checks retried after a check-config fix'),
+  });
+  return null;
 }
 
 /**

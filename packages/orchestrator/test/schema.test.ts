@@ -528,6 +528,8 @@ const change_proposal: ColumnSpec<ChangeProposalRow> = {
   error: col(t, NULL),
   review: col('jsonb', NULL),
   reviewed_at: col('timestamptz', NULL),
+  ticket_id: col('uuid', NULL),
+  input_request_id: col('uuid', NULL),
 };
 const attachment: ColumnSpec<AttachmentRow> = {
   id: col('uuid', NN),

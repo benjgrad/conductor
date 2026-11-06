@@ -134,3 +134,7 @@ Ben approved finishing P3 without machine settings: MA-T06 waits on M2-T28c (the
 ## Revisit when
 - Per-account workflows (M2-T12) land: the advisor's workflow proposals can then drop the "every account" warning and the admin gate.
 - MCP clients reliably support sampling: analyst jobs could run in the coordinator's client instead of on a machine.
+
+## Note (2026-11-06): proposals from a ticket's agent
+
+`change_proposal` also holds repo-checks changes proposed by a ticket's own agent (ask_user `proposed_checks`, when a check or setup fails on conductor's config): `ticket_id` and `input_request_id` link them to the ticket and question, `created_by` is `agent:<ticket>`. They go through the same store and the same apply path (a human applies them: the board's ticket panel, the Repo checks page or `apply_change`); applying one answers its question so the agent's gate re-runs. [06](../design/06-human-input.md#check-config-failures-and-agent-proposed-repo-checks).

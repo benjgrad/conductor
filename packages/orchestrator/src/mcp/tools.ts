@@ -24,7 +24,9 @@ import {
   type TicketStatus,
   validateWorkflow,
   type WorkflowDefinition,
+  RETRY_CHECKS,
 } from '@conductor/shared';
+import { afterRepoChecksChangedSafe } from '../api/check-config.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AuthConfig } from '../auth/config.js';
@@ -548,6 +550,18 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
+  /** The ticket's open agent-proposed repo-checks changes, as `check_proposals` (none: {}). */
+  const checkProposalsOf = async (ticketId: string) => {
+    const r = await listProposals(db, accountId, {
+      ticket_id: ticketId,
+      kind: 'repo_checks',
+      status: 'proposed',
+    });
+    return r.proposals.length === 0
+      ? {}
+      : { check_proposals: r.proposals.map((p) => ({ id: p.id, title: p.title })) };
+  };
+
   register(
     'get_ticket',
     {
@@ -642,6 +656,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           ...(gated.has(h.name) ? { requires_approval: true } : {}),
         })),
         pr_url: d.card.pr_url,
+        // An agent's proposed repo checks waiting on a human (apply_change applies one).
+        ...(await checkProposalsOf(t.id)),
         spend_usd: d.spend_usd,
         recent_moves: (d.moves ?? []).slice(-5),
         ...(waiting === 'you_on_board' ? { url: `${deps.issuer}/#/?ticket=${t.id}` } : {}),
@@ -914,6 +930,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           `${name} needs an approval on the board; it can't be taken over MCP.`,
           { url: `${deps.issuer}/#/?ticket=${s.ticket.id}` },
         );
+      }
+      // A check-config request's "Retry checks" re-runs the gate (not a workflow transition).
+      if (name === RETRY_CHECKS) {
+        return apply('transition', s.sessionId, { type: 'gate.retry', actor: UI_ACTOR });
       }
       return apply('transition', s.sessionId, {
         type: 'human.transition',
@@ -1259,6 +1279,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     async (input) => {
       const res = await setRepoChecks(db, accountId, input, by);
       if (!res.ok) return fail('invalid_input', res.message, { details: res.details });
+      await afterRepoChecksChangedSafe({ db, engine }, accountId, input.repo);
       return ok({ ok: true, ...res.dto });
     },
   );
@@ -1276,6 +1297,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       if (!(await clearRepoChecks(db, accountId, repo))) {
         return fail('not_found', `${repo} has no checks of its own.`);
       }
+      await afterRepoChecksChangedSafe({ db, engine }, accountId, repo);
       return ok({ ok: true });
     },
   );
@@ -1730,6 +1752,12 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     async ({ id }) => {
       const res = await applyProposal(db, actor, id);
       if (!res.ok) return proposalFail(res);
+      if (res.value.kind === 'repo_checks') {
+        await afterRepoChecksChangedSafe({ db, engine }, accountId, res.value.target, {
+          proposalId: res.value.id,
+          by: actor.by,
+        });
+      }
       return ok(res.value);
     },
   );

@@ -40,6 +40,18 @@ export const RepoChecksSchema = z
   });
 export type RepoChecks = z.infer<typeof RepoChecksSchema>;
 
+/**
+ * An agent's proposed repo checks (`ask_user`'s `proposed_checks`): stored as a `repo_checks`
+ * change proposal for the ticket's repo, which only a human applies. `checks: null` = remove the
+ * override (the workflow's checks again).
+ */
+export const ProposedChecksSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  rationale: z.string().trim().min(1).max(1_000),
+  checks: RepoChecksSchema.nullable(),
+});
+export type ProposedChecks = z.infer<typeof ProposedChecksSchema>;
+
 /** A gate of a definition that runs real checks: where, and its own checks and setup. */
 export interface ChecksGate {
   /** `state.transition` (a transition's `requires`) or `state` (an entry). */

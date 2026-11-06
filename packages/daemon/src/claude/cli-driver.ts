@@ -393,11 +393,12 @@ class Session implements CliDriverSession {
     this.id = opts.claudeSessionId;
     this.reg = server.register(
       {
-        onAskUser: (question, options) =>
+        onAskUser: (question, options, proposedChecks) =>
           this.emit({
             kind: 'ask_user',
             question,
             ...(options !== undefined ? { options } : {}),
+            ...(proposedChecks !== undefined ? { proposed_checks: proposedChecks } : {}),
           }),
         // ADR-0011: the named transition and reason are forwarded as given.
         onCompleteState: (result, meta) => this.emit({ kind: 'complete_state', result, ...meta }),

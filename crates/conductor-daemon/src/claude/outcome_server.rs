@@ -137,6 +137,105 @@ pub const ASK_USER_AFTER_COMPLETE: &str =
     "Not sent: complete_state was already recorded for this state. End your turn now.";
 
 const COMPLETE_STATE_BASE: &str = "Call exactly once when the current workflow state's work is finished. `result` holds the keys the state asked for. After calling it, stop: do not call any other tool and end your turn.";
+/// ask_user's `proposed_checks` parameter (the TS outcome server's `.describe`).
+pub const PROPOSED_CHECKS_DESCRIPTION: &str = "Only when a check or its setup fails because of conductor's check config, not your branch: the repo's full corrected checks ({setup?, checks: [{name, cmd, timeout?}]}; null = the workflow's checks), a title and why. Ben applies it; you never change the checks yourself.";
+
+/// At most this many checks (REPO_CHECKS_MAX).
+const REPO_CHECKS_MAX: usize = 20;
+
+fn is_duration(s: &str) -> bool {
+    let digits = s.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+    let unit = &s[digits.len()..];
+    !digits.is_empty()
+        && digits.chars().all(|c| c.is_ascii_digit())
+        && matches!(unit, "ms" | "s" | "m" | "h" | "d")
+        && digits.parse::<u64>().is_ok_and(|n| n > 0)
+}
+
+/// `ProposedChecksSchema` (shared `workflow/repo-checks.ts`): Ok(the value, strings trimmed as
+/// zod's `.trim()` does) or Err(the first problem).
+pub fn validate_proposed_checks(v: &Value) -> Result<Value, String> {
+    let o = v.as_object().ok_or("expected an object")?;
+    let text = |k: &str, max: usize| -> Result<String, String> {
+        let t = o
+            .get(k)
+            .and_then(Value::as_str)
+            .ok_or(format!("{k}: expected a string"))?
+            .trim();
+        if t.is_empty() || t.chars().count() > max {
+            return Err(format!("{k}: 1..{max} characters"));
+        }
+        Ok(t.to_string())
+    };
+    let title = text("title", 120)?;
+    let rationale = text("rationale", 1_000)?;
+    let checks = match o.get("checks") {
+        Some(Value::Null) => Value::Null,
+        Some(Value::Object(c)) => {
+            if let Some(k) = c.keys().find(|k| *k != "setup" && *k != "checks") {
+                return Err(format!("checks.{k}: unknown key"));
+            }
+            let mut out = Map::new();
+            match c.get("setup") {
+                None => {}
+                Some(Value::String(s)) if s.chars().count() <= 2_000 => {
+                    out.insert("setup".into(), json!(s));
+                }
+                Some(_) => return Err("checks.setup: a string of at most 2000 characters".into()),
+            }
+            let list = c
+                .get("checks")
+                .and_then(Value::as_array)
+                .ok_or("checks.checks: expected an array")?;
+            if list.is_empty() || list.len() > REPO_CHECKS_MAX {
+                return Err(format!("checks.checks: 1..{REPO_CHECKS_MAX} checks"));
+            }
+            let mut seen = Vec::new();
+            let mut items = Vec::new();
+            for (i, e) in list.iter().enumerate() {
+                let e = e
+                    .as_object()
+                    .ok_or(format!("checks.checks.{i}: expected an object"))?;
+                if let Some(k) = e
+                    .keys()
+                    .find(|k| !matches!(k.as_str(), "name" | "cmd" | "timeout"))
+                {
+                    return Err(format!("checks.checks.{i}.{k}: unknown key"));
+                }
+                let name = e.get("name").and_then(Value::as_str).unwrap_or("").trim();
+                if name.is_empty() || name.chars().count() > 200 {
+                    return Err(format!("checks.checks.{i}.name: 1..200 characters"));
+                }
+                if seen.contains(&name) {
+                    return Err(format!(
+                        "checks.checks.{i}.name: check \"{name}\" is listed twice"
+                    ));
+                }
+                seen.push(name);
+                let cmd = e.get("cmd").and_then(Value::as_str).unwrap_or("");
+                if cmd.trim().is_empty() {
+                    return Err(format!("checks.checks.{i}.cmd: empty command"));
+                }
+                let mut item = json!({ "name": name, "cmd": cmd });
+                match e.get("timeout") {
+                    None => {}
+                    Some(Value::String(t)) if is_duration(t) => item["timeout"] = json!(t),
+                    Some(_) => {
+                        return Err(format!(
+                            "checks.checks.{i}.timeout: expected <int><ms|s|m|h|d>, e.g. \"30m\""
+                        ));
+                    }
+                }
+                items.push(item);
+            }
+            out.insert("checks".into(), Value::Array(items));
+            Value::Object(out)
+        }
+        _ => return Err("checks: expected an object or null".into()),
+    };
+    Ok(json!({ "title": title, "rationale": rationale, "checks": checks }))
+}
+
 /// The ask_user tool description (Questions UX: when to list options).
 pub fn ask_user_description() -> String {
     format!(
@@ -427,7 +526,8 @@ pub struct PermissionPrompt {
 
 pub type CompleteStateHandler = Arc<dyn Fn(Map<String, Value>, CompleteStateMeta) + Send + Sync>;
 /// The question and its bounded options (None when absent or invalid).
-pub type AskUserHandler = Arc<dyn Fn(String, Option<QuestionOptions>) + Send + Sync>;
+/// Also the agent's proposed repo checks, validated (None when absent).
+pub type AskUserHandler = Arc<dyn Fn(String, Option<QuestionOptions>, Option<Value>) + Send + Sync>;
 /// 06 §Attachments: what `attach_file` was called with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AttachFileRequest {
@@ -652,6 +752,28 @@ impl Outcome {
         };
         let options = bounded_question_options(args.get("options"), args.get("multi_select"));
         let handler = {
+            let e = lock(&self.entry);
+            if e.completed {
+                return text(ASK_USER_AFTER_COMPLETE);
+            }
+            if e.question_pending {
+                return text(ASK_USER_PENDING_QUESTION);
+            }
+            e.handlers.on_ask_user.clone()
+        };
+        // Refused, not asked: the agent fixes the proposal (or asks without it) and calls again.
+        let proposed = match args.get("proposed_checks") {
+            None | Some(Value::Null) => None,
+            Some(v) => match validate_proposed_checks(v) {
+                Ok(v) => Some(v),
+                Err(why) => {
+                    return text(format!(
+                        "Not asked: proposed_checks is invalid ({why}). Fix it, or ask without it."
+                    ));
+                }
+            },
+        };
+        {
             let mut e = lock(&self.entry);
             if e.completed {
                 return text(ASK_USER_AFTER_COMPLETE);
@@ -660,9 +782,8 @@ impl Outcome {
                 return text(ASK_USER_PENDING_QUESTION);
             }
             e.question_pending = true;
-            e.handlers.on_ask_user.clone()
-        };
-        handler(question, options);
+        }
+        handler(question, options, proposed);
         text(ASK_USER_RETURN)
     }
 
@@ -881,6 +1002,34 @@ impl ServerHandler for Outcome {
                             "description": format!("Optional: {ASK_USER_OPTIONS_MIN}-{ASK_USER_OPTIONS_MAX} choices shown as buttons, the recommended one first"),
                         },
                         "multi_select": {"type": "boolean", "description": "The human may choose several options"},
+                        "proposed_checks": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "rationale": {"type": "string"},
+                                "checks": {
+                                    "type": ["object", "null"],
+                                    "properties": {
+                                        "setup": {"type": "string"},
+                                        "checks": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "name": {"type": "string"},
+                                                    "cmd": {"type": "string"},
+                                                    "timeout": {"type": "string"},
+                                                },
+                                                "required": ["name", "cmd"],
+                                            },
+                                        },
+                                    },
+                                    "required": ["checks"],
+                                },
+                            },
+                            "required": ["title", "rationale", "checks"],
+                            "description": PROPOSED_CHECKS_DESCRIPTION,
+                        },
                     },
                     "required": ["question"],
                 })),
@@ -1341,6 +1490,7 @@ mod tests {
     enum Call {
         Ask(String),
         AskWith(String, QuestionOptions),
+        AskProposing(String, Value),
         Done(Value, Option<String>, Option<String>),
     }
 
@@ -1350,10 +1500,11 @@ mod tests {
     fn handlers(calls: &Calls, prompts: Option<&Prompts>) -> OutcomeHandlers {
         let (a, d) = (calls.clone(), calls.clone());
         OutcomeHandlers {
-            on_ask_user: Arc::new(move |q, o| {
-                a.lock().unwrap().push(match o {
-                    Some(o) => Call::AskWith(q, o),
-                    None => Call::Ask(q),
+            on_ask_user: Arc::new(move |q, o, p| {
+                a.lock().unwrap().push(match (o, p) {
+                    (_, Some(p)) => Call::AskProposing(q, p),
+                    (Some(o), None) => Call::AskWith(q, o),
+                    (None, None) => Call::Ask(q),
                 })
             }),
             on_complete_state: Arc::new(move |r, m| {
@@ -1718,6 +1869,78 @@ mod tests {
             ASK_USER_RETURN
         );
         assert_eq!(*calls2.lock().unwrap(), vec![Call::Ask("Sure?".into())]);
+    }
+
+    #[tokio::test]
+    async fn ask_user_forwards_valid_proposed_checks_invalid_ones_refuse_the_call_not_asked() {
+        let s = server().await;
+        let (reg, calls) = register(&s, None);
+        let c = connect(reg.url()).await;
+        let proposed = json!({
+            "title": "Drop the origin fetch",
+            "rationale": "The fresh checkout has no origin remote.",
+            "checks": {"setup": "", "checks": [{"name": "Build", "cmd": "npm run build"}]},
+        });
+        assert_eq!(
+            c.text(
+                "ask_user",
+                json!({"question": "Apply my fix?", "proposed_checks": proposed})
+            )
+            .await,
+            ASK_USER_RETURN
+        );
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![Call::AskProposing("Apply my fix?".into(), proposed.clone())]
+        );
+
+        let (reg2, calls2) = register(&s, None);
+        let c2 = connect(reg2.url()).await;
+        let mut bad = proposed.clone();
+        bad["checks"] = json!({"checks": []});
+        let refused = c2
+            .text(
+                "ask_user",
+                json!({"question": "Apply?", "proposed_checks": bad}),
+            )
+            .await;
+        assert!(
+            refused.starts_with("Not asked: proposed_checks is invalid (checks.checks"),
+            "{refused}"
+        );
+        assert!(calls2.lock().unwrap().is_empty());
+        // Not pending: the agent can ask again.
+        assert_eq!(
+            c2.text("ask_user", json!({"question": "Apply?"})).await,
+            ASK_USER_RETURN
+        );
+    }
+
+    #[test]
+    fn validate_proposed_checks_mirrors_the_zod_schema() {
+        let ok = validate_proposed_checks(&json!({
+            "title": "  T  ", "rationale": "r",
+            "checks": {"checks": [{"name": " a ", "cmd": "x", "timeout": "10m"}]},
+        }))
+        .unwrap();
+        assert_eq!(
+            ok,
+            json!({"title": "T", "rationale": "r", "checks": {"checks": [{"name": "a", "cmd": "x", "timeout": "10m"}]}})
+        );
+        assert!(
+            validate_proposed_checks(&json!({"title": "T", "rationale": "r", "checks": null}))
+                .is_ok()
+        );
+        for bad in [
+            json!({"title": "", "rationale": "r", "checks": null}),
+            json!({"title": "T", "rationale": "r"}),
+            json!({"title": "T", "rationale": "r", "checks": {"checks": [{"name": "a", "cmd": " "}]}}),
+            json!({"title": "T", "rationale": "r", "checks": {"checks": [{"name": "a", "cmd": "x"}, {"name": "a", "cmd": "y"}]}}),
+            json!({"title": "T", "rationale": "r", "checks": {"checks": [{"name": "a", "cmd": "x", "timeout": "soon"}]}}),
+            json!({"title": "T", "rationale": "r", "checks": {"extra": 1, "checks": [{"name": "a", "cmd": "x"}]}}),
+        ] {
+            assert!(validate_proposed_checks(&bad).is_err(), "{bad}");
+        }
     }
 
     #[tokio::test]

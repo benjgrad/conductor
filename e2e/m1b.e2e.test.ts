@@ -20,6 +20,13 @@
 //   7. ADR-0025 / M2-T34 (conductor v4, polled every second): a personal ticket whose PR CI is red
 //      goes back to Implementing with the failing check and how to read its log; the agent's fix
 //      is pushed, CI turns green, and only then does it reach Needs input; Done is the human's.
+//   8. Setup failures: the repo's checks run `git fetch -q origin` as setup, which the fresh
+//      checkout (no remote) can't do, on the branch nor on the base: the ticket goes to Needs input
+//      as a `check_config` request naming the command and set_repo_checks, the agent is not sent
+//      back; fixing the repo's checks retries the gate, which passes.
+//   9. The agent proposes the fix itself (ask_user `proposed_checks`): a proposal on the ticket
+//      that changes nothing until the human applies it; applying it answers the agent, which
+//      ships, and the gate passes with the applied checks.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -174,6 +181,43 @@ const SCENARIOS: Record<string, unknown> = {
         { write_file: { path: 'src/health.txt', content: 'ok, fixed\n' } },
         { git_commit: 'Fix CI' },
         { complete_state: { summary: 'fixed CI' }, transition: SHIP, reason: SHIP_REASON },
+      ],
+    ],
+  },
+  // 8. Setup failures: one implementing pass only (a second one would mean it was sent back).
+  check_config: {
+    turns: [
+      [{ say: 'Planning.' }, PLAN],
+      [
+        { say: 'Implementing.' },
+        ...COMMIT,
+        { complete_state: { summary: 'added /health' }, transition: SHIP, reason: SHIP_REASON },
+      ],
+    ],
+  },
+  // 9. The agent proposes the check fix with its question, then ships once it is applied.
+  propose_checks: {
+    turns: [
+      [{ say: 'Planning.' }, PLAN],
+      [
+        { say: 'The repo checks fetch origin, which a fresh checkout has no remote for.' },
+        {
+          tool: 'ask_user',
+          args: {
+            question:
+              'The setup `git fetch -q origin` cannot work in a fresh checkout. Apply my fix?',
+            proposed_checks: {
+              title: 'Run the tests without fetching origin',
+              rationale: 'A fresh checkout has no origin remote.',
+              checks: { setup: '', checks: [{ name: 'Tests pass', cmd: 'npm test' }] },
+            },
+          },
+        },
+      ],
+      [
+        { say: 'Applied: shipping.' },
+        ...COMMIT,
+        { complete_state: { summary: 'added /health' }, transition: SHIP, reason: SHIP_REASON },
       ],
     ],
   },
@@ -647,5 +691,82 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
 
     await api.transition(sid, 'done', 'Looks good.');
     await board.card(id, 'done', (c) => c.column === 'done' && c.status === 'done');
+  });
+  it('8. setup failures: a setup that fails on the base too goes to Needs input as check_config; fixing the checks retries', async () => {
+    const setupRepo = createFixtureRepo(join(stack.tmp, 'check-config-fixture-repo'));
+    await api.setRepoChecks({
+      repo: setupRepo,
+      setup: 'git fetch -q origin',
+      checks: [{ name: 'Tests pass', cmd: 'npm test' }],
+    });
+    const id = await ticket('Personal change, broken setup', 'check_config', 'personal', setupRepo);
+    const asked = await board.card(
+      id,
+      'a check_config request',
+      (c) => c.status === 'needs_input' && c.input_request?.kind === 'check_config',
+      60_000,
+    );
+    const sid = asked.session_id!;
+    const detail = await api.session(sid);
+    const q = detail.pending_input!.question;
+    expect(q.split('\n')[0]).toContain('Setup failed before any check ran: `git fetch -q origin`');
+    expect(q).toContain('from the repo checks override for');
+    expect(q).toContain('set_repo_checks');
+    expect(q).toContain('not your branch');
+    // Not counted, and the agent was never sent back to Implementing.
+    expect(detail.retry_counters).toEqual({});
+    expect(board.states(id).filter((s) => s === 'implementing')).toHaveLength(1);
+    expect(asked.human_transitions.map((t) => t.name)).toContain('$retry_checks');
+
+    // Fixing the repo's checks retries the gate: the checks pass and the PR opens.
+    await api.setRepoChecks({
+      repo: setupRepo,
+      setup: '',
+      checks: [{ name: 'Tests pass', cmd: 'npm test' }],
+    });
+    const shipped = await board.card(id, 'the PR', (c) => c.pr_url !== null, 60_000);
+    expect(shipped.pr_url).toMatch(FAKE_GH_URL_RE);
+    expect(board.states(id).filter((s) => s === 'implementing')).toHaveLength(1);
+  });
+  it('9. the agent proposes the checks; nothing changes until they are applied; then the gate passes', async () => {
+    const proposeRepo = createFixtureRepo(join(stack.tmp, 'propose-checks-fixture-repo'));
+    await api.setRepoChecks({
+      repo: proposeRepo,
+      setup: 'git fetch -q origin',
+      checks: [{ name: 'Tests pass', cmd: 'npm test' }],
+    });
+    const id = await ticket(
+      'Personal change, agent fix',
+      'propose_checks',
+      'personal',
+      proposeRepo,
+    );
+    await board.card(
+      id,
+      'the agent question',
+      (c) => c.status === 'needs_input' && c.input_request?.kind === 'agent_question',
+      60_000,
+    );
+    const [proposal] = await waitFor(
+      'the proposal on the ticket',
+      async () => {
+        const r = await api.ticketCheckProposals(id);
+        return r.proposals.length > 0 ? r.proposals : null;
+      },
+      10_000,
+    );
+    expect(proposal).toMatchObject({
+      status: 'proposed',
+      title: 'Run the tests without fetching origin',
+    });
+    // Proposed only: the repo's checks are still the broken ones.
+    expect(await api.repoChecks(proposeRepo)).toMatchObject({
+      override: { setup: 'git fetch -q origin' },
+    });
+
+    expect((await api.applyChangeProposal(proposal!.id)).status).toBe('applied');
+    const shipped = await board.card(id, 'the PR', (c) => c.pr_url !== null, 60_000);
+    expect(shipped.pr_url).toMatch(FAKE_GH_URL_RE);
+    expect(board.cards(id).some((c) => c.input_request?.kind === 'check_config')).toBe(false);
   });
 });

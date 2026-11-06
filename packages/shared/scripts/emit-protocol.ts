@@ -268,6 +268,7 @@ const FIXTURE_EXPORTS: Record<string, Kind> = {
   M2R_WS_FIXTURES: { kind: 'record', schema: (_k, v) => bySide(v) },
   PERMISSION_WS_FIXTURES: { kind: 'record', schema: (_k, v) => bySide(v) },
   ASSISTANT_WS_FIXTURES: { kind: 'record', schema: (_k, v) => bySide(v) },
+  SETUP_TRIAGE_WS_FIXTURES: { kind: 'record', schema: (_k, v) => bySide(v) },
   M2R_ACTION_FIXTURES: {
     kind: 'record',
     schema: (key) => {

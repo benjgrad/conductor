@@ -96,27 +96,41 @@
   white-space: nowrap;
   font-size: var(--text-sm);
 }
+/* On a phone it follows the visual viewport (--vvt/--vvh) and stays inside the safe areas, and the
+   media shrinks to fit, so the header and its Close button are always on screen: a tall screenshot
+   used to push them up under the status bar, where iOS 26 blurs it and taps miss. */
 .attachment-lightbox {
   position: fixed;
-  inset: 0;
+  top: var(--vvt, 0);
+  left: 0;
+  right: 0;
+  height: var(--vvh, 100dvh);
   z-index: var(--z-sheet);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-4);
+  padding: calc(var(--space-4) + env(safe-area-inset-top, 0px))
+    max(var(--space-4), env(safe-area-inset-right, 0px))
+    calc(var(--space-4) + env(safe-area-inset-bottom, 0px))
+    max(var(--space-4), env(safe-area-inset-left, 0px));
   background: rgb(0 0 0 / 0.7);
 }
 .attachment-lightbox-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  box-sizing: border-box;
   max-width: 100%;
   max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
   padding: var(--space-2);
   border-radius: var(--radius-lg);
   background: var(--panel);
 }
 .attachment-lightbox-body header {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -131,11 +145,29 @@
   min-width: var(--tap);
   min-height: var(--tap);
 }
-.attachment-lightbox-body img,
-.attachment-lightbox-body video {
+.attachment-lightbox-media {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+}
+.attachment-lightbox-media img,
+.attachment-lightbox-media video {
+  display: block;
   max-width: 100%;
-  max-height: calc(100vh - 120px);
+  max-height: 100%;
+  min-height: 0;
   object-fit: contain;
+}
+@media (max-width: 899.98px) {
+  .attachment-lightbox {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  .attachment-lightbox-body {
+    width: 100%;
+    border-radius: 0;
+  }
 }
 .ticket-attachments {
   flex: none;

@@ -119,9 +119,25 @@ describe('CreateTicketForm with attachments', () => {
     const panel = within(await screen.findByRole('complementary', { name: 'Ticket detail' }));
     const gallery = within(await panel.findByRole('region', { name: 'Attachments' }));
     fireEvent.click(gallery.getByRole('button', { name: 'Open mockup.png' }));
-    const box = within(screen.getByRole('dialog', { name: 'mockup.png' }));
-    expect(box.getByRole('img', { name: 'mockup.png' })).toBeTruthy();
-    fireEvent.click(box.getByRole('button', { name: 'Close' }));
+    const dialog = screen.getByRole('dialog', { name: 'mockup.png' });
+    const box = within(dialog);
+    const img = box.getByRole('img', { name: 'mockup.png' });
+    const close = box.getByRole('button', { name: 'Close' });
+    // Close is in the header, before the media, and the media has its own shrinking box: a tall
+    // image can't push Close off screen (under the iOS status bar).
+    expect(close.closest('header')).toBeTruthy();
+    expect(img.parentElement?.className).toBe('attachment-lightbox-media');
+    expect(close.compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(close);
+    expect(screen.queryByRole('dialog', { name: 'mockup.png' })).toBeNull();
+    // Escape and a tap on the backdrop close it too; a tap on the image doesn't.
+    fireEvent.click(gallery.getByRole('button', { name: 'Open mockup.png' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'mockup.png' })).toBeNull();
+    fireEvent.click(gallery.getByRole('button', { name: 'Open mockup.png' }));
+    fireEvent.click(screen.getByRole('img', { name: 'mockup.png' }));
+    expect(screen.getByRole('dialog', { name: 'mockup.png' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('dialog', { name: 'mockup.png' }));
     expect(screen.queryByRole('dialog', { name: 'mockup.png' })).toBeNull();
   });
 });

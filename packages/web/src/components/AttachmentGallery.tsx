@@ -69,11 +69,14 @@ export function AttachmentGallery({ api, attachments }: AttachmentGalleryProps) 
                 <X size={20} aria-hidden="true" />
               </button>
             </header>
-            {isVideoMime(open.mime) ? (
-              <video src={api.attachmentUrl(open)} controls autoPlay />
-            ) : (
-              <img src={api.attachmentUrl(open)} alt={open.caption ?? open.name} />
-            )}
+            {/* Its own box, so the media shrinks to fit and the header stays on screen. */}
+            <div className="attachment-lightbox-media">
+              {isVideoMime(open.mime) ? (
+                <video src={api.attachmentUrl(open)} controls autoPlay />
+              ) : (
+                <img src={api.attachmentUrl(open)} alt={open.caption ?? open.name} />
+              )}
+            </div>
           </div>
         </div>
       )}

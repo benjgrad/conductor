@@ -549,6 +549,18 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
+  /** The ticket's open agent-proposed repo-checks changes, as `check_proposals` (none: {}). */
+  const checkProposalsOf = async (ticketId: string) => {
+    const r = await listProposals(db, accountId, {
+      ticket_id: ticketId,
+      kind: 'repo_checks',
+      status: 'proposed',
+    });
+    return r.proposals.length === 0
+      ? {}
+      : { check_proposals: r.proposals.map((p) => ({ id: p.id, title: p.title })) };
+  };
+
   register(
     'get_ticket',
     {
@@ -643,6 +655,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           ...(gated.has(h.name) ? { requires_approval: true } : {}),
         })),
         pr_url: d.card.pr_url,
+        // An agent's proposed repo checks waiting on a human (apply_change applies one).
+        ...(await checkProposalsOf(t.id)),
         spend_usd: d.spend_usd,
         recent_moves: (d.moves ?? []).slice(-5),
         ...(waiting === 'you_on_board' ? { url: `${deps.issuer}/#/?ticket=${t.id}` } : {}),

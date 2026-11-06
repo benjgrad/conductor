@@ -177,6 +177,8 @@ export function toSnapshot(
     ...splitStep(session.context),
     repo_checks: repoChecks,
     branch: session.branch,
+    // ADR-0037 P6: the ticket's `once` memory (absent on rows read before the migration).
+    notified_transitions: session.notified_transitions ?? [],
   };
 }
 
@@ -219,7 +221,7 @@ export async function writeSession(
        claude_session_id = $6, agent_command_id = $7, agent_process_live = $8,
        pending_answer = $9, retry_counters = $10, state_visits = $11, state_entered_at = $12,
        state_deadline = $13, return_to = $14, spend_usd = $15, claude_spend_totals = $16,
-       wall_seconds = $17, context = $18, updated_at = $19
+       wall_seconds = $17, context = $18, updated_at = $19, notified_transitions = $20
      WHERE id = $1`,
     [
       s.id,
@@ -241,6 +243,7 @@ export async function writeSession(
       s.wall_seconds,
       JSON.stringify(joinStep(s)),
       now,
+      s.notified_transitions ?? [],
     ],
   );
 }

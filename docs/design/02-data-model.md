@@ -183,6 +183,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | port_range | int4range | allocated by the daemon; `[base, base+count)` from `session_event started` |
 | return_to | text null | state that routed into the current `human` state; the answer returns there ([05](05-workflow-engine.md#needs_input-semantics)) |
 | state_visits | jsonb | `{<state>: <times entered>}`; the `visit_n` of connector idempotency keys ([05](05-workflow-engine.md#idempotency)) |
+| notified_transitions | text[] | [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P6 (`1763600000000_notify-policy`): the `once` transitions that already pushed on the ticket; a reopen copies it, so `once` is per ticket. Written by apply only under a workflow `notify` policy |
 | state_entered_at | timestamptz | when the current state was entered |
 | state_deadline | timestamptz null | when the current state's `timeout` fires; read by the timeout sweep (M1-T04) |
 | waiting_for_build_slot | bool | card badge, **not** a status ([10](10-contracts.md)); set from session_event `build_slot` |
@@ -208,6 +209,7 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, answered_at | | needs-input column sorts by created_at |
 | options | jsonb null | Questions UX (`1762700000000_input-request-options`): the clickable choices of an agent's `ask_user` question, `{multi_select, items: [{label, description?}]}` (`QuestionOptionsSchema`, [06 §Agent question options](06-human-input.md#agent-question-options)); null for every other request |
+| notify | jsonb null | [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P6 (`1763600000000_notify-policy`): `{via, mode, decision}`, the workflow notify policy's decision for the move that opened the request; the request pushes only on `decision: 'push'`. Null in legacy mode (no top-level `notify`: every request pushes) |
 
 ### event (append-only)
 | column | type | notes |

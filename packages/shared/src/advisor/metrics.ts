@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isNamedMove } from '../engine/types.js';
-import type { MoveCause } from '../workflow/schema.js';
+import type { MoveCause, NotifyDecision } from '../workflow/schema.js';
 import { stateKey, type CheckRole, type CheckSource, type InputClass } from './gates.js';
 
 // ADR-0033 (workflow advisor, P1): deterministic process metrics over past sessions, and the
@@ -33,6 +33,8 @@ export interface MoveRow {
   at: string;
   /** The session's workflow version; absent or null = unknown. */
   workflow_version?: number | null;
+  /** ADR-0037 P6: the notify policy's decision for this move; absent in legacy mode. */
+  notify?: NotifyDecision | null;
 }
 
 /** One finished check: a `run_cmd` and its `command.exited`. */
@@ -649,6 +651,30 @@ export const ProcessMetricsSchema = z.object({
       typed: z.number().int().nonnegative(),
     })
     .optional(),
+  /**
+   * ADR-0037 P6: the notify policy's decisions over the window: moves that pushed, moves it kept
+   * silent, pushes per ticket, and the decisions per `via` (most first, at most VIAS_MAX). Absent
+   * when no move carried a decision (legacy mode).
+   */
+  pushes: z
+    .object({
+      total: z.number().int().nonnegative(),
+      silent: z.number().int().nonnegative(),
+      per_ticket: z.object({
+        median: z.number().nonnegative(),
+        p90: z.number().nonnegative(),
+        max: z.number().int().nonnegative(),
+      }),
+      by_via: z.array(
+        z.object({
+          via: z.string(),
+          mode: z.string(),
+          decision: z.enum(['push', 'silent']),
+          count: z.number().int().nonnegative(),
+        }),
+      ),
+    })
+    .optional(),
 });
 export type ProcessMetrics = z.infer<typeof ProcessMetricsSchema>;
 
@@ -787,6 +813,46 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     ...loopSummary(loopCounts(rows.moves)),
     ...pageCounts(rows.pages ?? []),
     ...presetUses(rows.preset_texts ?? []),
+    ...pushCounts(rows.moves),
+  };
+}
+
+const VIAS_MAX = 10;
+
+/**
+ * ADR-0037 P6: `{pushes}` for ProcessMetrics, from the decisions recorded on the moves (one push
+ * per `push` decision). Nothing when no move carried one.
+ */
+export function pushCounts(moves: readonly MoveRow[]): Pick<ProcessMetrics, 'pushes'> {
+  const decided = moves.filter((m): m is MoveRow & { notify: NotifyDecision } => m.notify != null);
+  if (decided.length === 0) return {};
+  const perTicket = new Map<string, number>();
+  const vias = new Map<
+    string,
+    { via: string; mode: string; decision: 'push' | 'silent'; count: number }
+  >();
+  for (const m of decided) {
+    const { via, mode, decision } = m.notify;
+    if (decision === 'push') perTicket.set(m.ticket_id, (perTicket.get(m.ticket_id) ?? 0) + 1);
+    else if (!perTicket.has(m.ticket_id)) perTicket.set(m.ticket_id, 0);
+    bucket(vias, `${via}\u0000${mode}\u0000${decision}`, () => ({ via, mode, decision, count: 0 }))
+      .count++;
+  }
+  const counts = [...perTicket.values()];
+  const total = decided.filter((m) => m.notify.decision === 'push').length;
+  return {
+    pushes: {
+      total,
+      silent: decided.length - total,
+      per_ticket: {
+        median: round1(median(counts)),
+        p90: round1(percentile(counts, 0.9)),
+        max: Math.max(0, ...counts),
+      },
+      by_via: [...vias.values()]
+        .sort((a, b) => b.count - a.count || a.via.localeCompare(b.via))
+        .slice(0, VIAS_MAX),
+    },
   };
 }
 

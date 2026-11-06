@@ -272,10 +272,11 @@ function transitionLines(
     lines.push(`Hands off for review: ${yesNo(b.handoff ?? false)} → ${yesNo(a.handoff ?? false)}`);
   }
   if (b.when !== a.when) lines.push(textChange('When to take it', b.when, a.when));
-  if ((b.notify ?? false) !== (a.notify ?? false)) {
-    // ADR-0037 P6: a string mode is shown as written.
+  if (b.notify !== a.notify) {
+    // The same meaning spelled another way (legacy `true` ↔ `every`) shows as written.
+    const same = notifyWords(b.notify) === notifyWords(a.notify);
     const shown = (v: TransitionObject['notify']) =>
-      typeof v === 'string' ? v : onOff(v ?? false);
+      same ? `\`${String(v ?? 'absent')}\`` : notifyWords(v);
     lines.push(`Notifies people: ${shown(b.notify)} → ${shown(a.notify)}`);
   }
   if (b.text !== a.text) lines.push(`Text: ${b.text ?? 'none'} → ${a.text ?? 'none'}`);
@@ -441,7 +442,19 @@ const KNOWN_WORKFLOW_KEYS = new Set([
   'on_budget_exceeded',
   'queued_ticket_editable',
   'instructions',
+  'notify',
 ]);
+
+/**
+ * ADR-0037 P6: a transition's notify in words; the legacy `true` reads as every time, `false` as
+ * never, absent as inherit.
+ */
+function notifyWords(v: TransitionObject['notify']): string {
+  if (v === undefined || v === 'inherit') return 'inherit';
+  if (v === true || v === 'every') return 'every time';
+  if (v === false || v === 'never') return 'never';
+  return 'once per ticket';
+}
 
 function transitionsOf(def: WorkflowDefinition, from: string): Map<string, TransitionObject> {
   const s = def.states[from];
@@ -575,6 +588,24 @@ export function diffVersions(
     if (!(k in ai)) wf.push(`Instruction removed: ${k}`);
     else if (!(k in bi)) wf.push(`Instruction added: ${k}`);
     else if (bi[k] !== ai[k]) wf.push(`Instruction changed: ${k}`);
+  }
+  // ADR-0037 P6: the notify policy.
+  const bn = before.notify;
+  const an = after.notify;
+  if (bn === undefined && an !== undefined) wf.push('Notifications: decided per transition');
+  else if (bn !== undefined && an === undefined) wf.push('Notifications: every question (legacy)');
+  else if (bn !== undefined && an !== undefined) {
+    if (bn.default !== an.default) {
+      wf.push(
+        `Transitions that inherit notify: ${notifyWords(bn.default)} → ${notifyWords(an.default)}`,
+      );
+    }
+    if (bn.engine_moves !== an.engine_moves) {
+      wf.push(`Conductor's own moves notify: ${bn.engine_moves} → ${an.engine_moves}`);
+    }
+    if (bn.coalesce !== an.coalesce) {
+      wf.push(`Notification window: ${bn.coalesce ?? 'none'} → ${an.coalesce ?? 'none'}`);
+    }
   }
   wf.push(...otherLines(before, after, KNOWN_WORKFLOW_KEYS));
   if (wf.length > 0) {

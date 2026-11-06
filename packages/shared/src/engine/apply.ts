@@ -19,6 +19,7 @@ import {
   type EntryCheck,
   type MoveActor,
   type MoveCause,
+  type NotifyDecision,
   type RequirementsGate,
   type Transition,
   type TransitionAction,
@@ -69,6 +70,7 @@ import {
   type GateSpec,
 } from './move-step.js';
 import { renderPrompt, type PromptAttachment } from './render.js';
+import { notifyDecision } from './notify.js';
 import {
   DEFAULT_CHECK_TIMEOUT,
   ENTRY_ACTION_TIMEOUT,
@@ -684,6 +686,16 @@ function onMachineLost(st: Step, e: MachineLostEvent): ApplyIgnoreReason | null 
       kind: MACHINE_LOST_KIND,
       question: machineLostQuestion(name, 'revoked'),
       return_to: s.return_to,
+      // ADR-0037 P6: a re-ask without a move is an engine move (silent under `never`).
+      ...decisionFields(
+        st,
+        notifyDecision(st.def, s.notified_transitions, {
+          cause: 'machine_lost',
+          transition: null,
+          actor: 'system',
+          from: s.workflow_state,
+        }),
+      ),
     });
     return null;
   }
@@ -2482,6 +2494,22 @@ function notifyFor(name: string, t: Transition | undefined): { notify?: string }
   return t !== undefined && typeof t === 'object' && t.notify === true ? { notify: name } : {};
 }
 
+/**
+ * ADR-0037 P6: `{notify_decision}` for an effect (`{}` in legacy mode). A `once` push is
+ * remembered on the snapshot so the transition stays silent for the rest of the ticket.
+ */
+function decisionFields(
+  st: Step,
+  decision: NotifyDecision | null,
+): { notify_decision?: NotifyDecision } {
+  if (decision === null) return {};
+  if (decision.mode === 'once' && decision.decision === 'push') {
+    const seen = st.s.notified_transitions ?? [];
+    if (!seen.includes(decision.via)) st.s.notified_transitions = [...seen, decision.via];
+  }
+  return { notify_decision: decision };
+}
+
 /** The ADR-0011 / ADR-0037 P7 fields of a `state_entered` effect. */
 function moveFields(move: MoveFields) {
   return {
@@ -2576,6 +2604,13 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
   }
   if (isQaState(toState) && !enterQa(st, target)) return;
   addWallTime(st);
+  // ADR-0037 P6: under a `notify` policy, decide on the real landing (never on a gate step);
+  // null = legacy mode, where `opts.notify` (a `notify: true` transition) is all there is.
+  const decision = notifyDecision(st.def, s.notified_transitions, {
+    ...opts.record,
+    from,
+  });
+  const notify = decisionFields(st, decision);
   const visit = (s.state_visits[target] ?? 0) + 1;
   s.state_visits = { ...s.state_visits, [target]: visit };
   s.workflow_state = target;
@@ -2586,7 +2621,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     to: target,
     visit,
     ...moveFields(opts.record),
-    ...(opts.notify !== undefined ? { notify: opts.notify } : {}),
+    ...(decision !== null ? notify : opts.notify !== undefined ? { notify: opts.notify } : {}),
   });
 
   // 10-contracts §Pending answer: cleared when apply enters a different state, unless this apply
@@ -2659,6 +2694,8 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
         question: opts.question || `Waiting in "${target}".`,
         return_to: from,
         ...(opts.options !== undefined ? { options: opts.options } : {}),
+        // ADR-0037 P6: the landing's decision; the request pushes only when it says so.
+        ...(decision !== null ? { notify_decision: decision } : {}),
       });
       st.setStatus('needs_input');
       return;

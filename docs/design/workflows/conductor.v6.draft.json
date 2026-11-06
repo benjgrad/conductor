@@ -22,7 +22,7 @@
     "fix_and_resubmit": "First merge the latest default branch into your branch. Then fix what is listed above, commit, and finish the step again. If a PR check failed, read its log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`). If the failing test is one this branch didn't touch: when it is listed in docs/tracking/FLAKY.md, rerun only the failed job once (`gh run rerun <run-id> --failed`); otherwise fix it in its own commit ('test: fix pre-existing failure in <test>') and say so in your summary."
   },
   "notify": {
-    "default": "when_waiting_on_you",
+    "default": "once",
     "engine_moves": "never",
     "coalesce": "15m"
   },
@@ -43,13 +43,15 @@
         "timeout": "needs_input",
         "ask_user": {
           "goto": "needs_input",
-          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets."
+          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets.",
+          "notify": "every"
         },
         "impossible": {
           "goto": "needs_input",
           "title": "Impossible",
           "when": "The work cannot be done as asked.",
-          "question": true
+          "question": true,
+          "notify": "every"
         },
         "plan_ready": {
           "goto": "implementing",
@@ -60,20 +62,22 @@
           "goto": "needs_input",
           "title": "Scope changed",
           "when": "A finding changes what the ticket can deliver and the milestone spec doesn't settle it. If the ticket only bundles several tasks ('finish the remaining work'), don't ask: plan the first task and put the rest in proposed_tickets.",
-          "question": true
+          "question": true,
+          "notify": "every"
         },
         "plan_needs_approval": {
           "goto": "plan_review",
           "title": "Plan needs approval",
           "when": "Only when the plan reverses an accepted ADR, drops or rewrites existing data, adds an external service or spends money. Finish with the full plan in your result; your reason names the one decision and your recommendation.",
           "question": true,
-          "notify": "always"
+          "notify": "every"
         },
         "needs_product_context": {
           "goto": "needs_input",
           "title": "Needs product context",
           "when": "You need more product context to plan the work.",
-          "question": true
+          "question": true,
+          "notify": "every"
         }
       }
     },
@@ -112,7 +116,8 @@
         "timeout": "needs_input",
         "ask_user": {
           "goto": "needs_input",
-          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets."
+          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets.",
+          "notify": "every"
         },
         "ready_for_testing": {
           "goto": "waiting_external",
@@ -175,7 +180,8 @@
             "instruction": "$instructions.fix_and_resubmit",
             "retries": 3,
             "else": "needs_input"
-          }
+          },
+          "notify": "once"
         },
         "pr_ready_for_review": {
           "goto": "in_review",
@@ -233,13 +239,15 @@
             "instruction": "$instructions.fix_and_resubmit",
             "retries": 3,
             "else": "needs_input"
-          }
+          },
+          "notify": "once"
         },
         "needs_approval_to_message": {
           "goto": "needs_input",
           "title": "Approve a message",
           "when": "You are about to message a person and need approval of the text first.",
-          "question": true
+          "question": true,
+          "notify": "every"
         },
         "personal_pr_ready_for_review": {
           "goto": "in_review",
@@ -292,7 +300,8 @@
             "instruction": "$instructions.fix_and_resubmit",
             "retries": 3,
             "else": "needs_input"
-          }
+          },
+          "notify": "once"
         }
       }
     },

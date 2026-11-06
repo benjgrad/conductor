@@ -480,6 +480,10 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
           add('.handoff', 'only a transition to a human column can hand off for review');
         }
       }
+      // Rule 23 (ADR-0037 P6): a notify mode needs the workflow's notify policy.
+      if (typeof t.notify === 'string' && def.notify === undefined) {
+        add('.notify', 'turn on “Decide per transition which moves notify” to use this setting');
+      }
 
       const r = t.requires;
       if (r !== undefined) {

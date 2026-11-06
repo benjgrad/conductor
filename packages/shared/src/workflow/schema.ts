@@ -374,7 +374,8 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * - `no_checks` (P3, T5, available): `pr_checks_green.no_checks`;
  * - `concurrency` (P4, T7): `requires.concurrency`;
  * - `instructions` (P5, T8): the `instructions` map, `$instructions.<slug>` refs and `presets`;
- * - `notify_policy` (P6, T4): the workflow `notify` block and string transition `notify` values;
+ * - `notify_policy` (P6, T4, available): the workflow `notify` block and string transition
+ *   `notify` values;
  * - `handoff` (P8, T3, available): `handoff: true`.
  */
 export const WORKFLOW_FEATURES = [
@@ -389,6 +390,7 @@ export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
 export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
   'no_checks',
   'instructions',
+  'notify_policy',
   'handoff',
 ];
 
@@ -508,10 +510,17 @@ export const TransitionRequiresSchema = z.strictObject({
 });
 export type TransitionRequires = z.infer<typeof TransitionRequiresSchema>;
 
-/** ADR-0037 P6: a notification mode (the workflow `notify.default`, a transition's `notify`). */
-export const NotifyModeSchema = z.enum(['never', 'when_waiting_on_you', 'always']);
+/**
+ * ADR-0037 P6 (amended by T4): a notification mode (the workflow `notify.default`, a transition's
+ * `notify`). `once`: push the first time the transition is taken on the ticket, `every`: each
+ * time, `never`: silent.
+ */
+export const NotifyModeSchema = z.enum(['never', 'once', 'every']);
 export type NotifyMode = z.infer<typeof NotifyModeSchema>;
-/** ADR-0037 P6: a transition's `notify`: the legacy boolean, a mode, or `inherit` the default. */
+/**
+ * ADR-0037 P6: a transition's `notify`: the legacy boolean (`true` ≡ `every`, `false` ≡ `never`),
+ * a mode, or `inherit` the workflow default (absent ≡ `inherit`).
+ */
 export const TransitionNotifySchema = z.union([
   z.boolean(),
   NotifyModeSchema,
@@ -521,7 +530,9 @@ export type TransitionNotify = z.infer<typeof TransitionNotifySchema>;
 
 /**
  * ADR-0037 P6: the workflow's notification policy. Absent = legacy mode (every input_request
- * pushes, plus `notify: true` transitions). Refused until T4 (rule 14).
+ * pushes, plus `notify: true` transitions). `engine_moves`: a move conductor made on its own
+ * (any cause but `transition`) is silent (`never`) or takes the mode of the transition it was
+ * taken for (`inherit`). `coalesce`: one push per ticket and state per window.
  */
 export const NotifyPolicySchema = z.strictObject({
   default: NotifyModeSchema,
@@ -530,6 +541,20 @@ export const NotifyPolicySchema = z.strictObject({
   coalesce: DurationSchema.optional(),
 });
 export type NotifyPolicy = z.infer<typeof NotifyPolicySchema>;
+
+/** ADR-0037 P6: the `via` of a watch's `notify: escalate` (T6): it always pushes. */
+export const NOTIFY_VIA_WATCH_ESCALATE = 'watch_escalate';
+
+/**
+ * ADR-0037 P6: what the policy decided for one move (`notifyDecision`): `via` the transition
+ * name (or the engine cause), the mode that applied, and push or not.
+ */
+export const NotifyDecisionSchema = z.object({
+  via: z.string(),
+  mode: NotifyModeSchema,
+  decision: z.enum(['push', 'silent']),
+});
+export type NotifyDecision = z.infer<typeof NotifyDecisionSchema>;
 
 /**
  * `"build"` or an object (05 §Retry loops; ADR-0009 `requirements`; ADR-0011 for the rest). The
@@ -579,8 +604,8 @@ export const TransitionObjectSchema = z.strictObject({
    * Taking this transition notifies the account's users (in-tab and Web Push), once the session
    * lands in a real state through it (its `goto`, or `else` when retries run out; after any gate
    * step passes). Absent = no notification. Needs-input notifications don't depend on it.
-   * ADR-0037 P6: or a mode / `inherit` under the workflow's `notify` policy (rule 23; refused
-   * until T4); `true` reads as `always`, `false` as `never`.
+   * ADR-0037 P6: or a mode / `inherit` under the workflow's `notify` policy (rule 23); `true`
+   * reads as `every`, `false` as `never`.
    */
   notify: TransitionNotifySchema.optional(),
   /** What happens when `requires` is not met (ADR-0010 semantics, U-063 for conditions). */

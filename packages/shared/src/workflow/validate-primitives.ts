@@ -150,7 +150,8 @@ export function checkPrimitiveAvailability(
  * - 21 instructions: every `$instructions.<slug>` ref and every `presets` slug names a key of
  *   `instructions`; `presets` only on a human-actor transition with `text`.
  * - 22 hand-off: not with `question: true`; only into a human state.
- * - 23 notify: `inherit` / `when_waiting_on_you` / `never` need the workflow `notify` block;
+ * - 23 notify: a string value (`inherit` / `once` / `every` / `never`) needs the workflow `notify`
+ *   block (without it only the legacy boolean means anything);
  *   `coalesce` ≤ MAX_NOTIFY_COALESCE.
  * - 24 placement: `age_below` only inside a watch. (`cmd` needs a repo; every ticket has one
  *   today, so there is nothing to refuse yet.)
@@ -270,7 +271,7 @@ export function checkPrimitives(
         }
       }
       // Rule 23: transition modes.
-      if (typeof t.notify === 'string' && t.notify !== 'always' && def.notify === undefined) {
+      if (typeof t.notify === 'string' && def.notify === undefined) {
         err(
           23,
           [...base, 'notify'],

@@ -251,6 +251,7 @@ const session: ColumnSpec<SessionRow> = {
   port_range: col('int4range', NULL),
   return_to: col(t, NULL),
   state_visits: col('jsonb', NN),
+  notified_transitions: col('_text', NN),
   state_entered_at: col('timestamptz', NN),
   state_deadline: col('timestamptz', NULL),
   waiting_for_build_slot: col('bool', NN),
@@ -269,6 +270,7 @@ const input_request: ColumnSpec<InputRequestRow> = {
   created_at: col('timestamptz', NN),
   answered_at: col('timestamptz', NULL),
   options: col('jsonb', NULL),
+  notify: col('jsonb', NULL),
 };
 const event: ColumnSpec<EventRow> = {
   id: col('int8', NN),

@@ -5,6 +5,7 @@ import type {
   MachineAlertKind,
   MachineRepoMode,
   MachineStatus,
+  NotifyDecision,
   OutboxKind,
   OutboxStatus,
   PermissionBehavior,
@@ -262,6 +263,11 @@ export interface SessionRow {
   return_to: string | null;
   /** jsonb: state → times entered (idempotency `visit_n`). */
   state_visits: Record<string, number>;
+  /**
+   * text[]: ADR-0037 P6 `once` transitions that already pushed on the ticket (copied by a
+   * reopen). Written by apply only under a workflow `notify` policy.
+   */
+  notified_transitions: string[];
   state_entered_at: Date;
   /** When the current state's timeout fires (timeout sweep, T04); null = none. */
   state_deadline: Date | null;
@@ -286,6 +292,11 @@ export interface InputRequestRow {
   answered_at: Date | null;
   /** Questions UX: an agent question's options (QuestionOptions JSON); null otherwise. */
   options: QuestionOptions | null;
+  /**
+   * ADR-0037 P6: the notify decision of the move that opened it (NotifyDecision JSON); null in
+   * legacy mode (no workflow `notify` policy) and on rows before T4.
+   */
+  notify: NotifyDecision | null;
 }
 
 export interface EventRow {

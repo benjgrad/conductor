@@ -16,6 +16,7 @@ import {
   ENGINE_CAUSES,
   MoveActorSchema,
   MoveCauseSchema,
+  NotifyDecisionSchema,
   TransitionActorSchema,
   type MoveCause,
   type WorkflowDefinition,
@@ -274,6 +275,12 @@ export const SessionSnapshotSchema = z.object({
    * name from the ticket, whose title may have been edited since. Absent ≡ null (older snapshots).
    */
   branch: z.string().nullable().optional(),
+  /**
+   * ADR-0037 P6: the `once` transitions that already pushed on this ticket (`session
+   * .notified_transitions`, carried by a reopen). Written by apply only under a `notify` policy.
+   * Absent ≡ [].
+   */
+  notified_transitions: z.array(z.string()).optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 
@@ -782,6 +789,11 @@ export const EffectSchema = z.discriminatedUnion('type', [
     return_to: z.string().nullable(),
     /** Questions UX: an agent question's clickable options (absent: none). */
     options: QuestionOptionsSchema.optional(),
+    /**
+     * ADR-0037 P6: the notify decision of the move that opened it (stored as
+     * `input_request.notify`). Absent = legacy mode: the request always pushes.
+     */
+    notify_decision: NotifyDecisionSchema.optional(),
   }),
   /** Internal: (re)arm or clear the timeout sweep for the current state. */
   z.object({
@@ -809,8 +821,14 @@ export const EffectSchema = z.discriminatedUnion('type', [
     /**
      * The transition that led here has `notify: true` (its name): the wrapper writes a
      * `transition.notified` board event and `push_transition` rows. Absent = no notification.
+     * Legacy mode only (no workflow `notify` policy).
      */
     notify: z.string().optional(),
+    /**
+     * ADR-0037 P6: under a workflow `notify` policy, what it decided for this move (always set
+     * then; recorded as the payload's `notify`). Absent = legacy mode.
+     */
+    notify_decision: NotifyDecisionSchema.optional(),
   }),
   /**
    * Internal: event row `conversation.reset` (audit). The Claude conversation `claude_session_id`
@@ -994,6 +1012,8 @@ export const StateEnteredPayloadSchema = z.object({
   actor: MoveActorSchema.nullable().optional(),
   /** ADR-0037 P7; absent (null) on rows written before it. */
   cause: MoveCauseSchema.nullable().optional(),
+  /** ADR-0037 P6: the notify decision (`notify_decision`); absent in legacy mode. */
+  notify: NotifyDecisionSchema.nullable().optional(),
 });
 export type StateEnteredPayload = z.infer<typeof StateEnteredPayloadSchema>;
 

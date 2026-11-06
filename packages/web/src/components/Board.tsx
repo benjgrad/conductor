@@ -74,7 +74,7 @@ interface BoardProps {
   /** ADR-0010: the board's workflow; it keys the remembered layout (UX-9). */
   workflow?: string;
   /**
-   * UXR-37: a panel is open beside the board (desktop). Columns keep 200 px and the board
+   * UXR-37: a panel is open beside the board (desktop). Columns keep 240 px and the board
    * scrolls sideways, rather than squeezing titles onto three lines.
    */
   narrow?: boolean;
@@ -84,9 +84,9 @@ interface BoardProps {
 
 /** UX-9: a collapsed column's grid track, the width of its strip. */
 const STRIP_TRACK = 'var(--column-strip-width)';
-const COLUMN_TRACK = 'minmax(180px, 1fr)';
+const COLUMN_TRACK = 'minmax(220px, 1fr)';
 /** UXR-37: beside an open panel. */
-const NARROW_COLUMN_TRACK = 'minmax(200px, 1fr)';
+const NARROW_COLUMN_TRACK = 'minmax(240px, 1fr)';
 
 export function Board({
   board,

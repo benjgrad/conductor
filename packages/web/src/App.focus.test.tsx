@@ -36,14 +36,14 @@ const boardArea = () => document.querySelector<HTMLElement>('.board-area')!;
 const tickets = () => screen.queryByRole('navigation', { name: 'Tickets' });
 
 describe('desktop detail layout (UXR-37)', () => {
-  it('keeps 200 px columns beside the panel; focus mode swaps the board for the list', async () => {
+  it('keeps 240 px columns beside the panel; focus mode swaps the board for the list', async () => {
     await renderAt(1440);
     expect(document.querySelector<HTMLElement>('.board')!.style.gridTemplateColumns).toContain(
-      'minmax(180px, 1fr)',
+      'minmax(220px, 1fr)',
     );
     await openCard('Add audit log table');
     expect(document.querySelector<HTMLElement>('.board')!.style.gridTemplateColumns).toContain(
-      'minmax(200px, 1fr)',
+      'minmax(240px, 1fr)',
     );
     expect(boardArea().hidden).toBe(false);
     expect(tickets()).toBeNull();

@@ -1955,7 +1955,10 @@ function heldTimer(st: Step, spec: GateSpec, r: GateStep): void {
 /** The next check: `now + condition_poll`, never past the hold's deadline. */
 function armHoldPoll(st: Step, spec: GateSpec, r: GateStep): void {
   const until = r.hold?.deadline ?? st.now.toISOString();
-  st.setDeadline(st.s.workflow_state!, pollDeadline(st.now, basePollMs(spec.condition_poll), until));
+  st.setDeadline(
+    st.s.workflow_state!,
+    pollDeadline(st.now, basePollMs(spec.condition_poll), until),
+  );
 }
 
 /** Audit the end of a real hold (once): `hold_changed {held: false, cause}`. */

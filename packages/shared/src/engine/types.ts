@@ -522,9 +522,7 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     type: z.literal('concurrency.checked'),
     state: z.string(),
     deadline: IsoDateTimeSchema,
-    holders: z
-      .array(z.object({ session_id: z.string(), ticket_id: z.string() }))
-      .max(50),
+    holders: z.array(z.object({ session_id: z.string(), ticket_id: z.string() })).max(50),
   }),
   /**
    * O: budget exceeded → `def.on_budget_exceeded`, kind `budget_exceeded`.

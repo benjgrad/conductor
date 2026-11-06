@@ -116,8 +116,7 @@ export function holdersOf(
     const inFlight =
       c.step === null
         ? c.workflow_state !== null && scope.has(c.workflow_state)
-        : scope.has(c.step.to) &&
-          (c.step.phase !== 'held' || aheadOf(c.step, c.session_id, self));
+        : scope.has(c.step.to) && (c.step.phase !== 'held' || aheadOf(c.step, c.session_id, self));
     if (!inFlight) return false;
     return conc.overlap !== 'planned_files' || filesOverlap(self.files, c.files);
   });

@@ -123,8 +123,7 @@ async function seed(
 const session = async (id: string) =>
   (await db.pool.query<SessionRow>('SELECT * FROM session WHERE id = $1', [id])).rows[0]!;
 const phaseOf = async (id: string) =>
-  ((await session(id)).context[STEP_CONTEXT_KEY] as { phase?: string } | undefined)?.phase ??
-  null;
+  ((await session(id)).context[STEP_CONTEXT_KEY] as { phase?: string } | undefined)?.phase ?? null;
 const runs = async (id: string) =>
   (
     await db.pool.query<OutboxRow>(

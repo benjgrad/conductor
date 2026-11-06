@@ -92,12 +92,8 @@ describe('ConcurrencyFields (One at a time)', () => {
     fireEvent.click(screen.getByLabelText('Needs input'));
     fireEvent.click(screen.getByLabelText(/Only when their planned files overlap/));
     const edited = concOf(read())!;
-    expect(edited).toMatchObject({
-      key: '$repo+$kind',
-      max_in_flight: 2,
-      hold_timeout: '12h',
-      scope: expect.arrayContaining(['in_review', 'needs_input']),
-    });
+    expect(edited).toMatchObject({ key: '$repo+$kind', max_in_flight: 2, hold_timeout: '12h' });
+    expect([...edited.scope].sort()).toEqual(['in_review', 'needs_input']);
     expect(edited.overlap).toBeUndefined();
     expect(ok(read())).toEqual([]);
 

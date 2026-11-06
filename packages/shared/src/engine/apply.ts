@@ -1933,7 +1933,7 @@ function onConcurrencyChecked(
     r.held = true;
     st.emit({
       type: 'hold_changed',
-      state: s.workflow_state!,
+      state: s.workflow_state,
       held: true,
       behind: r.hold.behind,
       since: r.hold.since,

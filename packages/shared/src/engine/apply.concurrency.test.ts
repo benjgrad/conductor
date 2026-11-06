@@ -158,7 +158,13 @@ describe('held phase', () => {
     expect(h.snap.status).toBe('waiting_external');
     expect(h.snap.state_deadline).toBe(new Date(h.now.getTime() + 2 * MIN).toISOString());
     expect(of(r.effects, 'hold_changed')).toEqual([
-      { type: 'hold_changed', state: LABEL, held: true, behind: [A], since: expect.any(String) },
+      {
+        type: 'hold_changed',
+        state: LABEL,
+        held: true,
+        behind: [A],
+        since: h.snap.step!.hold!.since,
+      },
     ]);
     // Silent: no question, no state change, no run.
     expect(of(r.effects, 'create_input_request')).toEqual([]);

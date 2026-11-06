@@ -1,9 +1,9 @@
 // The E2E stack (M1-T10): a fresh Postgres database (packages/orchestrator/test/db.ts), the real
 // `conductor-orchestrator` bin on an ephemeral port, and one real `conductor-daemon` bin, each a
 // child process with its log in the run's temp dir. The daemon is the Rust release binary
-// (MR-T16, ADR-0026) unless CONDUCTOR_E2E_DAEMON_BIN names another one (the TS build,
-// packages/daemon/dist/main.js, until MR-T18b). The daemon drives the fake `claude`
-// (packages/daemon/test/fixtures/fake-claude.mjs, via a symlink inside the temp dir so leftover
+// (MR-T16, ADR-0026) unless CONDUCTOR_E2E_DAEMON_BIN names another build of it (e.g. the debug
+// target/debug/conductor-daemon). The daemon drives the fake `claude`
+// (e2e/fixtures/fake-claude.mjs, via a symlink inside the temp dir so leftover
 // processes can be found by path) unless the run uses the real CLI.
 //
 // Windows (MR-T16b): the daemon runs only a native claude.exe (U-110) and a `.cmd` can't carry
@@ -58,14 +58,11 @@ export function daemonBin(override: string | undefined): string {
   return isAbsolute(override) ? override : resolve(REPO_ROOT, override);
 }
 
-/** A `.js`/`.mjs` bin runs under this Node; anything else (the Rust daemon) is started directly. */
+/** A `.js`/`.mjs` bin (the orchestrator) runs under this Node; the Rust daemon is started directly. */
 export function isNodeScript(bin: string): boolean {
   return /\.m?js$/.test(bin);
 }
-
-/** Which daemon the stack runs: 'ts' for a Node script, 'rust' for a native binary. */
-export const DAEMON_KIND: 'rust' | 'ts' = isNodeScript(DAEMON_BIN) ? 'ts' : 'rust';
-export const FAKE_CLAUDE = join(REPO_ROOT, 'packages/daemon/test/fixtures/fake-claude.mjs');
+export const FAKE_CLAUDE = join(REPO_ROOT, 'e2e/fixtures/fake-claude.mjs');
 const WIN = process.platform === 'win32';
 /** Windows only: the native launcher the fakes run through (`pnpm test:e2e` builds it, MR-T16b). */
 export const E2E_LAUNCHER_BIN = join(REPO_ROOT, 'target/release/conductor-e2e-launcher.exe');
@@ -257,11 +254,6 @@ export class Stack {
     return join(this.tmp, 'claude-config');
   }
 
-  /** Which daemon this stack runs (DAEMON_BIN): the Rust binary or the TS build. */
-  get daemonKind(): 'rust' | 'ts' {
-    return DAEMON_KIND;
-  }
-
   get baseUrl(): string {
     return `http://127.0.0.1:${this.port}`;
   }
@@ -280,7 +272,7 @@ export class Stack {
             : 'build it first (target/debug/conductor-daemon: `cargo nextest run --workspace --no-run`)';
       throw new Error(`${bin} is missing: ${hint}`);
     }
-    console.log(`e2e: ${this.daemonKind} daemon ${DAEMON_BIN}`);
+    console.log(`e2e: daemon ${DAEMON_BIN}`);
     this.db = await createTestDatabase();
     this.port = await freePort();
     const password = this.opts.auth === 'password';

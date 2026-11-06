@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 fn fake_claude() -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../packages/daemon/test/fixtures/fake-claude.mjs")
+        .join("../../e2e/fixtures/fake-claude.mjs")
         .to_string_lossy()
         .into_owned()
 }

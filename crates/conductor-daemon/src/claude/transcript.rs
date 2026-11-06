@@ -380,7 +380,7 @@ mod tests {
 
     const FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../packages/daemon/test/fixtures/transcript.jsonl"
+        "/../../e2e/fixtures/transcript.jsonl"
     ));
     const ID: &str = "f024ace5-2382-4541-a297-6126caa8f4de";
 

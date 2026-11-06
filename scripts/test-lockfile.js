@@ -3,7 +3,7 @@
 // a package only when that package's resolved dependency closure changed: its own entries, those of
 // every workspace package it links (daemon → shared), the root toolchain (vitest, vite, tsc run
 // every test), and every snapshot and package entry reachable from them. Used by the test tiers
-// (scripts/test-tiers.js) and the daemon-windows job (scripts/test-affected.js).
+// (scripts/test-tiers.js) and the daemon-windows installer job (scripts/test-affected.js).
 //
 // Anything uncertain runs more: an unparseable lockfile or a changed top-level setting returns null,
 // and a changed root closure reaches every package; both leave `pnpm-lock.yaml` a global change.
@@ -30,7 +30,7 @@ const DEP_GROUPS = ['dependencies', 'devDependencies', 'optionalDependencies'];
  */
 
 /**
- * Importer ids (`.`, `packages/daemon`, …) whose resolved closure differs between the two
+ * Importer ids (`.`, `packages/orchestrator`, …) whose resolved closure differs between the two
  * lockfiles, or null when that can't be told (unparseable, or a global setting changed).
  * @param {string} baseText @param {string} headText
  * @returns {string[] | null}

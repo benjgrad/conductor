@@ -216,13 +216,9 @@ fn stop_supervised_job_does_nothing_when_unsupervised_or_under_systemd() {
 }
 
 #[test]
-fn the_launcher_is_the_ts_daemon_asset_byte_for_byte() {
-    let ts = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../packages/daemon/assets/conductor-launch.sh"
-    ))
-    .unwrap();
-    assert_eq!(LAUNCHER, ts);
+fn the_launcher_execs_current_run() {
+    // The TS daemon's copy of this asset was deleted in MR-T18b; assets/conductor-launch.sh is
+    // the only source now.
     assert!(LAUNCHER.contains("exec \"$root/daemon/current/bin/conductor-daemon\" run \"$@\""));
 }
 

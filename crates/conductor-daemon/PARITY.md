@@ -1,8 +1,12 @@
 # PARITY: TS daemon tests → Rust tests
 
 The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/daemon/src/**/*.test.ts`, tag
-`daemon-ts-freeze`) has one row here. `node scripts/test-parity.js` checks it in `scripts/ci.sh`;
-`--write` regenerates this file and keeps every Rust cell and tick.
+`daemon-ts-freeze`) has one row here.
+
+> **Frozen record (MR-T18b).** The TS daemon and `scripts/test-parity.js` were deleted once this ledger reached
+> 100% (502 mapped, 10 dropped, 0 todo). The TS sources and tests are in history, in the parent of the commit
+> that deleted them: `git log -1 --diff-filter=D --format=%H -- packages/daemon/package.json`. A Rust test
+> renamed since keeps its row correct by hand.
 
 - **Key:** `<file> › <describe…> › <title>`, with the file relative to `packages/daemon/src`. An `it.each` is one
   row (its title template). A repeated key gets ` [2]`. A `|` in a title is written `\|`.
@@ -411,7 +415,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | commands/service.test.ts › unit files › escapes XML and systemd specifiers, and refuses what systemd cannot quote | crates/conductor-daemon/src/commands/service/tests.rs::escapes_xml_and_systemd_specifiers_and_refuses_what_systemd_cannot_quote |
 | commands/service.test.ts › unit files › restart policy: 75 and crashes restart, 0 and 78 do not (TD-119, ADR-0021) | crates/conductor-daemon/src/commands/service/tests.rs::restart_policy_75_and_crashes_restart_0_and_78_do_not |
 | commands/service.test.ts › unit files › stopSupervisedJob does nothing when unsupervised or under systemd | crates/conductor-daemon/src/commands/service/tests.rs::stop_supervised_job_does_nothing_when_unsupervised_or_under_systemd |
-| commands/service.test.ts › service install / uninstall / restart › `${manager}: install writes the unit and the launcher; a second install changes nothing` | crates/conductor-daemon/src/commands/service/tests.rs::install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing, crates/conductor-daemon/src/commands/service/tests.rs::the_launcher_is_the_ts_daemon_asset_byte_for_byte |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: install writes the unit and the launcher; a second install changes nothing` | crates/conductor-daemon/src/commands/service/tests.rs::install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing, crates/conductor-daemon/src/commands/service/tests.rs::the_launcher_execs_current_run |
 | commands/service.test.ts › service install / uninstall / restart › `${manager}: restart, status and uninstall; sudo is never used` | crates/conductor-daemon/src/commands/service/tests.rs::restart_status_and_uninstall_sudo_is_never_used |
 | commands/service.test.ts › service install / uninstall / restart › `${manager}: refuses without an installed daemon, and with Node 20` | crates/conductor-daemon/src/commands/service/tests.rs::refuses_without_an_installed_daemon |
 | commands/service.test.ts › service install / uninstall / restart › usage errors and an OS without a service manager exit 2 | crates/conductor-daemon/src/commands/service/tests.rs::usage_errors_and_an_os_without_a_service_manager_exit_2, crates/conductor-daemon/tests/cli.rs::subcommand_usage_errors_exit_2 |

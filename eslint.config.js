@@ -43,7 +43,7 @@ export default tseslint.config(
   {
     // Root-level config files and executable JS test fixtures (e.g. the fake `claude` binary)
     // are not part of any tsconfig project.
-    files: ['*.js', '*.ts', 'packages/*/test/fixtures/**/*.mjs'],
+    files: ['*.js', '*.ts', 'packages/*/test/fixtures/**/*.mjs', 'e2e/fixtures/**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
   },
   {

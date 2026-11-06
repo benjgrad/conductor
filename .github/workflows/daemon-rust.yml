@@ -1,6 +1,6 @@
 # The Rust daemon on every OS it ships for (ADR-0026 §6, milestone MR): fmt, clippy, nextest and a
 # release build on ubuntu, macos and windows. scripts/ci.sh (the `ci` workflow) runs the same
-# gates on Linux, plus the parity ledger. tests/seam.rs keeps every OS branch inside
+# gates on Linux. tests/seam.rs keeps every OS branch inside
 # crates/conductor-daemon/src/platform/, so each one runs here on its own OS.
 #
 # Diff-aware, like daemon-windows.yml: `changes` (cheap, on Linux) asks whether the diff reaches
@@ -64,9 +64,10 @@ jobs:
               case "$f" in
                 crates/* | Cargo.toml | Cargo.lock | rust-toolchain.toml | packages/shared/* | \
                   .github/workflows/daemon-rust.yml) rust=true dist=true e2e=true ;;
+                # The process-boundary fakes the Rust tests run too (fake-claude.mjs, transcript.jsonl).
+                e2e/fixtures/*) rust=true e2e=true ;;
                 # What the e2e drives (MR-T16b): the suite, its entry, the orchestrator, the fake.
-                e2e/* | scripts/e2e.js | packages/orchestrator/* | \
-                  packages/daemon/test/fixtures/fake-claude.mjs | package.json | pnpm-lock.yaml) e2e=true ;;
+                e2e/* | scripts/e2e.js | packages/orchestrator/* | package.json | pnpm-lock.yaml) e2e=true ;;
                 # The release packaging (MR-T15): proven on the PR, before main deploys it.
                 .github/workflows/daemon-dist.yml | packages/orchestrator/scripts/package-daemon.sh | \
                   packages/orchestrator/assets/conductor-daemon.cmd) dist=true ;;

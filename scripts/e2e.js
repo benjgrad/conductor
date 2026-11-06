@@ -3,10 +3,9 @@
 // build the orchestrator bin (tsc -b, incremental), build the Rust daemon (`cargo build --release`,
 // incremental), then the E2E suite. Extra args go to vitest.
 //   CONDUCTOR_E2E_DAEMON_BIN=<path>    run another daemon instead of target/release/conductor-daemon
-//                                     (no daemon cargo build), e.g. the TS one,
-//                                     packages/daemon/dist/main.js (built by tsc -b), until MR-T18b;
-//                                     scripts/ci.sh passes the debug target/debug/conductor-daemon
-//                                     nextest already built
+//                                     (no daemon cargo build), e.g. the debug
+//                                     target/debug/conductor-daemon nextest already built, which
+//                                     scripts/ci.sh passes
 //   E2E_REAL_CLAUDE=1 pnpm test:e2e   the ask/answer scenario against the installed `claude` on
 //                                     haiku (spends money; never in CI)
 // On Windows, `scripts/db.sh` (Homebrew / docker) doesn't apply: Postgres must already run, at

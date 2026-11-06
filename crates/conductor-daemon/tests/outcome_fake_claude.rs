@@ -21,10 +21,10 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// node and the daemon package's installed MCP SDK, or why the test is skipped.
+/// node and the root package's installed MCP SDK, or why the test is skipped.
 fn prerequisites() -> Result<PathBuf, String> {
-    let script = repo().join("packages/daemon/test/fixtures/fake-claude.mjs");
-    let sdk = repo().join("packages/daemon/node_modules/@modelcontextprotocol/sdk");
+    let script = repo().join("e2e/fixtures/fake-claude.mjs");
+    let sdk = repo().join("node_modules/@modelcontextprotocol/sdk");
     if !sdk.exists() {
         return Err(format!("{} missing (run pnpm install)", sdk.display()));
     }

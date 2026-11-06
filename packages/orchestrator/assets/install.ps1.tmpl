@@ -46,7 +46,7 @@
       Select-Object -First 1
   }
 
-  # Git Bash, looked up like the daemon does (packages/daemon/src/platform/shell.ts): never a
+  # Git Bash, looked up like the daemon does (crates/conductor-daemon/src/platform/shell.rs): never a
   # bare bash from PATH, which may be WSL's.
   function FindGitBash([string]$git) {
     $bases = @()

@@ -19,7 +19,7 @@ describe('e2eSteps (MR-T16b)', () => {
   it('another daemon (CONDUCTOR_E2E_DAEMON_BIN) skips cargo on POSIX', () => {
     const steps = plan({
       platform: 'darwin',
-      env: { CONDUCTOR_E2E_DAEMON_BIN: 'packages/daemon/dist/main.js' },
+      env: { CONDUCTOR_E2E_DAEMON_BIN: 'target/debug/conductor-daemon' },
     });
     expect(steps.some((s) => s.startsWith('cargo'))).toBe(false);
   });

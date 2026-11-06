@@ -46,7 +46,6 @@ if [[ "$rust" == true ]]; then
 else
   step "cargo clippy, cargo nextest: skipped (the diff doesn't reach Rust)"
 fi
-step "parity";       node scripts/test-parity.js   # crates/conductor-daemon/PARITY.md (ADR-0026 §3)
 # WF-T05: what the gate leaves out (docs/tracking/FLAKY.md); quarantine.yml runs it nightly.
 step "quarantine";   node scripts/test-flaky.js --summary
 step "deploy kit"; bash deploy/gradyserver/test/run.sh   # shellcheck only if installed

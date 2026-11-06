@@ -11,6 +11,9 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.13.0(jiti@2.7.0))
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.1
+        version: 1.32.1(zod@4.6.7)
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -50,25 +53,6 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
-
-  packages/daemon:
-    dependencies:
-      '@conductor/shared':
-        specifier: workspace:*
-        version: link:../shared
-      '@modelcontextprotocol/sdk':
-        specifier: 1.32.1
-        version: 1.32.1(zod@4.6.7)
-      ws:
-        specifier: ^8.22.0
-        version: 8.22.0
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
-      '@types/ws':
-        specifier: ^8.18.2
-        version: 8.18.2
 
   packages/orchestrator:
     dependencies:

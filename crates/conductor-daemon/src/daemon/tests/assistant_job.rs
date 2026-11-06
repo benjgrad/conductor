@@ -202,8 +202,7 @@ async fn the_transcript_is_found_from_the_store_by_session_id() {
         transcript_path_for(&c.claude_dir(), &wt, &fake.starts()[0].claude_session_id).unwrap();
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../packages/daemon/test/fixtures/transcript.jsonl"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/transcript.jsonl"),
         &file,
     )
     .unwrap();

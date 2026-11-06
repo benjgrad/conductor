@@ -8,6 +8,7 @@ describe('rustAffected (clippy + nextest in scripts/ci.sh on a PR)', () => {
     [['Cargo.lock'], true],
     [['rust-toolchain.toml'], true],
     [['packages/shared/src/protocol/x.ts'], true],
+    [['e2e/fixtures/transcript.jsonl'], true],
     [['scripts/ci.sh'], true],
     [['packages/web/src/App.tsx'], false],
     [['docs/design/01.md'], false],
@@ -25,7 +26,7 @@ describe('e2eAffected (the e2e suite in scripts/ci.sh on a PR)', () => {
   it.each([
     [['e2e/harness/stack.ts'], true],
     [['packages/orchestrator/src/x.ts'], true],
-    [['packages/daemon/test/fixtures/fake-claude.mjs'], true],
+    [['e2e/fixtures/fake-claude.mjs'], true],
     [['crates/conductor-daemon/src/main.rs'], true],
     [['docs/design/workflows/pr_flow.v1.json'], true],
     [['package.json'], true],

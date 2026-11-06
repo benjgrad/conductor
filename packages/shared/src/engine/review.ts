@@ -2,6 +2,7 @@ import type { JsonObject } from '../domain.js';
 import { instructionRef } from '../workflow/schema.js';
 import { REVIEW_GIT_COMMANDS } from '../workflow/tools.js';
 import type { SessionSnapshot } from './types.js';
+import { PROPOSE_CHECKS_HINT } from './setup-failure.js';
 
 // ADR-0009 requirements gates: the pure pieces apply() uses for a review step (the reviewer's
 // prompt, its verdict, the feedback the worker gets back). See apply.ts §Requirements review.
@@ -209,7 +210,8 @@ export function parseVerdict(result: JsonObject, items: readonly string[]): Pars
  */
 export interface ReviewFeedback {
   heading: string;
-  unmet: { item: string; reason: string; output?: string }[];
+  /** `config`: a setup failure that may be conductor's check config (adds PROPOSE_CHECKS_HINT). */
+  unmet: { item: string; reason: string; output?: string; config?: boolean }[];
   instruction: string | null;
 }
 
@@ -237,6 +239,7 @@ export function renderReviewFeedback(f: ReviewFeedback): string {
   }
   // ADR-0037 P5: a ref is resolved at the move; one that wasn't (an old snapshot) is never shown.
   if (f.instruction && instructionRef(f.instruction) === null) lines.push('', f.instruction);
+  if (f.unmet.some((u) => u.config === true)) lines.push('', PROPOSE_CHECKS_HINT);
   return lines.join('\n');
 }
 

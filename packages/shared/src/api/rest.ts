@@ -23,6 +23,7 @@ import {
 import { StructuralChangeSchema } from '../advisor/proposal.js';
 import { machineLostMarkOf } from '../engine/machine-lost.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
+import { CHECK_CONFIG_KEY, RETRY_CHECKS } from '../engine/setup-failure.js';
 import {
   ConditionStatusValueSchema,
   GateStepSchema,
@@ -2178,6 +2179,16 @@ export function humanTransitionsOfCard(
     ticket.kind ?? null,
     session.return_to ?? null,
   );
+  // A gate whose setup failed on conductor's check config: "Retry checks" re-runs it (gate.retry).
+  if (openInputKind === 'check_config') {
+    const gate = session.context[CHECK_CONFIG_KEY] as { to?: unknown } | undefined;
+    if (gate !== undefined && typeof gate.to === 'string') {
+      return [
+        { name: RETRY_CHECKS, title: 'Retry checks', goto: gate.to, needs_text: false },
+        ...options,
+      ];
+    }
+  }
   if (
     openInputKind !== MACHINE_LOST_KIND ||
     mark === null ||

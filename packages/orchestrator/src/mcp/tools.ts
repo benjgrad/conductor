@@ -23,7 +23,9 @@ import {
   type TicketStatus,
   validateWorkflow,
   type WorkflowDefinition,
+  RETRY_CHECKS,
 } from '@conductor/shared';
+import { afterRepoChecksChangedSafe } from '../api/check-config.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AuthConfig } from '../auth/config.js';
@@ -911,6 +913,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           { url: `${deps.issuer}/#/?ticket=${s.ticket.id}` },
         );
       }
+      // A check-config request's "Retry checks" re-runs the gate (not a workflow transition).
+      if (name === RETRY_CHECKS) {
+        return apply('transition', s.sessionId, { type: 'gate.retry', actor: UI_ACTOR });
+      }
       return apply('transition', s.sessionId, {
         type: 'human.transition',
         name,
@@ -1255,6 +1261,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     async (input) => {
       const res = await setRepoChecks(db, accountId, input, by);
       if (!res.ok) return fail('invalid_input', res.message, { details: res.details });
+      await afterRepoChecksChangedSafe({ db, engine }, accountId, input.repo);
       return ok({ ok: true, ...res.dto });
     },
   );
@@ -1272,6 +1279,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       if (!(await clearRepoChecks(db, accountId, repo))) {
         return fail('not_found', `${repo} has no checks of its own.`);
       }
+      await afterRepoChecksChangedSafe({ db, engine }, accountId, repo);
       return ok({ ok: true });
     },
   );
@@ -1726,6 +1734,12 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     async ({ id }) => {
       const res = await applyProposal(db, actor, id);
       if (!res.ok) return proposalFail(res);
+      if (res.value.kind === 'repo_checks') {
+        await afterRepoChecksChangedSafe({ db, engine }, accountId, res.value.target, {
+          proposalId: res.value.id,
+          by: actor.by,
+        });
+      }
       return ok(res.value);
     },
   );

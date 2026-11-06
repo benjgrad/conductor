@@ -1190,3 +1190,53 @@ export const ASSISTANT_WS_FIXTURES: {
     },
   },
 };
+
+// ---------------------------------------------------------------- setup failures (check config)
+
+/**
+ * A failed check setup with the daemon's base-branch probe, and an agent question carrying its
+ * proposed repo checks (05 §Requirements to enter a column, "Setup failures").
+ */
+export const SETUP_TRIAGE_WS_FIXTURES: {
+  cmd_exit_setup_failed_on_base: DaemonToOrchestrator;
+  ask_user_proposed_checks: DaemonToOrchestrator;
+} = {
+  cmd_exit_setup_failed_on_base: {
+    type: 'session_event',
+    ...daemonSession(40),
+    payload: {
+      kind: 'cmd_exit',
+      data: {
+        command_id: FIXTURE_IDS.command,
+        exit_code: 128,
+        signal: null,
+        timed_out: false,
+        duration_ms: 35,
+        output_tail: "fatal: 'origin' does not appear to be a git repository\n",
+        head_sha: '3b18e512dba79e4c8300dd08aeb37f8e728b8dad',
+        setup_failed: true,
+        setup_cmd: 'git fetch -q origin && git branch -f main origin/main',
+        setup_on_base: 'fail',
+        base_ref: 'main',
+      },
+    },
+  },
+  ask_user_proposed_checks: {
+    type: 'session_event',
+    ...daemonSession(41),
+    payload: {
+      kind: 'ask_user',
+      data: {
+        question: 'The setup needs an origin remote the fresh checkout lacks. Apply my fix?',
+        proposed_checks: {
+          title: 'Fetch main without an origin remote',
+          rationale: 'The fresh checkout has no origin remote, so `git fetch origin` fails.',
+          checks: {
+            setup: '',
+            checks: [{ name: 'Build', cmd: 'npm run build' }],
+          },
+        },
+      },
+    },
+  },
+};

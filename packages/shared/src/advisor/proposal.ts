@@ -263,6 +263,8 @@ export const ChangeProposalSummarySchema = z.object({
   expected_effect: z.string(),
   created_at: z.string(),
   applied_at: z.string().nullable(),
+  /** An agent's proposal (ask_user `proposed_checks`): the ticket it was proposed on; else null. */
+  ticket_id: z.string().nullable().optional(),
 });
 export type ChangeProposalSummary = z.infer<typeof ChangeProposalSummarySchema>;
 
@@ -314,6 +316,8 @@ export const ListChangeProposalsQuerySchema = z.object({
   kind: ChangeKindSchema.optional(),
   /** UXR-73: only this target: a repo (normalised like `repoChecksKey`) or a workflow id. */
   target: z.string().min(1).max(500).optional(),
+  /** Only the proposals an agent made on this ticket. */
+  ticket_id: z.string().uuid().optional(),
 });
 
 /** A workflow change's warning (workflows are shared by every account until M2-T12). */

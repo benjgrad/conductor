@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  RETRY_CHECKS,
   apply as sharedApply,
   commandPayloadForEffect,
   notifyBucketKey,
@@ -34,7 +35,7 @@ import { CardViews, MachineCardFields } from './board-view.js';
 import {
   DefinitionCache,
   lockSession,
-  readRepoChecks,
+  readRepoChecksWithMeta,
   readOpenInput,
   readSession,
   readTicket,
@@ -42,6 +43,7 @@ import {
   writeSession,
 } from './rows.js';
 import { repinParked } from './repin.js';
+import { storeProposedChecks } from './check-proposals.js';
 import { withStartAttachments } from './attachments.js';
 import { withPagesFeature } from './pages.js';
 
@@ -183,11 +185,8 @@ export class EngineServiceImpl implements EngineService {
 
     const now = this.deps.now();
     // ADR-0030: the repo's check override; a gate step starting now pins it.
-    const before = toSnapshot(
-      session,
-      ticket,
-      await readRepoChecks(tx, ticket.account_id, ticket.repo),
-    );
+    const repoChecks = await readRepoChecksWithMeta(tx, ticket.account_id, ticket.repo);
+    const before = toSnapshot(session, ticket, repoChecks.checks, repoChecks.meta);
     // ADR-0010: the card's column comes from the board's columns and the pinned definition.
     const view = await new CardViews(tx, this.defs).view(
       session.workflow_id,
@@ -334,6 +333,17 @@ export class EngineServiceImpl implements EngineService {
                 : {}),
             });
             if (n > 0) wrotePush = true;
+          }
+          // An agent's proposed repo checks, linked to this ticket and request (never applied here).
+          if (event.type === 'agent.ask_user' && event.proposed_checks !== undefined) {
+            row.question = await storeProposedChecks(tx, {
+              accountId: ticket.account_id,
+              ticketId: ticket.id,
+              repo: ticket.repo,
+              inputRequestId: row.id,
+              question: row.question,
+              proposed: event.proposed_checks,
+            });
           }
           drafts.push({
             type: 'input.requested',
@@ -484,9 +494,17 @@ export class EngineServiceImpl implements EngineService {
     // ADR-0011: a human transition taken from a human state answers its open input_request
     // (answer = the text, else "[<name>]"; answered_by = the event's actor), like input.provided.
     // "Start fresh conversation…" answers it the same way (answer = the text).
-    if (event.type === 'human.transition' || event.type === 'human.fresh_conversation') {
+    if (
+      event.type === 'human.transition' ||
+      event.type === 'human.fresh_conversation' ||
+      event.type === 'gate.retry'
+    ) {
       const answerText =
-        event.type === 'human.transition' ? (event.text ?? `[${event.name}]`) : event.text;
+        event.type === 'human.transition'
+          ? (event.text ?? `[${event.name}]`)
+          : event.type === 'gate.retry'
+            ? `[${RETRY_CHECKS}]`
+            : event.text;
       const r = await tx.query<InputRequestRow>(
         'UPDATE input_request SET answer = $2, answered_by = $3, answered_at = $4 ' +
           'WHERE session_id = $1 AND answer IS NULL RETURNING *',

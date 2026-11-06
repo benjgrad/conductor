@@ -23,7 +23,7 @@ import {
 } from '../workflow/schema.js';
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 import { McpPolicySchema } from '../workflow/mcp.js';
-import { RepoChecksSchema } from '../workflow/repo-checks.js';
+import { ProposedChecksSchema, RepoChecksSchema } from '../workflow/repo-checks.js';
 import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
 
 // FSM engine contract (05). `apply()` is pure: no clock (pass `now`), no ids, no I/O.
@@ -95,6 +95,13 @@ export const ConditionStatusSchema = z.object({
   answer: z.enum(['met', 'pending', 'failed', 'unsupported', 'skipped']).optional(),
 });
 export type ConditionStatus = z.infer<typeof ConditionStatusSchema>;
+
+/** When and by whom a repo's check override was saved (`repo_checks.updated_at / updated_by`). */
+export const RepoChecksMetaSchema = z.object({
+  updated_at: IsoDateTimeSchema.nullable(),
+  updated_by: z.string().nullable(),
+});
+export type RepoChecksMeta = z.infer<typeof RepoChecksMetaSchema>;
 
 /**
  * A gate step (`session.step`): the session is checking whether it may enter a state.
@@ -187,6 +194,8 @@ export const GateStepSchema = z.object({
    * null = the definition's checks. Defaults to null, so older rows parse.
    */
   repo_checks: RepoChecksSchema.nullable().default(null),
+  /** Who saved `repo_checks` and when (the session's `repo_checks_meta` then); null = unknown. */
+  repo_checks_meta: RepoChecksMetaSchema.nullable().default(null),
 });
 export type GateStep = z.infer<typeof GateStepSchema>;
 /** ADR-0009 name of GateStepSchema. */
@@ -270,6 +279,8 @@ export const SessionSnapshotSchema = z.object({
    * wrapper with the session. A new gate step pins it (`step.repo_checks`). Absent ≡ null (none).
    */
   repo_checks: RepoChecksSchema.nullable().optional(),
+  /** When and by whom `repo_checks` was saved (named in a setup failure). Absent ≡ null. */
+  repo_checks_meta: RepoChecksMetaSchema.nullable().optional(),
   /**
    * `session.branch`, fixed at claim (sessionBranch). Read-only for apply: it never recomputes the
    * name from the ticket, whose title may have been edited since. Absent ≡ null (older snapshots).
@@ -372,6 +383,11 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     type: z.literal('agent.ask_user'),
     question: z.string(),
     options: QuestionOptionsSchema.optional(),
+    /**
+     * A repo-checks change proposed with the question. apply ignores it; the EngineService wrapper
+     * stores it as a change proposal linked to the ticket and the input request it opens.
+     */
+    proposed_checks: ProposedChecksSchema.optional(),
   }),
   /**
    * D `no_outcome` (U-028, ADR-0005 addendum): two turns in a row ended without complete_state or
@@ -413,6 +429,12 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     dirty: z.array(z.string()).optional(),
     /** ADR-0010: the fresh checkout's setup command failed (the check did not run). */
     setup_failed: z.boolean().optional(),
+    /** With `setup_failed`: the setup command that ran (after lockfile auto-detect). */
+    setup_cmd: z.string().optional(),
+    /** With `setup_failed`: the same setup on the base branch's tip (cmd_exit `setup_on_base`). */
+    setup_on_base: z.enum(['pass', 'fail', 'unknown']).optional(),
+    /** The base branch that probe used. */
+    base_ref: z.string().optional(),
   }),
   /**
    * D `spend`: cumulative per claude_session_id (ADR-0005). apply adds only
@@ -536,6 +558,13 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
    * a parked agent process included; BUG-1), agent_command_id = null, agent_process_live = false.
    */
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
+  /**
+   * U/O: re-run the gate whose setup failed on conductor's check config (a `check_config` request,
+   * `context.__check_config`). Sent by the board's "Retry checks" and by the orchestrator after the
+   * repo's checks change. Accepted only while the session still waits in that very visit of the
+   * human state; otherwise `wrong_status`. The wrapper answers the open input_request.
+   */
+  z.object({ type: z.literal('gate.retry'), actor: z.string().min(1) }),
   /**
    * U: a human's message to the running agent (POST /messages, ADR-0007). Accepted only while
    * `running` an `agent` state with `agent_process_live`; otherwise ignored (`wrong_status`),

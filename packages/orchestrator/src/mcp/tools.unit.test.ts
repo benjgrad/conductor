@@ -453,4 +453,17 @@ describe('create_ticket kind default (WF-T03)', () => {
       error: { code: 'bad_request', message: expect.stringContaining('kind') as string },
     });
   });
+
+  it('takes an optional S/M/L size (ADR-0037 §4, C2)', async () => {
+    const { client } = await connectAdvisor(() => [], { auth: { mode: 'local' } });
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'create_ticket')!;
+    expect(tool.inputSchema.required ?? []).not.toContain('size');
+    const size = (tool.inputSchema.properties as Record<string, { enum?: string[] }>).size!;
+    expect(size.enum).toEqual(['S', 'M', 'L']);
+    const res = await client.callTool({
+      name: 'create_ticket',
+      arguments: { title: 't', repo: 'acme/app', body: 'b', size: 'XL' },
+    });
+    expect(res.isError).toBe(true);
+  });
 });

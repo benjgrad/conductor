@@ -519,6 +519,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       repo_allow_machines: req.repo_allow_machines,
       status: 'ready',
       priority: req.priority,
+      size: req.size,
       created_at,
     };
     const card: BoardCard = {
@@ -536,6 +537,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       checking: null,
       // ADR-0011 card fields (M1b-T01 contract; M1b-T07 owns the mock).
       kind: req.kind ?? null,
+      size: req.size,
       pending: null,
       human_transitions: [],
       pr_url: null,

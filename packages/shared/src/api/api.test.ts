@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { SessionStatusSchema } from '../domain.js';
-import { BOARD_SSE_FIXTURES, OUTPUT_CHUNK_FIXTURE } from './fixtures.js';
+import { BOARD_CARD_FIXTURE, BOARD_SSE_FIXTURES, OUTPUT_CHUNK_FIXTURE } from './fixtures.js';
 import { CONDUCTOR_V1_DEF, boardColumns } from '../workflow/conductor.js';
-import { CreateTicketRequestSchema, UpdateTicketRequestSchema } from './rest.js';
+import {
+  BoardCardSchema,
+  CreateTicketRequestSchema,
+  UpdateTicketRequestSchema,
+} from './rest.js';
 import { CreateScheduleRequestSchema } from './schedules.js';
 import {
   BOARD_SSE_EVENT_TYPES,
@@ -131,6 +135,7 @@ describe('REST DTO defaults', () => {
       required_tags: [],
       repo_allow_machines: null,
       external_ref: null,
+      size: null,
     });
   });
 
@@ -155,6 +160,17 @@ describe('REST DTO defaults', () => {
       CreateTicketRequestSchema.parse({ title: 't', body: '', repo: 'r', kind: 'personal' })
         .workflow_id,
     ).toBe('conductor');
+  });
+
+  it('size is an optional S/M/L (ADR-0037 §4, C2); a card without one reads null', () => {
+    const create = { title: 't', body: '', repo: 'r', kind: 'work' as const };
+    for (const size of ['S', 'M', 'L'] as const) {
+      expect(CreateTicketRequestSchema.parse({ ...create, size }).size).toBe(size);
+    }
+    expect(CreateTicketRequestSchema.parse(create).size).toBeNull();
+    expect(CreateTicketRequestSchema.safeParse({ ...create, size: 'XL' }).success).toBe(false);
+    const { size: _omit, ...older } = BOARD_CARD_FIXTURE;
+    expect(BoardCardSchema.parse(older).size).toBeNull();
   });
 
   it('kind is optional: the server defaults it from the repo (WF-T03)', () => {

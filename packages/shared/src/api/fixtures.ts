@@ -57,6 +57,7 @@ export const BOARD_CARD_FIXTURE: BoardCard = {
   badges: [],
   checking: null,
   kind: null,
+  size: null,
   pending: null,
   human_transitions: [],
   pr_url: null,

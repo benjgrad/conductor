@@ -248,6 +248,7 @@ describe('BoardCard backward compatibility', () => {
       ...old,
       checking: null,
       kind: null,
+      size: null,
       pending: null,
       human_transitions: [],
     });

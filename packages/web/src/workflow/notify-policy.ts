@@ -62,19 +62,23 @@ export function setNotifyPolicy(
   if (policy !== null) return { ...def, notify: policy };
   const { notify: _drop, ...rest } = def;
   void _drop;
-  const states = Object.fromEntries(
-    Object.entries(def.states).map(([name, state]) => {
-      if (state.type === 'terminal' || state.on === undefined) return [name, state];
-      const on = Object.fromEntries(
-        Object.entries(state.on).map(([tn, t]) => {
-          if (typeof t !== 'object' || typeof t.notify !== 'string') return [tn, t];
-          const { notify, ...other } = t;
-          const legacy = notify === 'every' ? true : notify === 'never' ? false : undefined;
-          return [tn, legacy === undefined ? other : { ...other, notify: legacy }];
-        }),
-      );
-      return [name, { ...state, on }];
-    }),
-  );
-  return { ...rest, states } as WorkflowDefinition;
+  const states: WorkflowDefinition['states'] = {};
+  for (const [name, state] of Object.entries(def.states)) {
+    if (state.type === 'terminal' || state.on === undefined) {
+      states[name] = state;
+      continue;
+    }
+    const on: NonNullable<typeof state.on> = {};
+    for (const [tn, t] of Object.entries(state.on)) {
+      if (typeof t !== 'object' || typeof t.notify !== 'string') {
+        on[tn] = t;
+        continue;
+      }
+      const { notify, ...other } = t;
+      const legacy = notify === 'every' ? true : notify === 'never' ? false : undefined;
+      on[tn] = legacy === undefined ? other : { ...other, notify: legacy };
+    }
+    states[name] = { ...state, on };
+  }
+  return { ...rest, states };
 }

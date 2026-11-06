@@ -272,7 +272,7 @@ describe('notification baseline over a seeded history', () => {
     ]);
     expect(noisiest[0]).toMatchObject({
       title: 'Alpha',
-      v6_estimate: 3,
+      v6_estimate: 2,
       why:
         'handoff ×2, question ×1, retries_exhausted ×1, transition_engine ×1; ' +
         'back into the same state 2, of them within the coalesce window 2',
@@ -296,15 +296,19 @@ describe('notification baseline over a seeded history', () => {
     });
   });
 
-  it('estimates the v6 policy: engine moves, the engine lap and the coalesce bucket', async () => {
+  it('replays the v6 policy: once per transition, every question, engine moves silent', async () => {
     const r = await report();
+    // A: the first hand-off (once) and the ask_user (every); its second hand-off is a once
+    // repeat, the retries_exhausted stop and the engine transition are engine moves. B: the
+    // ask_user and the permission prompt; the timeout is an engine stop.
     expect(r.v6_estimate).toMatchObject({
-      pushes: 5,
-      reduction: 0.375,
-      by_cause: { handoff: 2, question: 1, timeout: 1, permission: 1 },
-      dropped: { engine_transition: 1, not_a_new_wait: 0, engine_lap: 1, coalesced: 1 },
-      per_ticket: { median: 2.5, max: 3 },
-      what_if: { without_handoffs: 3, without_same_state_returns: 4 },
+      pushes: 4,
+      reduction: 0.5,
+      by_cause: { handoff: 1, question: 2, permission: 1 },
+      by_via: { personal_pr_ready_for_review: 1, ask_user: 2 },
+      dropped: { engine_moves: 3, once_repeats: 1, coalesced: 0 },
+      per_ticket: { median: 2, max: 2 },
+      what_if: { without_handoffs: 3, without_same_state_returns: 3 },
     });
   });
 

@@ -14,9 +14,10 @@
 --   outbox  what was actually enqueued (outbox push_* rows). A push is one idempotency key; one
 --           row is written per subscribed user, so `deliveries` counts the rows. `coverage`
 --           compares the two over the period the outbox has push rows for.
---   v6_estimate  the same candidate pushes under the ADR-0037 P6 policy of the v6 draft
---           (`notify: {default: when_waiting_on_you, engine_moves: never, coalesce: 15m}`). The
---           rules applied are listed under `assumptions` in the report.
+--   v6_estimate  the same candidate pushes replayed under the ADR-0037 P6 policy of the v6 draft
+--           as amended by T4 (`notify: {default: once, engine_moves: never, coalesce: 15m}`, the
+--           hand-offs and `ready_for_testing` `once`, the questions `every`; `v6_modes` below).
+--           The rules applied are listed under `assumptions` in the report.
 --
 -- Run it on gradyserver against the live database:
 --   docker exec -i conductor-postgres-1 psql -U conductor -d conductor -v ON_ERROR_STOP=1 -At \
@@ -88,7 +89,11 @@ inputs AS (
       regexp_replace(se.payload->>'to', '^.+ → (.+) \((entry|review|move: .+)\)$', '\1'),
       'needs_input'
     ) AS wait_state,
-    i.answered_at
+    i.answered_at,
+    -- The opening move, for the v6 replay.
+    se.payload->>'transition' AS move_transition,
+    se.payload->>'cause' AS move_cause,
+    se.payload->>'actor' AS move_actor
   FROM params pr
   CROSS JOIN input_request i
   JOIN session s ON s.id = i.session_id
@@ -116,7 +121,10 @@ perms AS (
       s.workflow_state,
       'unknown'
     ) AS wait_state,
-    NULL::timestamptz AS answered_at
+    NULL::timestamptz AS answered_at,
+    NULL::text AS move_transition,
+    NULL::text AS move_cause,
+    NULL::text AS move_actor
   FROM params pr
   CROSS JOIN permission_request p
   JOIN session s ON s.id = p.session_id
@@ -146,7 +154,10 @@ transitions AS (
       regexp_replace(e.payload->>'to', '^.+ → (.+) \((entry|review|move: .+)\)$', '\1'),
       'unknown'
     ) AS wait_state,
-    NULL::timestamptz AS answered_at
+    NULL::timestamptz AS answered_at,
+    e.payload->>'transition' AS move_transition,
+    e.payload->>'cause' AS move_cause,
+    e.payload->>'actor' AS move_actor
   FROM params pr
   CROSS JOIN outbox o
   JOIN session s ON s.id = o.session_id
@@ -171,46 +182,44 @@ flagged AS (
   WINDOW t AS (PARTITION BY c.ticket_id ORDER BY c.at, c.key)
 ),
 
--- P6 for the waits (input_requests), per session: the previous wait and how it was left.
-waits AS (
-  SELECT
-    c.key, c.session_id, c.at, c.wait_state,
-    lag(c.at) OVER w AS prev_at,
-    lag(c.wait_state) OVER w AS prev_wait,
-    lag(c.answered_at) OVER w AS prev_answered_at
-  FROM candidates c
-  WHERE c.kind = 'needs_input'
-  WINDOW w AS (PARTITION BY c.session_id ORDER BY c.at, c.key)
+-- The v6 draft's notify modes (docs/design/workflows/conductor.v6.draft.json); any other name
+-- inherits the default `once`, except a legacy `notify: true` transition push (`every`).
+v6_modes(transition, mode) AS (
+  VALUES ('personal_pr_ready_for_review', 'once'), ('pr_ready_for_review', 'once'),
+         ('ready_for_testing', 'once'),
+         ('ask_user', 'every'), ('plan_needs_approval', 'every'), ('scope_changed', 'every'),
+         ('needs_product_context', 'every'), ('impossible', 'every'),
+         ('needs_approval_to_message', 'every')
 ),
-p6 AS (
-  SELECT
-    w.key,
-    -- Not a new wait: the previous request was still open, so the card already waited on you.
-    (w.prev_at IS NOT NULL AND (w.prev_answered_at IS NULL OR w.prev_answered_at > w.at))
-      AS not_new_wait,
-    -- The engine-lap rule: an engine move left the previous wait, and the ticket landed back in
-    -- that same state. The first move out of it decides the lap's origin.
-    (w.prev_wait = w.wait_state AND COALESCE(
-       exit_move.cause NOT IN ('transition', 'start', 'answer_routed'),
-       exit_move.actor IN ('engine', 'system'))) AS engine_lap
-  FROM waits w
-  LEFT JOIN LATERAL (
-    SELECT e.payload->>'actor' AS actor, e.payload->>'cause' AS cause FROM event e
-     WHERE e.session_id = w.session_id AND e.type = 'state.entered'
-       AND e.ts > w.prev_at AND e.ts < w.at AND e.payload->>'from' = w.prev_wait
-     ORDER BY e.id LIMIT 1
-  ) exit_move ON w.prev_at IS NOT NULL
+-- Each non-permission candidate's move: named (cause `transition`, or before ADR-0037 P7 an
+-- agent's or a human's), or an engine move, which `engine_moves: never` keeps silent. A question
+-- whose opening move recorded no transition (rows before ADR-0011) is read as an `ask_user`.
+v6_candidates AS (
+  SELECT f.*,
+    COALESCE(f.move_transition, CASE WHEN f.cause = 'question' THEN 'ask_user' END) AS via,
+    (f.kind = 'transition' OR f.cause IN ('handoff', 'question'))
+      AND COALESCE(f.move_transition, CASE WHEN f.cause = 'question' THEN 'ask_user' END)
+            IS NOT NULL
+      AND COALESCE(f.move_cause = 'transition', f.move_actor IS DISTINCT FROM 'engine'
+                                                AND f.move_actor IS DISTINCT FROM 'system')
+      AS named
+  FROM flagged f
+  WHERE f.kind <> 'permission'
+),
+v6_named AS (
+  SELECT c.*,
+    COALESCE(m.mode, CASE WHEN c.kind = 'transition' THEN 'every' ELSE 'once' END) AS mode,
+    row_number() OVER (PARTITION BY c.ticket_id, c.via ORDER BY c.at, c.key) AS take
+  FROM v6_candidates c
+  LEFT JOIN v6_modes m ON m.transition = c.via
+  WHERE c.named
 ),
 v6_moves AS (
-  SELECT f.*,
-    floor(extract(epoch FROM f.at) / (pr.coalesce_min * 60)) AS bucket
-  FROM flagged f
+  SELECT n.*,
+    floor(extract(epoch FROM n.at) / (pr.coalesce_min * 60)) AS bucket
+  FROM v6_named n
   CROSS JOIN params pr
-  LEFT JOIN p6 ON p6.key = f.key
-  WHERE f.kind <> 'permission'
-    AND f.cause <> 'transition_engine'
-    AND NOT COALESCE(p6.not_new_wait, false)
-    AND NOT COALESCE(p6.engine_lap, false)
+  WHERE n.mode = 'every' OR (n.mode = 'once' AND n.take = 1)
 ),
 -- The notifier's bucketed key `notify:<ticket>:<state>:<floor(now / coalesce)>` keeps the first.
 v6 AS (
@@ -333,32 +342,32 @@ report AS (
       'by_cause', (SELECT COALESCE(jsonb_object_agg(cause, n), '{}') FROM
                      (SELECT cause, count(*) AS n FROM v6 GROUP BY cause) c),
       'dropped', jsonb_build_object(
-        'engine_transition', (SELECT count(*) FROM flagged WHERE cause = 'transition_engine'),
-        'not_a_new_wait', (SELECT count(*) FROM p6 WHERE not_new_wait),
-        'engine_lap', (SELECT count(*) FROM p6 WHERE engine_lap AND NOT not_new_wait),
+        'engine_moves', (SELECT count(*) FROM v6_candidates WHERE NOT named),
+        'once_repeats', (SELECT count(*) FROM v6_named WHERE mode = 'once' AND take > 1),
         'coalesced', (SELECT count(*) FROM v6_moves) - (SELECT count(*) FROM v6 WHERE cause <> 'permission')
       ),
+      'by_via', (SELECT COALESCE(jsonb_object_agg(via, n), '{}') FROM
+                   (SELECT m.via, count(*) AS n FROM v6 JOIN v6_moves m ON m.key = v6.key
+                     GROUP BY m.via) v),
       'per_ticket', (SELECT jsonb_build_object(
                        'median', percentile_cont(0.5) WITHIN GROUP (ORDER BY n),
                        'p90', percentile_cont(0.9) WITHIN GROUP (ORDER BY n),
                        'max', max(n)) FROM v6_per_ticket),
-      -- Where more could come from, if T4 goes past the v6 draft: the estimate without hand-off
-      -- pushes, and without any return to the state the ticket last waited in (a human-started
-      -- lap such as request_changes, which P6 notifies).
+      -- For comparison with the M3 baseline: the estimate without hand-off pushes, and without
+      -- any return to the state the ticket last waited in.
       'what_if', jsonb_build_object(
         'without_handoffs', (SELECT count(*) FROM v6 WHERE cause <> 'handoff'),
         'without_same_state_returns',
           (SELECT count(*) FROM v6 JOIN flagged f ON f.key = v6.key WHERE NOT f.same_state)
       ),
       'assumptions', jsonb_build_array(
-        'when_waiting_on_you: an input_request is a new wait unless the session''s previous request was still unanswered when it opened.',
-        'Hand-offs still notify once (ADR-0037 P8): a hand-off is a normal move into a waiting-on-you state.',
-        'engine_moves never: a transition push whose move was by the engine is dropped; an engine stop that opens a wait (timeout, retries_exhausted) still notifies.',
-        'Engine-lap rule: a wait is silent when the first move out of the session''s previous wait was by the engine and the ticket landed back in that same state.',
-        'A human move (answer, request_changes, fresh conversation) never opens a lap, so its return notifies.',
+        'Modes as in the v6 draft (ADR-0037 P6, amended by T4): the hand-offs and ready_for_testing once, the six question transitions every, any other name the default once.',
+        'once: only the first take of a transition name on the ticket pushes (across sessions and re-opens); every: each take.',
+        'engine_moves never: a request or transition push whose move was not a named transition (cause other than transition; before ADR-0037 P7, actor engine or system) is dropped. Engine stops (timeout, retries_exhausted, budget, approval, machine_lost) never push.',
+        'A question whose opening move recorded no transition (rows before ADR-0011) counts as an ask_user.',
+        'A legacy notify: true transition push counts as every unless the draft names its transition.',
         'Coalesce: one push per (ticket, waiting state, coalesce-minute bucket since the epoch), as the notifier''s bucketed idempotency key (ADR-0037 Q5).',
-        'Permission prompts are not moves: always notified, never coalesced.',
-        'Named notify: true transitions keep notifying (true means always), coalesced like any move.',
+        'Permission prompts are outside the policy: always notified, never coalesced.',
         'Hand-offs are recognised by name (*ready_for_review), not from the pinned definition.',
         'Legacy pushes assume someone in the account had subscribed; counts are push events, not per-user deliveries.'
       )

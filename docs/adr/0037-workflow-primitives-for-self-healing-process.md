@@ -30,7 +30,7 @@ The principle (proposal §1): the engine gains only general primitives. The merg
 
 `TransitionObject.notify: boolean` (schema.ts) exists and `get_workflow` returns it. v5 shows none because **no transition sets it, and absent means off**. The flag can only *add* a `push_transition` push (`orchestrator/src/push/enqueue.ts` `enqueueTransitionPush`); it can't suppress anything.
 
-The volume comes from the other path: `enqueueNeedsInputPush` fires on **every input_request**, whatever the definition says, keyed only by the request id. Every PR hand-off into In review (503 `personal_pr_ready_for_review` moves), every rework lap back into it, and every `retries_exhausted` and `timeout` therefore pushes. P6 below puts both paths under one policy. The existing boolean keeps its meaning: `true` means `always`, and absent means `inherit`.
+The volume comes from the other path: `enqueueNeedsInputPush` fires on **every input_request**, whatever the definition says, keyed only by the request id. Every PR hand-off into In review (503 `personal_pr_ready_for_review` moves), every rework lap back into it, and every `retries_exhausted` and `timeout` therefore pushes. P6 below puts both paths under one policy. The existing boolean keeps its meaning: `true` means `every`, `false` `never`, and absent means `inherit`.
 
 ## Decision
 
@@ -44,7 +44,7 @@ Add eight general primitives (P1–P8) to the workflow definition, the engine an
 | 2 | `concurrency`: on the transition or on the target state? | **On the transition, as `requires.concurrency`, the first phase of the move step** (before checks). The card shows "Queued behind #N" from the hold record. | It reuses the move-step machinery: the timeout goes to `on_unmet.else`, the counter rules apply, and the card checklist is already there. Running it first means the checks, review and `open_pr` run on the branch as it is *after* the release, not on one that went stale while waiting. The display issue is solved by a card field (`BoardCard.checking.phase = 'held'`), not by an extra state. |
 | 3 | Where do `instructions` live? | **A workflow-level `instructions` map**, referenced as `$instructions.<slug>`. It is not shared across workflows, and it does not reuse the prompt-template mechanism. | Templates are code, not data. There is one workflow (ADR-0010; `routine` is the only other), so cross-workflow sharing has no user. Keeping the text inside the definition means it is versioned with the transitions that use it. |
 | 4 | `handoff: true` flag, or `question` as an enum? | **A new boolean `handoff`**, exclusive with `question`. | Additive. Turning `question` into an enum would rewrite every stored definition and every reader of `question === true`. |
-| 5 | Coalescing in the engine or the notifier? | **The engine decides *whether*, the notifier coalesces.** Pure `apply()` evaluates the policy and records `notify: {via, policy}` on `state_entered` and on the input_request. `push/enqueue.ts` coalesces with an idempotency bucket `notify:<ticket>:<state>:<floor(now / coalesce)>`. | Whether to notify is a pure function of the definition and the move, so it is testable in `apply.notify.test.ts`. Coalescing needs wall-clock windows and the outbox's unique index, which are notifier concerns. |
+| 5 | Coalescing in the engine or the notifier? | **The engine decides *whether*, the notifier coalesces.** Pure `apply()` evaluates the policy and records `notify: {via, mode, decision}` on `state_entered` and on the input_request (amended by T4: `mode` is `once` / `every` / `never`). `push/enqueue.ts` coalesces with an idempotency bucket `notify:<ticket>:<state>:<floor(now / coalesce)>`. | Whether to notify is a pure function of the definition and the move, so it is testable in `apply.notify.test.ts`. Coalescing needs wall-clock windows and the outbox's unique index, which are notifier concerns. |
 | 6 | Are 091cbc80's flags the P6 surface? | **No**, see FR-5. The boolean is kept and folded into P6 as described there. | |
 
 ### P1 · `watch` on human and event states
@@ -186,36 +186,34 @@ const InstructionTextSchema = z.string().trim().min(1).max(4_000);   // literal,
 
 ### P6 · Notification policy in the definition
 
+> **Amended 2026-11-06 (T4).** The first version of P6 had a `when_waiting_on_you` mode plus an "engine-lap" rule. The M3 baseline (`scripts/analysis/notification-baseline.sql` on live history) showed it would cut pushes only 5 % (356 → 337): 54 % of pushes are hand-offs, and 51 % are returns to a state the ticket already waited in after Ben's own `request_changes`, which the lap rule deliberately still notified. Ben decided to make the policy per transition instead: a transition notifies **once** per ticket, **every** time, or **never**. `once` on the hand-offs gives "no push when the PR comes back after my review" without a lap rule, and `every` on real questions keeps each new question visible. `when_waiting_on_you`, `always`, the lap rule and the `notify_lap` snapshot field are gone. Replayed on the same history (380 pushes by then, 2026-09-07 → 2026-11-06), the v6 policy below sends 222 (−42 %): hand-offs 209 → 134, questions 86 → 79, engine stops 76 → 0.
+
 ```ts
-const NotifyModeSchema = z.enum(['never', 'when_waiting_on_you', 'always']);
+const NotifyModeSchema = z.enum(['never', 'once', 'every']);
 export const NotifyPolicySchema = z.strictObject({
   default: NotifyModeSchema,
   engine_moves: z.enum(['never', 'inherit']).default('never'),
-  coalesce: DurationSchema.optional(),
+  coalesce: DurationSchema.optional(),     // ≤ 1d (rule 23)
 });
 // WorkflowDefinitionSchema gains `notify: NotifyPolicySchema.optional()`.
-// TransitionObjectSchema.notify widens to `z.union([z.boolean(), NotifyModeSchema, z.literal('inherit')])`.
+// TransitionObjectSchema.notify widens to `z.union([z.boolean(), NotifyModeSchema, z.literal('inherit')])`:
+// legacy `true` means `every`, `false` means `never`, absent means `inherit`.
+// The decision: NotifyDecision = {via: string, mode: NotifyMode, decision: 'push' | 'silent'}.
 ```
 
 - **Engine.**
-  - **Without the top-level `notify` block**, the engine runs in **legacy mode**, which is exactly today's behaviour: every input_request pushes, and `notify: true` transitions also push.
-  - **With the block,** each `state_entered` and input_request is evaluated once:
-    - the mode is the transition's own setting if it has one (`true` means `always`, `false` means `never`), otherwise `default`;
-    - `when_waiting_on_you` fires on a **new wait**: the card's `waiting_on` becomes `you` (or `you_on_board`) from something else, and the landing is not the end of an engine lap (below);
-    - `always` fires on every move. **Engine moves** (any `cause` other than `transition`, P7) that are not a new wait use `engine_moves`, where `never` means silent. A new wait is never silenced by `engine_moves`: an engine move that ends at a human, such as `retries_exhausted` or `condition_timeout` into Needs input, notifies under `when_waiting_on_you`.
-  - **Engine laps are not new waits.** The scenario this rule exists for: In review (waiting on you), then a watch fires `watch_broken`, the agent re-syncs and hands off again, and the ticket is back in In review. `waiting_on` went you → agent → you, but nobody started a new wait for Ben, and a lap is longer than `coalesce` can be relied on to cover. Precisely:
-    - **A lap opens** when a move with `cause ≠ 'transition'` leaves a state `S` while the card is waiting on you. `S` is a human state, or an event state waiting on you. The snapshot records `notify_lap = {origin: S, cause, opened_at}`. A move a human takes (cause `transition`, actor `human`, e.g. `request_changes`) opens no lap: Ben started that lap, so its return notifies him.
-    - **While a lap is open,** moves that don't make the card wait on you change nothing.
-    - **The lap closes** at the first landing where the card waits on you again, or at a terminal state.
-      - Landing in **`S` itself** (including through `return_to: $self` or a hand-off back into it) is silent: the same wait resumed.
-      - Landing **anywhere else** is a new wait and notifies by the normal rule. That covers the watch's `else` into Needs input, an `ask_user` or other `question: true` from the agent during the lap, and a timeout to a human.
-    - A lap is per session, and a second engine move out of `S` before it closes keeps the original `origin`. The rule is pure over the snapshot (`notifyDecision(def, snapshot, move)` in `apply.ts`), so it is unit-tested without the notifier.
-    - `coalesce` stays a second, time-based guard against bounces the lap rule doesn't cover, such as two different human states within the window.
-  - The decision is recorded as `notify: {via: <transition name | cause>, mode}` on the effect. `watch_escalate` (P1) always notifies, because the user asked for it.
-  - Permission prompts (UXR-32) are not moves and always notify.
-- **Notifier.** One outbox row per decision. With `coalesce`, the idempotency key is bucketed (Q5), so a ticket that bounces between states inside the window sends one push.
-- **Builder.** A notify select (Never / When it waits on me / Always / Inherit) beside the question/handoff toggle on every transition, plus a workflow-level default.
-- **Insights.** Pushes sent per ticket and per `via`, for the "~1,400 moves / 60 days" baseline.
+  - **Without the top-level `notify` block**, the engine runs in **legacy mode**, which is exactly today's behaviour: every input_request pushes, and `notify: true` transitions also push. No decision is recorded.
+  - **With the block,** pure `notifyDecision(def, notified_transitions, move)` (`shared/src/engine/notify.ts`) judges each real landing once, in `enter()` (a gate step that hasn't passed is not a landing):
+    - a move with `cause: 'transition'` (taken by an agent, a human or an event) uses the transition's own mode, or `default` when it inherits;
+    - `once` pushes the first time that transition **name** is taken on the ticket; later takes are silent. The names that pushed are kept in `notified_transitions` (the snapshot, `session.notified_transitions`), which a reopen copies, so `once` is per ticket across sessions and re-opens;
+    - `every` pushes on each take; `never` never;
+    - **engine moves** (any other `cause`, P7, including `start`, `answer_routed` and `fallback`): under `engine_moves: never` they are silent, even when they land at a human state through `on_unmet.else`, `retries_exhausted` or a `timeout` (those are visible on the board; Ben chose not to be pushed for them). Under `inherit` they take the mode of the transition the move was taken for (the gate's, the counted loop's), if the state left has one, else `default`;
+    - a machine-lost re-ask (no move) is an engine move with via `machine_lost`.
+  - The decision is recorded as `notify_decision` on the `state_entered` effect (the event payload's `notify`) and on the `create_input_request` it opens (`input_request.notify`). `watch_escalate` (P1, T6) always pushes, because the user asked for it.
+  - Permission prompts (UXR-32) are not moves and always push; they are outside the policy.
+- **Notifier.** One outbox row per positive decision: the question (`push_needs_input`) when the landing opens an input request, else the transition (`push_transition`, with its `transition.notified` board event); never both. A silent decision writes no row. With `coalesce`, the idempotency key is `notify:<ticket>:<state>:<floor(now / coalesce)>` (Q5), so a ticket that bounces into the same state inside the window sends one push.
+- **Builder.** A Notify select (Inherit / Once per ticket / Every time / Never) beside the Plain / Asks / Hands off choice on every transition; without the block only Inherit / Every time / Never, stored as the legacy boolean (rule 23). A workflow-level Notifications section turns the policy on and sets the default, engine moves and the coalesce window; turning it off folds string modes back into the boolean.
+- **Insights.** `get_process_metrics` reports `pushes`: moves that pushed and kept silent, pushes per ticket, and decisions per `via` and mode.
 - **v5 migration.** No block means legacy mode, so nothing changes until Ben adds the block.
 
 ### P7 · Engine moves carry a cause
@@ -246,7 +244,7 @@ export const MoveCauseSchema = z.enum([
     - an unmet gate's cause comes from the phase that found it (checks, review, conditions);
     - a gate that cannot finish is `action_failed`, `timeout`, `condition_timeout` or `review_unmet`;
     - an unnamed legacy outcome (`done`, `exit_0`, an event's name) is `transition`, under its own name and the state's actor.
-  - `answer_routed` is a human's move (actor `human`). P6's engine-lap rule (T4) must not open a lap on it.
+  - `answer_routed` is a human's move (actor `human`), but not a named transition: under P6 (T4) it is an engine move, silent under `engine_moves: never` (it lands back in the asking agent, so nobody waits on Ben).
 - **Builder.** None. The card history shows "Sent back: checks failed (Tests pass)".
 - **Insights** (feeds bb5e7d0d):
   - Re-entry loops are keyed by `(from, transition name, cause)`, never by the versioned `goto`. This fixes 2.6.2, where the same gate before and after v5 was counted twice.
@@ -265,7 +263,7 @@ export const MoveCauseSchema = z.enum([
 - **Status line.** `status_line` reads "Ready for review: <summary>", not "the agent asks: …".
 - **Builder.** The transition's "asks a question" toggle becomes a three-way choice: Plain / Asks a question / Hands off for review.
 - **Insights.** "Questions" counts only `agent_question`. Hand-offs get their own count (fixes 2.6.1).
-- **Notifications.** Under P6 a hand-off is a normal move into a waiting-on-you state, so it notifies once under `when_waiting_on_you`.
+- **Notifications.** Under P6 a hand-off is a normal named move; v6 sets the hand-offs to `once`, so a ticket's first hand-off pushes and the returns after `request_changes` don't.
 - **v5 migration.** `question: true` keeps its meaning, so nothing changes until a transition is switched to `handoff`.
 
 ### Validation on save (new rules 19–25)
@@ -293,7 +291,7 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
     - `handoff` appears only on a transition into a `human` state.
     - Rule 12 is unchanged: a hand-off doesn't count as the state's way to ask.
 23. **Notify.**
-    - Transition `notify` values `'inherit'`, `'when_waiting_on_you'` and `'never'` need the top-level `notify` block. Without it, only the legacy boolean is meaningful.
+    - Transition `notify` string values (`'inherit'`, `'once'`, `'every'`, `'never'`) need the top-level `notify` block. Without it, only the legacy boolean is meaningful.
     - `coalesce` ≤ 1d.
 24. **Condition placement.**
     - `age_below` is allowed only inside a `watch`, where the age is the stay.
@@ -305,7 +303,7 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
 - the `cmd` / `pr_mergeable` / `age_below` conditions and `no_checks` (T5);
 - `requires.concurrency` (T7);
 - `instructions` refs and `presets` (T8);
-- the `notify` block and string notify values (T4);
+- the `notify` block and string notify values (T4, available);
 - `handoff` (T3).
 
 `validateWorkflow(def, {allowUnavailable: true})` skips that refusal, for tests and for the v6 draft.
@@ -314,7 +312,7 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
 
 [`conductor.v6.draft.json`](../design/workflows/conductor.v6.draft.json) is the live v5 plus only the fields above:
 - `instructions` holds `resync_main` (the recipe Ben typed four times on 2026-11-05) and `fix_and_resubmit` (v5's `on_unmet` text, now referenced from all three PR gates).
-- Top-level `notify {default: when_waiting_on_you, engine_moves: never, coalesce: 15m}`, with `plan_needs_approval: notify: always`.
+- Top-level `notify {default: once, engine_moves: never, coalesce: 15m}` (T4). `personal_pr_ready_for_review`, `pr_ready_for_review` and `ready_for_testing`: `once`; `ask_user`, `plan_needs_approval`, `scope_changed`, `needs_product_context`, `impossible` and `needs_approval_to_message`: `every`.
 - `pr_ready_for_review` and `personal_pr_ready_for_review` change from `question: true` to `handoff: true`. Each gains `requires.concurrency` (`$repo`, 1, scope `[in_review]`, `planned_files`, 1d). Under P4's "both sides have `files`" rule this holds nothing until planning emits `files`, so it is safe to save before T7 has evidence that `files` are reliable.
 - All three PR gates move from `no_checks_after: 5m` to `no_checks: {policy: require_mergeable, after: 5m}`.
 - `in_review.watch`:
@@ -338,7 +336,7 @@ T1's acceptance replaces that test with `validateWorkflow(draft, {allowUnavailab
 
 Two behaviours are deliberately *not* expressed:
 - **"Proceed with the recommended answer after 2h"** would also be expressible: `needs_input.watch.on_broken.goto: $return_to` with an instruction. The draft uses `escalate` instead, because auto-answering is a product decision for Ben, not a spike default. A watch `goto: "$return_to"` would need rule 19 to accept `$return_to` as a target; that small extension is recorded as an option, not added.
-- **Throttling repeated hand-off notifications** for a ticket that bounces is covered by P6's engine-lap rule (a watch re-sync that lands back in In review is silent) and, for other bounces, by `coalesce`. No per-ticket cap was needed.
+- **Throttling repeated hand-off notifications** for a ticket that bounces is covered by P6's `once` on the hand-off transitions (only a ticket's first hand-off pushes) and, for other bounces, by `coalesce`. No per-ticket cap was needed.
 
 ### Coverage table (every item in the review's §2)
 
@@ -361,8 +359,8 @@ Two behaviours are deliberately *not* expressed:
 | 2.3 Checks named `npm test` on a Rust repo | config | per-repo checks (ADR-0030) with real names |
 | 2.4 Oversized tickets, unrelated fixes, late test updates | not a primitive | prompt and ticket-template edits (proposal §4); `proposed_tickets` already exists (ADR-0034) |
 | 2.5 Too many notifications | P6 | top-level `notify` block, `engine_moves: never`, `coalesce: 15m` |
-| 2.5 Each rework / re-sync lap re-notifies | P6 engine-lap rule | a watch re-sync back into `in_review` is silent; a human `request_changes` lap still notifies |
-| 2.5 PR summary notified as a question | P8 + P6 | `handoff: true`; one push when it starts waiting on you |
+| 2.5 Each rework / re-sync lap re-notifies | P6 `once` (T4) | the hand-offs are `once`: a return to `in_review` after `request_changes` or a watch re-sync is silent; engine moves never push |
+| 2.5 PR summary notified as a question | P8 + P6 | `handoff: true`; one push for the ticket's first hand-off |
 | 2.5 No notify flags in `get_workflow` | FR-5 | explained above; P6 replaces the opt-in boolean with a policy |
 | 2.6.1 Hand-offs counted as questions | P8 | Insights counts `agent_question` only |
 | 2.6.2 Same gate counted per versioned goto | P7 | loops keyed by `(from, transition, cause)` |
@@ -382,7 +380,7 @@ Order: T1 (schema) first; P7 and P8 next, because Insights and notifications rea
 | T1 | Schema + validator for P1–P8, all "not available yet" | `packages/shared/src/workflow/schema.ts`, `validate.ts`, `validate-transitions.ts`, `packages/shared/protocol-json/**`, `crates/conductor-protocol/src/generated.rs`, `docs/design/10-contracts.md` (drop "proposed") | Every schema above parses; rules 19–25 each have a failing and a passing case; rule 14 refuses each field; `validateWorkflow(v6 draft, {allowUnavailable: true}).ok`; the v6-draft test switches to that; v1–v5 still validate unchanged | none |
 | T2 | P7 move causes | `packages/shared/src/engine/apply.ts`, `engine/transitions.ts`, `api/rest.ts` (`StateEnteredPayloadSchema`, `MoveDto`), orchestrator insights grouping (`orchestrator/src/advisor/**`) | Every `enter()` call passes a cause (enumerating test); engine moves record `actor: system`; Insights loops keyed by `(from, transition, cause)`; old rows parse as `cause: null` | T1 |
 | T3 | P8 hand-off | `apply.ts`, `domain.ts` (`InputRequestKindSchema`), an additive orchestrator migration for `handoff`, `api/cards*.ts` (`status_line`), web request preview / designer toggle | A `handoff` transition opens a `handoff` input_request; status line "Ready for review: …"; Insights question count excludes it; `question: true` behaves as before | T1 |
-| T4 | P6 notify policy | `apply.ts` (decision), `orchestrator/src/push/*` (coalescing), `orchestrator/src/engine/service.ts`, `web/src/workflow/transitions.ts` (select) | Legacy mode byte-for-byte today's pushes (existing push tests unchanged); with the block, engine moves never push, `when_waiting_on_you` fires on the edge only, coalesce bucket dedupes. `apply.notify.test.ts` covers the engine-lap rule: (a) `watch_broken` → re-sync → hand-off back into `in_review` sends 0 pushes; (b) the same lap exhausting retries into `needs_input` sends 1; (c) an `ask_user` during the lap sends 1; (d) a human `request_changes` lap back into `in_review` sends 1; (e) a second engine move inside an open lap keeps the original origin | T2, T3 |
+| T4 | P6 notify policy | `engine/notify.ts` + `apply.ts` (decision), `orchestrator/src/push/*` (coalescing), `orchestrator/src/engine/service.ts`, `web/src/workflow/TransitionEditor.tsx` (select) | Legacy mode byte-for-byte today's pushes (existing push tests unchanged); with the block, `once` pushes a transition's first take per ticket, `every` each take, engine moves never push under `engine_moves: never`; coalesce bucket dedupes. `apply.notify.test.ts`: (a) a `once` hand-off pushes, then not after `request_changes` or a reopen; (b) `every` pushes each take; (c) two `ask_user` push twice; (d) `retries_exhausted` silent under `never`, the transition's mode under `inherit`; (e) legacy mode; (f) the coalesce key | T2, T3 |
 | T5 | P2 conditions + P3 no-CI policy | `packages/shared/src/engine/conditions.ts`, `crates/conductor-daemon/src/actions/conditions.rs`, `packages/daemon/src/actions/conditions.ts`, `crates/conductor-daemon/PARITY.md`, `web/src/workflow/ConditionFields.tsx` | `cmd` runs in the fresh checkout, with no repo setup for `needs: checkout`; watch evaluation short-circuits in order (a `cmd` after a failing `pr_mergeable` is never sent); `pr_mergeable` maps MERGEABLE/CONFLICTING/UNKNOWN; `age_below` engine-side; `no_checks_after` folds to `{pass}`; `require_mergeable` fails a conflicting PR with no checks | T1 |
 | T6 | P1 watch | `apply.ts` (watch timer, `watch_broken`), `orchestrator/src/engine/service.ts` + scheduler (same-repo merge trigger), web column panel | Watch fires only on `failed`; bounded by `retries` then `else`; disarmed on leave; same-repo merge re-evaluates within one tick; property test: every watch path ends at a human | T2, T4, T5 |
 | T7 | P4 concurrency holds | `engine/move-step.ts`, `apply.ts`, orchestrator holders query, planning prompt `files` key, `api/cards*.ts` ("Queued behind #N") | Held at max; released oldest-first on the shared trigger; `hold_timeout` → `else`; with `planned_files`, no hold unless both sessions have `files` and they intersect (a session without `files` is never held, nor holds others) | T2, T4, T6 |

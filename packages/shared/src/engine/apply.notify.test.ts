@@ -249,8 +249,8 @@ describe('notify policy (ADR-0037 P6)', () => {
 
   it('(e) legacy mode: no policy, no decision anywhere; notify: true still marks the move', () => {
     const h = new Harness(DEF).claimAndStart();
-    let r = h.cmdExit(1);
-    r = h.cmdExit(1);
+    h.cmdExit(1);
+    const r = h.cmdExit(1);
     for (const e of r.effects) expect(e).not.toHaveProperty('notify_decision');
     expect(entered(r.effects)).toMatchObject({ to: 'needs_input', notify: 'fail' });
     expect(r.snapshot).not.toHaveProperty('notified_transitions');

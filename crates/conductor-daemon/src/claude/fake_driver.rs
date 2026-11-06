@@ -581,7 +581,15 @@ impl FakeDriverSession {
             FakeTurnAction::Emit(ev) => Self::emit(s, out, ev),
             FakeTurnAction::AskUser(question, options) => {
                 s.ask_pending = true;
-                Self::emit(s, out, DriverEvent::AskUser { question, options });
+                Self::emit(
+                    s,
+                    out,
+                    DriverEvent::AskUser {
+                        question,
+                        options,
+                        proposed_checks: None,
+                    },
+                );
             }
             FakeTurnAction::CompleteState {
                 result,

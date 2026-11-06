@@ -1348,8 +1348,12 @@ fn handlers(
 ) -> OutcomeHandlers {
     let (a, c, p) = (shared.clone(), shared.clone(), shared.clone());
     OutcomeHandlers {
-        on_ask_user: Arc::new(move |question, options| {
-            a.emit(&DriverEvent::AskUser { question, options })
+        on_ask_user: Arc::new(move |question, options, proposed_checks| {
+            a.emit(&DriverEvent::AskUser {
+                question,
+                options,
+                proposed_checks,
+            })
         }),
         // ADR-0011: the named transition and reason are forwarded as given.
         on_complete_state: Arc::new(move |result, meta| {

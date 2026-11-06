@@ -9,8 +9,13 @@ import {
 import { ROUTINE_V1_DEF } from '../workflow/routine.js';
 import {
   HOW_TO_FINISH_HEADING,
+  IMPLEMENT_SCOPE_INSTRUCTION,
+  IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION,
   IMPLEMENT_TEMPLATE,
+  IMPLEMENT_TESTS_INSTRUCTION,
   PLAN_FILES_INSTRUCTION,
+  PLAN_SIZE_INSTRUCTION,
+  PLAN_SIZE_NO_PROPOSALS_INSTRUCTION,
   PLAN_TEMPLATE,
   PROPOSALS_HINT,
   renderPrompt,
@@ -196,5 +201,76 @@ describe('planned files (ADR-0037 P4)', () => {
     const state: AgentState = { type: 'agent', prompt: IMPLEMENT_TEMPLATE, tools: ['edit'] };
     const p = renderPrompt({ stateName: 'implementing', state, snapshot: SNAPSHOT_FIXTURE });
     expect(p).not.toContain(PLAN_FILES_INSTRUCTION);
+  });
+});
+
+describe('process-review rules (ADR-0037 §4, C2)', () => {
+  const implementing: AgentState = { type: 'agent', prompt: IMPLEMENT_TEMPLATE, tools: ['edit'] };
+  const planning: AgentState = { type: 'agent', prompt: PLAN_TEMPLATE, tools: ['read'] };
+  const sized = (size: 'S' | 'M' | 'L' | null) => ({
+    ...SNAPSHOT_FIXTURE,
+    ticket: { ...SNAPSHOT_FIXTURE.ticket, size },
+  });
+
+  it('the implement template carries the scope and test-as-you-go paragraphs', () => {
+    const p = renderPrompt({
+      stateName: 'implementing',
+      state: implementing,
+      snapshot: SNAPSHOT_FIXTURE,
+    });
+    expect(p).toContain(IMPLEMENT_SCOPE_INSTRUCTION);
+    expect(p).toContain(IMPLEMENT_TESTS_INSTRUCTION);
+    expect(IMPLEMENT_SCOPE_INSTRUCTION).toContain('`proposed_tickets`');
+    expect(IMPLEMENT_SCOPE_INSTRUCTION).toContain('`ask_user`');
+  });
+
+  it('with follow-ups off, out-of-scope work goes to the summary, not proposed_tickets', () => {
+    const p = renderPrompt({
+      stateName: 'implementing',
+      state: { ...implementing, follow_ups: { enabled: false, max: 3 } },
+      snapshot: SNAPSHOT_FIXTURE,
+    });
+    expect(p).not.toContain(IMPLEMENT_SCOPE_INSTRUCTION);
+    expect(p).toContain(IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION);
+    expect(p).toContain(IMPLEMENT_TESTS_INSTRUCTION);
+    expect(p).not.toContain('proposed_tickets');
+  });
+
+  it('with follow-ups on, the scope paragraph keeps proposed_tickets', () => {
+    const p = renderPrompt({
+      stateName: 'implementing',
+      state: { ...implementing, follow_ups: { enabled: true, max: 2 } },
+      snapshot: SNAPSHOT_FIXTURE,
+    });
+    expect(p).toContain(IMPLEMENT_SCOPE_INSTRUCTION);
+  });
+
+  it('an L ticket shows its size and the plan template asks to split it', () => {
+    const p = renderPrompt({ stateName: 'planning', state: planning, snapshot: sized('L') });
+    expect(p).toContain('Size: L');
+    expect(p).toContain(PLAN_SIZE_INSTRUCTION);
+  });
+
+  it('an L ticket in a state with follow-ups off is asked about instead', () => {
+    const p = renderPrompt({
+      stateName: 'planning',
+      state: { ...planning, follow_ups: { enabled: false, max: 3 } },
+      snapshot: sized('L'),
+    });
+    expect(p).toContain(PLAN_SIZE_NO_PROPOSALS_INSTRUCTION);
+    expect(p).not.toContain(PLAN_SIZE_INSTRUCTION);
+  });
+
+  it.each([['S' as const], ['M' as const], [null]])('size %s gets no split line', (size) => {
+    const p = renderPrompt({ stateName: 'planning', state: planning, snapshot: sized(size) });
+    expect(p).not.toContain(PLAN_SIZE_INSTRUCTION);
+    expect(p.includes('Size:')).toBe(size !== null);
+  });
+
+  it('the plain ticket template has none of the new paragraphs', () => {
+    const p = renderPrompt({ stateName: 'implement', state: template, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).not.toContain(IMPLEMENT_SCOPE_INSTRUCTION);
+    expect(p).not.toContain(IMPLEMENT_TESTS_INSTRUCTION);
+    expect(p).not.toContain(PLAN_SIZE_INSTRUCTION);
   });
 });

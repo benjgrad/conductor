@@ -80,6 +80,10 @@ describe('toBoardCard / toInputRequestDto', () => {
     );
   });
 
+  it('copies the ticket size (ADR-0037 §4, C2)', () => {
+    expect(toBoardCard({ ...ticket, status: 'ready', size: 'M' }, null, null, VIEW).size).toBe('M');
+  });
+
   it('derives column, spend (numeric string), open input and the latest updated_at', () => {
     const card = BoardCardSchema.parse(toBoardCard(ticket, session, input, VIEW));
     expect(card).toMatchObject({

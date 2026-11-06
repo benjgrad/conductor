@@ -153,6 +153,7 @@ export function toTicketDto(
     priority: row.priority,
     created_at: row.created_at.toISOString(),
     kind: row.kind,
+    size: row.size ?? null,
     agent_name: agentName,
     // ADR-0032: the schedule's name is joined by TICKET_SELECT; a bare row only knows the id.
     schedule:

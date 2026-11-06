@@ -47,12 +47,14 @@ import {
   RETURN_TO,
   StateNameSchema,
   TicketKindSchema,
+  TicketSizeSchema,
   MoveActorSchema,
   MoveCauseSchema,
   WorkflowDefinitionSchema,
   conditionEnabled,
   conditionLabel,
   type TicketKind,
+  type TicketSize,
   type TransitionRequires,
   type WorkflowDefinition,
 } from '../workflow/schema.js';
@@ -685,6 +687,8 @@ export const BoardCardSchema = z.object({
   checking: BoardCheckingSchema.nullable().default(null),
   /** ADR-0011: `ticket.kind`; null = not set (tickets from before M1b). */
   kind: TicketKindSchema.nullable().default(null),
+  /** ADR-0037 §4 (C2): `ticket.size` (S / M / L); null = not set. Absent ≡ null (older servers). */
+  size: TicketSizeSchema.nullable().default(null),
   /** ADR-0011: in a gate step, its live checklist (`pendingOfStep`); null otherwise. */
   pending: BoardPendingSchema.nullable().default(null),
   /**
@@ -1276,6 +1280,8 @@ export const TicketDtoSchema = z.object({
   created_at: IsoDateTimeSchema,
   /** ADR-0011. Optional so older servers' responses still parse; absent ≡ null. */
   kind: TicketKindSchema.nullable().optional(),
+  /** ADR-0037 §4 (C2): S / M / L. Optional so older servers' responses still parse; absent ≡ null. */
+  size: TicketSizeSchema.nullable().optional(),
   /** M2 (U-048): only on the POST /api/tickets response; absent ≡ none. */
   warnings: z.array(TicketWarningSchema).optional(),
   /** UX-13a: the ticket's teammate; null / absent ≡ not assigned yet. */
@@ -1673,6 +1679,11 @@ export const CreateTicketRequestSchema = z.object({
    */
   kind: TicketKindSchema.optional(),
   /**
+   * ADR-0037 §4 (C2): optional S / M / L. The planning prompt asks to split an L ticket via
+   * `proposed_tickets`; nothing else reads it.
+   */
+  size: TicketSizeSchema.nullable().default(null),
+  /**
    * 06 §Attachments: uploaded attachments (POST /api/attachments) to link to the new ticket, in
    * the same transaction (400 when one is unknown or already linked).
    */
@@ -1800,6 +1811,8 @@ export interface CardTicketLike {
   status: TicketStatus;
   /** ADR-0011 `ticket.kind`; absent (rows from before the migration) ≡ null. */
   kind?: TicketKind | null;
+  /** ADR-0037 §4 (C2): `ticket.size`; absent ≡ null. */
+  size?: TicketSize | null;
   /** UX-13a: the agent's name (joined from `agent`); absent ≡ the card omits `agent_name`. */
   agent_name?: string | null;
   /** ADR-0032: `ticket.schedule_id` and the schedule's name (joined); absent ≡ omitted. */
@@ -1945,6 +1958,7 @@ export function toBoardCard(
     badges: place.badges,
     checking: place.checking,
     kind: ticket.kind ?? null,
+    size: ticket.size ?? null,
     pending:
       session && place.checking ? pendingOfStep(view.def, stepOfContext(session.context)) : null,
     human_transitions: humanTransitionsOfCard(

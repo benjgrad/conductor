@@ -105,6 +105,31 @@ async function upsertsSince(id: string) {
   return r.rows;
 }
 
+describe('POST /api/tickets size (ADR-0037 §4, C2)', () => {
+  it('stores an optional S/M/L size, returns it and puts it on the card', async () => {
+    const post = (extra: Record<string, unknown>) =>
+      send('POST', API_PATHS.tickets, {
+        title: 'Sized',
+        body: 'b',
+        repo: 'acme/app',
+        workflow_id: 'edit_wf',
+        kind: 'work',
+        ...extra,
+      });
+    const sized = await post({ size: 'L' });
+    expect(sized.status).toBe(201);
+    const dto = TicketDtoSchema.parse(sized.body);
+    expect(dto.size).toBe('L');
+    expect((await getTicket(dto.id)).size).toBe('L');
+    const [upsert] = await upsertsSince(dto.id);
+    expect((upsert!.payload.card as { size?: unknown }).size).toBe('L');
+
+    const unsized = TicketDtoSchema.parse((await post({})).body);
+    expect(unsized.size).toBeNull();
+    expect((await post({ size: 'XL' })).status).toBe(400);
+  });
+});
+
 describe('GET /api/tickets/:id', () => {
   it('a queued ticket: its body, no session, editable by default', async () => {
     const t = await createTicket();

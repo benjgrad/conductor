@@ -623,7 +623,7 @@ describe('collapsible columns (UX-9)', () => {
     expect(button.querySelector('.count')!.textContent).toBe('2');
     // The strip's track: the last column (Done) is narrow, the others keep their width.
     expect(tracks(container).split(' ').at(-1)).toBe('var(--column-strip-width)');
-    expect(tracks(container).split('minmax(180px, 1fr)')).toHaveLength(6);
+    expect(tracks(container).split('minmax(220px, 1fr)')).toHaveLength(6);
 
     // FR-2: the strip is the button, so clicking it expands the column.
     fireEvent.click(button);

@@ -264,9 +264,94 @@ async fn adr_0010_a_failed_setup_is_reported_setup_failed_the_check_does_not_run
     assert_eq!(exit["exit_code"], 2);
     assert_eq!(exit["setup_failed"], true);
     assert_eq!(exit["output_tail"], "deps: no such target\n");
+    assert_eq!(exit["setup_cmd"], "make deps");
+    // The setup fails everywhere here, so it fails on the base's tip too: conductor's config.
+    assert_eq!(exit["setup_on_base"], "fail");
+    assert!(exit["base_ref"].is_string());
+    // The branch's setup, then the base probe's; the check never ran and both checkouts are gone.
+    let cmds: Vec<String> = runner.calls().iter().map(|x| x.cmd.clone()).collect();
+    assert_eq!(cmds, ["make deps", "make deps"]);
+    for x in runner.calls() {
+        assert!(!x.cwd.exists());
+    }
+    c.done().await;
+}
+
+/// A real git worktree and clone (the probe's fetch and checkout are what's under test); the
+/// setup itself is the fake runner, decided by what its checkout contains.
+async fn setup_probe(c: &Ctx, prepare: impl FnOnce(&Path)) -> (Value, FakeCommandRunner) {
+    let runner = FakeCommandRunner::new(1, true).script_by("make deps", |o| {
+        if o.cwd.join("BROKEN").exists() {
+            FakeCommandScript::exit(2).output("deps: broken\n")
+        } else {
+            FakeCommandScript::default()
+        }
+    });
+    let (sid, wt) = started_session(c, runner.clone(), 3).await;
+    std::fs::write(wt.join("BROKEN"), "x").unwrap();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&wt)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.email=t@x",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-qm",
+        "b",
+    ]);
+    prepare(&wt);
+    c.send(&check(sid, "npm run build", None, "make deps", false));
+    let exit = c
+        .until_for(10_000, || c.data("cmd_exit").into_iter().next())
+        .await;
+    (exit, runner)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_setup_that_fails_only_on_the_branch_passes_on_the_base_setup_on_base_pass() {
+    let c = Ctx::new().await;
+    let (exit, runner) = setup_probe(&c, |_| {}).await;
+    assert_eq!(exit["setup_failed"], true);
+    assert_eq!(exit["setup_cmd"], "make deps");
+    assert_eq!(exit["setup_on_base"], "pass");
+    assert_eq!(exit["output_tail"], "deps: broken\n");
+    // The branch's setup, then the base's; the check never ran and both checkouts are gone.
+    let calls = runner.calls();
+    let cmds: Vec<String> = calls.iter().map(|x| x.cmd.clone()).collect();
+    assert_eq!(cmds, ["make deps", "make deps"]);
+    assert_ne!(calls[0].cwd, calls[1].cwd);
+    for x in &calls {
+        assert!(!x.cwd.exists());
+    }
+    c.done().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_origin_head_the_probe_cannot_run_setup_on_base_unknown() {
+    let c = Ctx::new().await;
+    let (exit, runner) = setup_probe(&c, |wt| {
+        let ok = std::process::Command::new("git")
+            .args(["symbolic-ref", "--delete", "refs/remotes/origin/HEAD"])
+            .current_dir(wt)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+    })
+    .await;
+    assert_eq!(exit["setup_failed"], true);
+    assert_eq!(exit["setup_on_base"], "unknown");
     let cmds: Vec<String> = runner.calls().iter().map(|x| x.cmd.clone()).collect();
     assert_eq!(cmds, ["make deps"]);
-    assert!(!runner.calls()[0].cwd.exists());
     c.done().await;
 }
 

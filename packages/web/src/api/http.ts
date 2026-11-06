@@ -446,6 +446,7 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       if (opts.cursor !== undefined) q.set('cursor', String(opts.cursor));
       if (opts.kind !== undefined) q.set('kind', opts.kind);
       if (opts.target !== undefined) q.set('target', opts.target);
+      if (opts.ticketId !== undefined) q.set('ticket_id', opts.ticketId);
       const qs = q.toString();
       return request(
         ChangeProposalListResponseSchema,

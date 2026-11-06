@@ -25,11 +25,12 @@ import {
 import {
   PERMISSION_INPUT_MAX_BYTES,
   PERMISSION_SUGGESTIONS_MAX,
+  type ProposedChecks,
   type QuestionOptions,
 } from '@conductor/shared';
 
 type Call =
-  | { kind: 'ask'; question: string; options?: QuestionOptions }
+  | { kind: 'ask'; question: string; options?: QuestionOptions; proposed?: ProposedChecks }
   | { kind: 'done'; result: Record<string, unknown>; transition?: string; reason?: string };
 
 let server: OutcomeServer;
@@ -45,8 +46,13 @@ function register(opts?: OutcomeRegisterOptions) {
   const calls: Call[] = [];
   const reg = server.register(
     {
-      onAskUser: (question, options) =>
-        calls.push({ kind: 'ask', question, ...(options !== undefined ? { options } : {}) }),
+      onAskUser: (question, options, proposed) =>
+        calls.push({
+          kind: 'ask',
+          question,
+          ...(options !== undefined ? { options } : {}),
+          ...(proposed !== undefined ? { proposed } : {}),
+        }),
       onCompleteState: (result, meta) => calls.push({ kind: 'done', result, ...meta }),
     },
     opts,
@@ -203,6 +209,31 @@ describe('outcome server', () => {
       ASK_USER_RETURN,
     );
     expect(two.calls).toEqual([{ kind: 'ask', question: 'Sure?' }]);
+  });
+
+  it('ask_user forwards valid proposed_checks; invalid ones refuse the call (not asked)', async () => {
+    const one = register();
+    const c1 = await connect(one.reg.url);
+    const proposed = {
+      title: 'Drop the origin fetch',
+      rationale: 'The fresh checkout has no origin remote.',
+      checks: { setup: '', checks: [{ name: 'Build', cmd: 'npm run build' }] },
+    };
+    expect(
+      await callText(c1, 'ask_user', { question: 'Apply my fix?', proposed_checks: proposed }),
+    ).toBe(ASK_USER_RETURN);
+    expect(one.calls).toEqual([{ kind: 'ask', question: 'Apply my fix?', proposed }]);
+
+    const two = register();
+    const c2 = await connect(two.reg.url);
+    const refused = await callText(c2, 'ask_user', {
+      question: 'Apply?',
+      proposed_checks: { ...proposed, checks: { checks: [] } },
+    });
+    expect(refused).toMatch(/^Not asked: proposed_checks is invalid \(checks\.checks/);
+    expect(two.calls).toEqual([]);
+    // Not pending: the agent can ask again.
+    expect(await callText(c2, 'ask_user', { question: 'Apply?' })).toBe(ASK_USER_RETURN);
   });
 
   it('attributes calls to the session that owns the token', async () => {

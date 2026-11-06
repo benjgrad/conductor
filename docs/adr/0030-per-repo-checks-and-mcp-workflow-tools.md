@@ -61,3 +61,7 @@ Unchanged: a stored latest version that isn't a shipped one at its own version n
 
 ### Not changed
 `POST /api/workflows` keeps its behaviour (no admin gate, no approval guard). Any signed-in user can save there today; that is pre-existing and M2-T12's to fix. MCP saves are still applied as the `ui` engine actor; only `created_by` records `mcp:<email>`.
+
+## Note (2026-11-06): check-config failures, agent proposals, retries
+
+The 2026-11-06 incident (a setup of `git fetch -q origin` in a checkout without a remote) stalled two tickets whose agents could see the problem but not fix it. Since then: a setup that fails on the base branch too reaches a human as a `check_config` request naming the override (who saved it, when) and `set_repo_checks`, without counting against the gate's retries; any change to a repo's checks (REST, MCP, an applied proposal) retries the gates waiting on that repo (`gate.retry`). An agent may **propose** new repo checks with its question (ask_user `proposed_checks`, stored as a `repo_checks` change proposal on its ticket), but never apply them: the gate that judges its work stays a human's. [06](../design/06-human-input.md#check-config-failures-and-agent-proposed-repo-checks).

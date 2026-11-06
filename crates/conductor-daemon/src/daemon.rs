@@ -45,8 +45,9 @@ use tokio::task::AbortHandle;
 use uuid::Uuid;
 
 use crate::actions::checkout::{
-    FreshCheckout, FreshCheckoutInput, detect_setup, fetch_budget, fresh_checkout, managed_command,
-    missing_manager, no_commits_ahead, remove_checkout, sweep_private,
+    BaseCheckoutInput, BaseProbeNext, FreshCheckout, FreshCheckoutInput, ProbeSetupInput,
+    SetupOnBase, detect_setup, fetch_budget, fresh_checkout, managed_command, missing_manager,
+    no_commits_ahead, prepare_base_probe, remove_checkout, sweep_private,
 };
 use crate::actions::condition_cmd::{CmdContext, CmdExec, CmdExecResult};
 use crate::actions::conditions::{EvaluateConditionsInput, evaluate_conditions};
@@ -1708,12 +1709,19 @@ impl Core {
                 }
                 self.send_output(st, sid, token, stream.as_str(), text);
             }
-            DriverEvent::AskUser { question, options } => {
+            DriverEvent::AskUser {
+                question,
+                options,
+                proposed_checks,
+            } => {
                 a.ask_pending = true;
                 // Questions UX: the options travel as given (absent when none).
                 let mut data = json!({ "question": question });
                 if let Some(o) = options {
                     data["options"] = json!(o);
+                }
+                if let Some(c) = proposed_checks {
+                    data["proposed_checks"] = c.clone();
                 }
                 self.emit(st, sid, token, json!({ "kind": "ask_user", "data": data }));
             }
@@ -2039,6 +2047,15 @@ impl Core {
             if out.setup_failed {
                 data["setup_failed"] = json!(true);
             }
+            if let Some(c) = &out.setup_cmd {
+                data["setup_cmd"] = json!(c);
+            }
+            if let Some(v) = out.setup_on_base {
+                data["setup_on_base"] = json!(v.as_str());
+            }
+            if let Some(b) = &out.base_ref {
+                data["base_ref"] = json!(b);
+            }
             if let Some(why) = &out.not_run {
                 data["not_run"] = json!(why);
             }
@@ -2241,19 +2258,71 @@ impl Core {
                 held = Some(c.clone());
                 // TD-177: the missing-manager guards here are unit-tested only.
                 if let Some(setup) = detect_setup(&c.dir, co.setup.as_deref()) {
-                    if let Some(missing) = missing_manager(&setup, None) {
+                    let failed = if let Some(missing) = missing_manager(&setup, None) {
+                        Some(self.not_run(sid, token, &missing))
+                    } else {
+                        self.debug_line(
+                            sid,
+                            token,
+                            &format!("conductor: setup `{setup}` in a fresh checkout of {want}"),
+                        );
+                        let sr = exec(setup.clone(), c.dir.clone()).await?;
+                        (sr.exit_code != Some(0) || sr.timed_out).then_some(sr)
+                    };
+                    if let Some(r) = failed {
+                        // A failed setup: the same setup once on the base branch's tip says
+                        // whose problem it is (05 §Requirements to enter a column).
                         out.setup_failed = true;
-                        return Ok(self.not_run(sid, token, &missing));
-                    }
-                    self.debug_line(
-                        sid,
-                        token,
-                        &format!("conductor: setup `{setup}` in a fresh checkout of {want}"),
-                    );
-                    let sr = exec(setup, c.dir.clone()).await?;
-                    if sr.exit_code != Some(0) || sr.timed_out {
-                        out.setup_failed = true;
-                        return Ok(sr);
+                        out.setup_cmd = Some(setup);
+                        let probe = prepare_base_probe(&ProbeSetupInput {
+                            base: BaseCheckoutInput {
+                                root: self.config.root_dir.clone(),
+                                worktree: wt.clone(),
+                                env: None,
+                            },
+                            sha: want.clone(),
+                            configured: co.setup.clone(),
+                        })
+                        .await;
+                        for line in &probe.log {
+                            self.debug_line(sid, token, &format!("conductor: base probe: {line}"));
+                        }
+                        let verdict = match probe.next {
+                            BaseProbeNext::Verdict(v) => v,
+                            BaseProbeNext::Run { setup, dir } => {
+                                let ok = matches!(
+                                    exec(setup, dir.clone()).await,
+                                    Ok(x) if x.exit_code == Some(0) && !x.timed_out
+                                );
+                                remove_checkout(&dir);
+                                let branch = probe.branch.clone().unwrap_or_default();
+                                self.debug_line(
+                                    sid,
+                                    token,
+                                    &if ok {
+                                        format!(
+                                            "conductor: base probe: it passes on origin/{branch}"
+                                        )
+                                    } else {
+                                        format!(
+                                            "conductor: base probe: it fails on origin/{branch} too"
+                                        )
+                                    },
+                                );
+                                if ok {
+                                    SetupOnBase::Pass
+                                } else {
+                                    SetupOnBase::Fail
+                                }
+                            }
+                        };
+                        out.setup_on_base = Some(if cancel.is_cancelled() {
+                            SetupOnBase::Unknown
+                        } else {
+                            verdict
+                        });
+                        out.base_ref = probe.branch;
+                        return Ok(r);
                     }
                 }
             }
@@ -2886,6 +2955,10 @@ struct RunOutcome {
     head_sha: Option<String>,
     dirty: Option<Vec<String>>,
     setup_failed: bool,
+    /// With `setup_failed`: the setup that ran, its verdict on the base branch, and that branch.
+    setup_cmd: Option<String>,
+    setup_on_base: Option<SetupOnBase>,
+    base_ref: Option<String>,
     /// The command did not run, and why (`cmd_exit.not_run`).
     not_run: Option<String>,
     /// No commits ahead of origin's default branch (`cmd_exit.no_commits`).

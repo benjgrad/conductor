@@ -7,6 +7,7 @@ import {
   WorkflowDefinitionSchema,
   type JsonObject,
   type RepoChecks,
+  type RepoChecksMeta,
   type SessionSnapshot,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -125,24 +126,40 @@ export async function readRepoChecks(
   repo: string,
   onInvalid: (msg: string) => void = (m) => void process.stderr.write(`[conductor] ${m}\n`),
 ): Promise<RepoChecks | null> {
-  const r = await tx.query<Pick<RepoChecksRow, 'config'>>(
-    'SELECT config FROM repo_checks WHERE account_id = $1 AND repo = $2',
+  return (await readRepoChecksWithMeta(tx, accountId, repo, onInvalid)).checks;
+}
+
+/** readRepoChecks plus when and by whom it was saved (named in a setup failure's message). */
+export async function readRepoChecksWithMeta(
+  tx: Queryable,
+  accountId: string,
+  repo: string,
+  onInvalid: (msg: string) => void = (m) => void process.stderr.write(`[conductor] ${m}\n`),
+): Promise<{ checks: RepoChecks | null; meta: RepoChecksMeta | null }> {
+  const r = await tx.query<Pick<RepoChecksRow, 'config' | 'updated_at' | 'updated_by'>>(
+    'SELECT config, updated_at, updated_by FROM repo_checks WHERE account_id = $1 AND repo = $2',
     [accountId, repoChecksKey(repo)],
   );
   const row = r.rows[0];
-  if (row === undefined) return null;
+  if (row === undefined) return { checks: null, meta: null };
   const parsed = RepoChecksSchema.safeParse(row.config);
-  if (parsed.success) return parsed.data;
-  onInvalid(
-    `repo_checks for ${repoChecksKey(repo)} is invalid and ignored: ${parsed.error.message}`,
-  );
-  return null;
+  if (!parsed.success) {
+    onInvalid(
+      `repo_checks for ${repoChecksKey(repo)} is invalid and ignored: ${parsed.error.message}`,
+    );
+    return { checks: null, meta: null };
+  }
+  return {
+    checks: parsed.data,
+    meta: { updated_at: row.updated_at.toISOString(), updated_by: row.updated_by },
+  };
 }
 
 export function toSnapshot(
   session: SessionRow,
   ticket: TicketRow,
   repoChecks: RepoChecks | null = null,
+  repoChecksMeta: RepoChecksMeta | null = null,
 ): SessionSnapshot {
   return {
     id: session.id,
@@ -178,6 +195,7 @@ export function toSnapshot(
     wall_seconds: Number(session.wall_seconds),
     ...splitStep(session.context),
     repo_checks: repoChecks,
+    repo_checks_meta: repoChecksMeta,
     branch: session.branch,
     // ADR-0037 P6: the ticket's `once` memory (absent on rows read before the migration).
     notified_transitions: session.notified_transitions ?? [],

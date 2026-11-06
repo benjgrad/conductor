@@ -51,6 +51,8 @@ import {
 } from './inventory/report.js';
 import {
   detectSetup,
+  probeSetupOnBase,
+  type SetupOnBase,
   fetchBudget,
   freshCheckout,
   managedCommand,
@@ -928,6 +930,7 @@ export class Daemon {
           data: {
             question: ev.question,
             ...(ev.options !== undefined ? { options: ev.options } : {}),
+            ...(ev.proposed_checks !== undefined ? { proposed_checks: ev.proposed_checks } : {}),
           },
         });
         return;
@@ -1148,6 +1151,9 @@ export class Daemon {
     let headSha: string | null = null;
     let dirty: string[] | null = null;
     let setupFailed = false;
+    let setupCmd: string | null = null;
+    let setupOnBase: SetupOnBase | null = null;
+    let baseRef: string | null = null;
     // The command did not run, and why (`cmd_exit.not_run`); no commits ahead (`no_commits`).
     let notRunReason: string | null = null;
     let noCommits = false;
@@ -1238,10 +1244,29 @@ export class Daemon {
           mine = held;
           // TD-177: the missing-manager guards here are unit-tested only, not at daemon level.
           const setup = detectSetup(held.dir, co.setup);
+          // A failed setup: the same setup once on the base branch's tip says whose it is.
+          const probe = async () => {
+            setupFailed = true;
+            setupCmd = setup;
+            const r = await probeSetupOnBase({
+              root: this.config.rootDir,
+              worktree: s.worktreePath,
+              sha: want,
+              configured: co.setup,
+              signal: abort.signal,
+              runSetup: async (cmd, dir) => {
+                const x = await exec(cmd, dir);
+                return x.exitCode === 0 && !x.timedOut;
+              },
+              log: (text) => this.sendOutput(sid, token, 'debug', `conductor: base probe: ${text}`),
+            });
+            setupOnBase = r.verdict;
+            baseRef = r.base_ref;
+          };
           if (setup !== null) {
             const missing = missingManager(setup);
             if (missing !== null) {
-              setupFailed = true;
+              await probe();
               return notRun(missing, null);
             }
             this.sendOutput(
@@ -1252,7 +1277,7 @@ export class Daemon {
             );
             const sr = await exec(setup, held.dir);
             if (sr.exitCode !== 0 || sr.timedOut) {
-              setupFailed = true;
+              await probe();
               return sr;
             }
           }
@@ -1306,6 +1331,9 @@ export class Daemon {
             head_sha: headSha,
             ...(dirty !== null ? { dirty } : {}),
             ...(setupFailed ? { setup_failed: true } : {}),
+            ...(setupCmd !== null ? { setup_cmd: setupCmd } : {}),
+            ...(setupOnBase !== null ? { setup_on_base: setupOnBase } : {}),
+            ...(baseRef !== null ? { base_ref: baseRef } : {}),
             ...(notRunReason !== null ? { not_run: notRunReason } : {}),
             ...(noCommits ? { no_commits: true } : {}),
           },

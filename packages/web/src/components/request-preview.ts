@@ -305,6 +305,7 @@ const FAILURE_KINDS: ReadonlySet<InputRequestKind> = new Set([
   'retries_exhausted',
   'timeout',
   'machine_lost',
+  'check_config',
 ]);
 
 export function requestTone(cls: RequestClass, kind: InputRequestKind): RequestTone {

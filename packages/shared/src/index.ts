@@ -34,6 +34,7 @@ export {
   type RenderPromptInput,
 } from './engine/apply.js';
 export * from './engine/review.js';
+export * from './engine/setup-failure.js';
 export * from './engine/notify.js';
 export * from './engine/watch.js';
 export { applyRepoChecks, PIN_CHECK, type GateSpec } from './engine/move-step.js';

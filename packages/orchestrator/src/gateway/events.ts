@@ -29,6 +29,9 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         type: 'agent.ask_user',
         question: p.data.question,
         ...(p.data.options !== undefined ? { options: p.data.options } : {}),
+        ...(p.data.proposed_checks !== undefined
+          ? { proposed_checks: p.data.proposed_checks }
+          : {}),
       };
     case 'no_outcome':
       return { type: 'agent.no_outcome', last_output: p.data.last_output };
@@ -50,6 +53,9 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         ...(p.data.head_sha !== undefined ? { head_sha: p.data.head_sha } : {}),
         ...(p.data.dirty !== undefined ? { dirty: p.data.dirty } : {}),
         ...(p.data.setup_failed !== undefined ? { setup_failed: p.data.setup_failed } : {}),
+        ...(p.data.setup_cmd !== undefined ? { setup_cmd: p.data.setup_cmd } : {}),
+        ...(p.data.setup_on_base !== undefined ? { setup_on_base: p.data.setup_on_base } : {}),
+        ...(p.data.base_ref !== undefined ? { base_ref: p.data.base_ref } : {}),
         ...(p.data.not_run !== undefined ? { not_run: p.data.not_run } : {}),
         ...(p.data.no_commits !== undefined ? { no_commits: p.data.no_commits } : {}),
       };

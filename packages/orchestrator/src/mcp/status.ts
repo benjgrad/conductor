@@ -1,5 +1,6 @@
 import {
   latestPlanEntry,
+  setupFailureSummary,
   type BoardCard,
   type InputRequestKind,
   type SessionDetail,
@@ -67,6 +68,7 @@ const KIND_TEXT: Record<InputRequestKind, string> = {
   approval: 'an approval is needed',
   machine_lost: 'its machine was lost',
   handoff: 'ready for review',
+  check_config: "conductor's check config failed (not the branch)",
 };
 
 export interface StatusLineInput {
@@ -102,6 +104,14 @@ export function statusLine({
         // ADR-0037 P8: a hand-off is finished work to review, not a question.
         if (card.input_request.kind === 'handoff') {
           return `Ready for review: "${clip(card.input_request.question, 200)}"`;
+        }
+        // A setup that fails on the base branch too: its summary names the command and source.
+        if (card.input_request.kind === 'check_config') {
+          return (
+            `Waiting on you: ${KIND_TEXT.check_config}. ` +
+            `${setupFailureSummary(card.input_request.question)} ` +
+            "Fix it with set_repo_checks (or the board's repo checks); the checks then re-run (or take_transition $retry_checks)."
+          );
         }
         const what =
           handoff === true && card.input_request.kind === 'agent_question'

@@ -105,6 +105,7 @@ describe('the step in context (no migration)', () => {
     approvals: null,
     // ADR-0030: defaulted to null as well.
     repo_checks: null,
+    repo_checks_meta: null,
   };
 
   it('splitStep reads __entry and the legacy ADR-0009 __review; joinStep writes __entry only', () => {

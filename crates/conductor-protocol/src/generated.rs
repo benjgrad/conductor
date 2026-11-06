@@ -355,6 +355,8 @@ impl<'de> ::serde::Deserialize<'de> for ApprovalId {
 pub struct AskUserEventData {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub options: ::std::option::Option<AskUserEventDataOptions>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub proposed_checks: ::std::option::Option<AskUserEventDataProposedChecks>,
     pub question: ::std::string::String,
 }
 ///`AskUserEventDataOptions`
@@ -464,6 +466,354 @@ impl ::std::convert::TryFrom<::std::string::String> for AskUserEventDataOptionsI
     }
 }
 impl<'de> ::serde::Deserialize<'de> for AskUserEventDataOptionsItemsItemLabel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AskUserEventDataProposedChecks`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AskUserEventDataProposedChecks {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub checks: ::std::option::Option<AskUserEventDataProposedChecksChecks>,
+    pub rationale: AskUserEventDataProposedChecksRationale,
+    pub title: AskUserEventDataProposedChecksTitle,
+}
+///`AskUserEventDataProposedChecksChecks`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AskUserEventDataProposedChecksChecks {
+    pub checks: ::std::vec::Vec<AskUserEventDataProposedChecksChecksChecksItem>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub setup: ::std::option::Option<AskUserEventDataProposedChecksChecksSetup>,
+}
+///`AskUserEventDataProposedChecksChecksChecksItem`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AskUserEventDataProposedChecksChecksChecksItem {
+    pub cmd: AskUserEventDataProposedChecksChecksChecksItemCmd,
+    pub name: AskUserEventDataProposedChecksChecksChecksItemName,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub timeout: ::std::option::Option<AskUserEventDataProposedChecksChecksChecksItemTimeout>,
+}
+///`AskUserEventDataProposedChecksChecksChecksItemCmd`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AskUserEventDataProposedChecksChecksChecksItemCmd(::std::string::String);
+impl ::std::ops::Deref for AskUserEventDataProposedChecksChecksChecksItemCmd {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AskUserEventDataProposedChecksChecksChecksItemCmd>
+    for ::std::string::String
+{
+    fn from(value: AskUserEventDataProposedChecksChecksChecksItemCmd) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AskUserEventDataProposedChecksChecksChecksItemCmd {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AskUserEventDataProposedChecksChecksChecksItemCmd {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for AskUserEventDataProposedChecksChecksChecksItemCmd
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AskUserEventDataProposedChecksChecksChecksItemCmd {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AskUserEventDataProposedChecksChecksChecksItemName`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AskUserEventDataProposedChecksChecksChecksItemName(::std::string::String);
+impl ::std::ops::Deref for AskUserEventDataProposedChecksChecksChecksItemName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AskUserEventDataProposedChecksChecksChecksItemName>
+    for ::std::string::String
+{
+    fn from(value: AskUserEventDataProposedChecksChecksChecksItemName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AskUserEventDataProposedChecksChecksChecksItemName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 200usize {
+            return Err("longer than 200 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AskUserEventDataProposedChecksChecksChecksItemName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for AskUserEventDataProposedChecksChecksChecksItemName
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AskUserEventDataProposedChecksChecksChecksItemName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AskUserEventDataProposedChecksChecksChecksItemTimeout`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AskUserEventDataProposedChecksChecksChecksItemTimeout(::std::string::String);
+impl ::std::ops::Deref for AskUserEventDataProposedChecksChecksChecksItemTimeout {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AskUserEventDataProposedChecksChecksChecksItemTimeout>
+    for ::std::string::String
+{
+    fn from(value: AskUserEventDataProposedChecksChecksChecksItemTimeout) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AskUserEventDataProposedChecksChecksChecksItemTimeout {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^(\\d+)(ms|s|m|h|d)$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^(\\d+)(ms|s|m|h|d)$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AskUserEventDataProposedChecksChecksChecksItemTimeout {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for AskUserEventDataProposedChecksChecksChecksItemTimeout
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AskUserEventDataProposedChecksChecksChecksItemTimeout {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AskUserEventDataProposedChecksChecksSetup`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AskUserEventDataProposedChecksChecksSetup(::std::string::String);
+impl ::std::ops::Deref for AskUserEventDataProposedChecksChecksSetup {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AskUserEventDataProposedChecksChecksSetup> for ::std::string::String {
+    fn from(value: AskUserEventDataProposedChecksChecksSetup) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AskUserEventDataProposedChecksChecksSetup {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2000usize {
+            return Err("longer than 2000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AskUserEventDataProposedChecksChecksSetup {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AskUserEventDataProposedChecksChecksSetup {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AskUserEventDataProposedChecksChecksSetup {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AskUserEventDataProposedChecksRationale`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AskUserEventDataProposedChecksRationale(::std::string::String);
+impl ::std::ops::Deref for AskUserEventDataProposedChecksRationale {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AskUserEventDataProposedChecksRationale> for ::std::string::String {
+    fn from(value: AskUserEventDataProposedChecksRationale) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AskUserEventDataProposedChecksRationale {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 1000usize {
+            return Err("longer than 1000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AskUserEventDataProposedChecksRationale {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AskUserEventDataProposedChecksRationale {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AskUserEventDataProposedChecksRationale {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AskUserEventDataProposedChecksTitle`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AskUserEventDataProposedChecksTitle(::std::string::String);
+impl ::std::ops::Deref for AskUserEventDataProposedChecksTitle {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AskUserEventDataProposedChecksTitle> for ::std::string::String {
+    fn from(value: AskUserEventDataProposedChecksTitle) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AskUserEventDataProposedChecksTitle {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 120usize {
+            return Err("longer than 120 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AskUserEventDataProposedChecksTitle {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AskUserEventDataProposedChecksTitle {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AskUserEventDataProposedChecksTitle {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -975,6 +1325,8 @@ pub struct ClosePrResult {
 ///`CmdExitEventData`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct CmdExitEventData {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub base_ref: ::std::option::Option<::std::string::String>,
     pub command_id: ::uuid::Uuid,
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub dirty: ::std::vec::Vec<::std::string::String>,
@@ -993,7 +1345,11 @@ pub struct CmdExitEventData {
     pub not_run: ::std::option::Option<CmdExitEventDataNotRun>,
     pub output_tail: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub setup_cmd: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub setup_failed: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub setup_on_base: ::std::option::Option<CmdExitEventDataSetupOnBase>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub signal: ::std::option::Option<::std::string::String>,
     pub timed_out: bool,
@@ -1046,6 +1402,61 @@ impl<'de> ::serde::Deserialize<'de> for CmdExitEventDataNotRun {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`CmdExitEventDataSetupOnBase`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum CmdExitEventDataSetupOnBase {
+    #[serde(rename = "pass")]
+    Pass,
+    #[serde(rename = "fail")]
+    Fail,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+impl ::std::fmt::Display for CmdExitEventDataSetupOnBase {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pass => f.write_str("pass"),
+            Self::Fail => f.write_str("fail"),
+            Self::Unknown => f.write_str("unknown"),
+        }
+    }
+}
+impl ::std::str::FromStr for CmdExitEventDataSetupOnBase {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pass" => Ok(Self::Pass),
+            "fail" => Ok(Self::Fail),
+            "unknown" => Ok(Self::Unknown),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for CmdExitEventDataSetupOnBase {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for CmdExitEventDataSetupOnBase {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`CommandAckPayload`

@@ -16,7 +16,9 @@ import {
   type ProposalActor,
   type ProposalFailure,
 } from '../advisor/proposals.js';
+import type { EngineService } from '../contracts.js';
 import type { Db } from '../main.js';
+import { afterRepoChecksChangedSafe } from './check-config.js';
 import { parseBody, sendError } from './errors.js';
 
 // ADR-0033 P3 (MA-T05/T07): the board's side of the workflow advisor's change proposals. The
@@ -27,6 +29,8 @@ import { parseBody, sendError } from './errors.js';
 
 export interface ChangeProposalRoutesOptions {
   db: Db;
+  /** Answers / retries the tickets an applied repo-checks change unblocks (check-config.ts). */
+  engine?: EngineService;
 }
 
 type IdParams = { Params: { id: string } };
@@ -67,8 +71,9 @@ const actorOf = (req: FastifyRequest): ProposalActor => ({
 
 export const registerChangeProposalRoutes: FastifyPluginAsync<ChangeProposalRoutesOptions> = (
   app,
-  { db },
+  { db, engine },
 ) => {
+  const after = engine === undefined ? null : { db, engine };
   /** UXR-73: the board reads a proposal's whole change for its readable diff. */
   const withBodies = async (req: FastifyRequest, p: ChangeProposalDetail) => ({
     ...p,
@@ -90,8 +95,16 @@ export const registerChangeProposalRoutes: FastifyPluginAsync<ChangeProposalRout
 
   app.post<IdParams>(API_PATHS.changeProposalApply(':id'), async (req, reply) => {
     if (!parseBody(EmptyBodySchema, req.body, reply)) return reply;
-    const res = await applyProposal(db, actorOf(req), req.params.id);
-    return res.ok ? withBodies(req, res.value) : sendFailure(reply, res);
+    const actor = actorOf(req);
+    const res = await applyProposal(db, actor, req.params.id);
+    if (!res.ok) return sendFailure(reply, res);
+    if (res.value.kind === 'repo_checks') {
+      await afterRepoChecksChangedSafe(after, actor.accountId, res.value.target, {
+        proposalId: res.value.id,
+        by: actor.by,
+      });
+    }
+    return withBodies(req, res.value);
   });
 
   app.post<IdParams>(API_PATHS.changeProposalReject(':id'), async (req, reply) => {

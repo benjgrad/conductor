@@ -153,6 +153,154 @@ export async function freshCheckout(i: FreshCheckoutInput): Promise<FreshCheckou
   }
 }
 
+// ---------------------------------------------------------------- base-branch probe
+
+/**
+ * A failed setup is triaged by running the same setup once in a fresh checkout of the base
+ * branch's tip (05 §Requirements to enter a column, "Setup failures"): failing there too, it is
+ * conductor's check config, not the branch. The base is the session clone's `origin/HEAD` target
+ * (TD-181: the orchestrator does not send the repo's default branch), fetched first, best effort.
+ */
+export type SetupOnBase = 'pass' | 'fail' | 'unknown';
+
+export interface BaseCheckoutInput {
+  root: string;
+  /** The session worktree (its clone's `origin/*` refs are shared). */
+  worktree: string;
+  env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+}
+
+export type BaseCheckout =
+  | { ok: true; dir: string; sha: string; branch: string }
+  | { ok: false; error: string; branch: string | null };
+
+const ORIGIN = 'refs/remotes/origin/';
+
+/** How long the best-effort `git fetch origin <base>` may take before the probe uses the old ref. */
+export const BASE_FETCH_TIMEOUT_MS = 60_000;
+
+/** A fresh, conductor-owned checkout of the base branch's tip (hardened like freshCheckout). */
+export async function freshBaseCheckout(i: BaseCheckoutInput): Promise<BaseCheckout> {
+  const inTree = (args: string[], signal = i.signal) =>
+    run('git', [...NO_HOOKS, ...args], i.worktree, { ...i, ...(signal ? { signal } : {}) });
+  const head = await inTree(['symbolic-ref', '--quiet', `${ORIGIN}HEAD`]);
+  const ref = head.stdout.trim();
+  if (head.code !== 0 || !ref.startsWith(ORIGIN) || ref.length === ORIGIN.length) {
+    return { ok: false, error: 'the clone has no origin/HEAD', branch: null };
+  }
+  const branch = ref.slice(ORIGIN.length);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch) || branch.includes('..')) {
+    return { ok: false, error: `invalid base branch ${JSON.stringify(branch)}`, branch: null };
+  }
+  // Best effort: a failed or slow fetch leaves the ref the clone already has.
+  const timeout = AbortSignal.timeout(BASE_FETCH_TIMEOUT_MS);
+  await inTree(
+    ['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:${ORIGIN}${branch}`],
+    i.signal ? AbortSignal.any([i.signal, timeout]) : timeout,
+  );
+  let dir: string;
+  try {
+    const d = privateDir(i.root, 'check-');
+    if (d instanceof Error) return { ok: false, error: `base checkout: ${d.message}`, branch };
+    dir = d;
+  } catch (e) {
+    return { ok: false, error: `base checkout: ${String(e)}`, branch };
+  }
+  const fail = (error: string): BaseCheckout => {
+    removeCheckout(dir);
+    return { ok: false, error, branch };
+  };
+  try {
+    const git = (args: string[]) => run('git', [...NO_HOOKS, ...args], dir, i);
+    const init = await git(['init', '--quiet', dir]);
+    if (init.code !== 0) return fail(`git init failed: ${tail(init.stderr)}`);
+    const local = 'refs/heads/conductor-base';
+    const fetch = await git([
+      '-c',
+      'protocol.allow=never',
+      '-c',
+      'protocol.file.allow=always',
+      'fetch',
+      '--quiet',
+      '--no-tags',
+      '--no-write-fetch-head',
+      '--upload-pack=git-upload-pack',
+      i.worktree,
+      `+${ORIGIN}${branch}:${local}`,
+    ]);
+    if (fetch.code !== 0) return fail(`could not read origin/${branch}: ${tail(fetch.stderr)}`);
+    const sha = (await git(['rev-parse', '--verify', `${local}^{commit}`])).stdout.trim();
+    if (!SHA_RE.test(sha)) return fail(`origin/${branch} has no commit`);
+    const co = await git([
+      '-c',
+      'advice.detachedHead=false',
+      'checkout',
+      '--quiet',
+      '--detach',
+      '--force',
+      sha,
+    ]);
+    if (co.code !== 0) return fail(`git checkout failed: ${tail(co.stderr)}`);
+    return { ok: true, dir, sha, branch };
+  } catch (e) {
+    return fail(String(e));
+  }
+}
+
+export interface ProbeSetupInput extends BaseCheckoutInput {
+  /** The commit whose setup failed: a base at the same commit fails the same way. */
+  sha: string;
+  /** The gate's configured setup (null = auto-detect, '' = none), as for the checked commit. */
+  configured: string | null;
+  /** Run `setup` in `dir` (the daemon's command runner); true = exit 0 in time. */
+  runSetup: (setup: string, dir: string) => Promise<boolean>;
+  /** One line about the probe for the session's output. */
+  log?: (text: string) => void;
+  /** Overridable for tests: whether a package manager is missing (missingManager). */
+  missing?: (setup: string) => string | null;
+}
+
+/**
+ * Run the failed setup once on the base branch's tip. `fail`: it fails there too (conductor's
+ * check config); `pass`: only the checked commit breaks it; `unknown`: the probe could not run.
+ * The probe's checkout is always removed.
+ */
+export async function probeSetupOnBase(
+  i: ProbeSetupInput,
+): Promise<{ verdict: SetupOnBase; base_ref: string | null }> {
+  const log = i.log ?? (() => undefined);
+  const base = await freshBaseCheckout(i);
+  if (!base.ok) {
+    log(`could not check the base branch: ${base.error}`);
+    return { verdict: 'unknown', base_ref: base.branch };
+  }
+  try {
+    if (base.sha === i.sha) {
+      log(`origin/${base.branch} is the commit under check (${base.sha.slice(0, 12)})`);
+      return { verdict: 'fail', base_ref: base.branch };
+    }
+    const setup = detectSetup(base.dir, i.configured);
+    if (setup === null) {
+      log(`origin/${base.branch} (${base.sha.slice(0, 12)}) needs no setup`);
+      return { verdict: 'pass', base_ref: base.branch };
+    }
+    if ((i.missing ?? missingManager)(setup) !== null) {
+      return { verdict: 'fail', base_ref: base.branch };
+    }
+    log(`running \`${setup}\` on origin/${base.branch} (${base.sha.slice(0, 12)})`);
+    const ok = await i.runSetup(setup, base.dir);
+    if (i.signal?.aborted === true) return { verdict: 'unknown', base_ref: base.branch };
+    log(ok ? `it passes on origin/${base.branch}` : `it fails on origin/${base.branch} too`);
+    return { verdict: ok ? 'pass' : 'fail', base_ref: base.branch };
+  } catch (e) {
+    log(`the base probe failed: ${String(e)}`);
+    return { verdict: 'unknown', base_ref: base.branch };
+  } finally {
+    removeCheckout(base.dir);
+  }
+}
+
 export type PackageManager = 'pnpm' | 'yarn' | 'npm';
 
 /**

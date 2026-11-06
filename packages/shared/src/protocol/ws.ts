@@ -6,6 +6,7 @@ import { McpPolicySchema } from '../workflow/mcp.js';
 import { CapabilitySchema } from '../machines/capabilities.js';
 import { GitShaSchema, PrUrlSchema } from './actions.js';
 import { QuestionOptionsSchema } from './question-options.js';
+import { ProposedChecksSchema } from '../workflow/repo-checks.js';
 import {
   AbsolutePathSchema,
   InventoryRepoSchema,
@@ -354,6 +355,10 @@ const usage = z.object({
  * `output` message; `turn_end` stays in the daemon. `started`, `cmd_exit`, `build_slot`,
  * `heartbeat` and `no_outcome` come from the daemon itself.
  */
+/** How a failed check setup did on the base branch's tip (cmd_exit `setup_on_base`). */
+export const SetupOnBaseSchema = z.enum(['pass', 'fail', 'unknown']);
+export type SetupOnBase = z.infer<typeof SetupOnBaseSchema>;
+
 export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
   /**
    * The Claude process for a `start_session` is running in its worktree. Emitted once per
@@ -392,7 +397,16 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
    */
   z.object({
     kind: z.literal('ask_user'),
-    data: z.object({ question: z.string(), options: QuestionOptionsSchema.optional() }),
+    data: z.object({
+      question: z.string(),
+      options: QuestionOptionsSchema.optional(),
+      /**
+       * A repo-checks change the agent proposes with its question (a check or setup failure that
+       * is conductor's config, not the branch). The orchestrator stores it as a `change_proposal`
+       * linked to the ticket; a human applies it. Absent: none.
+       */
+      proposed_checks: ProposedChecksSchema.optional(),
+    }),
   }),
   /**
    * U-028 (ADR-0005 addendum): a turn ended without complete_state / ask_user, the daemon sent
@@ -435,6 +449,16 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       dirty: z.array(z.string()).optional(),
       /** ADR-0010: the fresh checkout's setup failed; `output_tail` is its output. Not run. */
       setup_failed: z.boolean().optional(),
+      /** With `setup_failed`: the setup command that ran (after lockfile auto-detect). */
+      setup_cmd: z.string().optional(),
+      /**
+       * With `setup_failed`: the same setup run once in a fresh checkout of the base branch's tip.
+       * `fail` = it fails there too (conductor's check config), `pass` = only this branch breaks
+       * it, `unknown` = the probe could not run.
+       */
+      setup_on_base: SetupOnBaseSchema.optional(),
+      /** The base branch the probe used (e.g. `main`). */
+      base_ref: z.string().optional(),
       /**
        * The command did not run, and why (the fresh checkout could not be made, the branch moved, a
        * package manager is missing, …). `exit_code` is null, but nothing was killed.

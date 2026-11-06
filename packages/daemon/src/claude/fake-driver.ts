@@ -1,4 +1,4 @@
-import type { JsonObject, QuestionOptions } from '@conductor/shared';
+import type { JsonObject, ProposedChecks, QuestionOptions } from '@conductor/shared';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
 import {
   PERMISSION_SESSION_ENDED,
@@ -20,7 +20,7 @@ import {
 export type FakeTurnAction =
   | { say: string }
   /** Questions UX: `options` as the outcome server would forward them (already bounded). */
-  | { askUser: string; options?: QuestionOptions }
+  | { askUser: string; options?: QuestionOptions; proposedChecks?: ProposedChecks }
   /**
    * ADR-0011: `transition` / `reason` as the agent names them. With `opts.transitions`, the first
    * unknown name is refused like the outcome server does (a debug line, not emitted).
@@ -254,6 +254,7 @@ export class FakeDriverSession implements DriverSession {
         kind: 'ask_user',
         question: a.askUser,
         ...(a.options !== undefined ? { options: a.options } : {}),
+        ...(a.proposedChecks !== undefined ? { proposed_checks: a.proposedChecks } : {}),
       });
     } else if (this.completed || this.askPending) {
       // ADR-0005 outcome-server guard: a second complete_state, or one while a question is

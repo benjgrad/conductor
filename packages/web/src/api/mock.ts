@@ -307,6 +307,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     expected_effect: p.expected_effect,
     created_at: p.created_at,
     applied_at: p.applied_at,
+    ticket_id: p.ticket_id ?? null,
   });
   const mustBeProposed = (p: ChangeProposalDetail) => {
     if (p.status !== 'proposed') {
@@ -1462,6 +1463,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           (p) =>
             (wanted === null || p.status === wanted) &&
             (o.kind === undefined || p.kind === o.kind) &&
+            (o.ticketId === undefined || p.ticket_id === o.ticketId) &&
             (target === null || p.target === o.target || p.target === target),
         );
         const cursor = o.cursor ?? 0;

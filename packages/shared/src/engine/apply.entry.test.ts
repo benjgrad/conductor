@@ -547,7 +547,10 @@ describe('checks run in a fresh checkout of one commit (Ben, 2026-10-26)', () =>
       retry_counters: { [KEY]: 1 },
     });
     const prompt = find(r.effects, 'start_session')!.prompt;
-    expect(prompt).toContain('- Setup: the setup in a fresh checkout failed (exit code 1)');
+    expect(prompt).toContain(
+      '- Setup: Setup failed before any check ran: the auto-detected setup (auto-detected from the lockfile).',
+    );
+    expect(prompt).toContain('It failed (exit code 1) in a fresh checkout');
     expect(prompt).toContain('npm ERR! missing lockfile');
   });
 

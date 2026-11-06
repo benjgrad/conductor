@@ -21,6 +21,7 @@ interface Pending {
 export class FakeCommandRunner implements CommandRunner {
   readonly calls: RunCommandOptions[] = [];
   private readonly scripts = new Map<string, FakeCommandScript>();
+  private readonly dynamic = new Map<string, (opts: RunCommandOptions) => FakeCommandScript>();
   private readonly queue: Pending[] = [];
   private readonly running = new Set<Pending>();
 
@@ -32,6 +33,16 @@ export class FakeCommandRunner implements CommandRunner {
   script(cmd: string, s: FakeCommandScript): this {
     this.scripts.set(cmd, s);
     return this;
+  }
+
+  /** A script decided per run (e.g. by its cwd); wins over `script` for that cmd. */
+  scriptBy(cmd: string, fn: (opts: RunCommandOptions) => FakeCommandScript): this {
+    this.dynamic.set(cmd, fn);
+    return this;
+  }
+
+  private scriptOf(opts: RunCommandOptions): FakeCommandScript | undefined {
+    return this.dynamic.get(opts.cmd)?.(opts) ?? this.scripts.get(opts.cmd);
   }
 
   get runningCount(): number {
@@ -66,7 +77,7 @@ export class FakeCommandRunner implements CommandRunner {
   private begin(p: Pending): void {
     p.started = true;
     this.running.add(p);
-    const out = this.scripts.get(p.opts.cmd)?.output;
+    const out = this.scriptOf(p.opts)?.output;
     if (out) p.opts.onOutput?.({ stream: 'stdout', text: out });
     if (this.autoRelease) queueMicrotask(() => this.end(p, {}));
   }
@@ -75,7 +86,7 @@ export class FakeCommandRunner implements CommandRunner {
     const wasQueued = !p.started && this.queue.includes(p);
     if (!this.running.delete(p) && !wasQueued) return;
     if (wasQueued) this.queue.splice(this.queue.indexOf(p), 1);
-    const s = this.scripts.get(p.opts.cmd) ?? {};
+    const s = this.scriptOf(p.opts) ?? {};
     const timedOut = !how.abort && (s.timedOut ?? false);
     p.finish({
       exitCode: how.abort || timedOut ? null : (s.exitCode ?? 0),

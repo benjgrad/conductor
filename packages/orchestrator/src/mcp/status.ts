@@ -66,6 +66,7 @@ const KIND_TEXT: Record<InputRequestKind, string> = {
   timeout: 'a step timed out',
   approval: 'an approval is needed',
   machine_lost: 'its machine was lost',
+  handoff: 'ready for review',
 };
 
 export interface StatusLineInput {
@@ -98,6 +99,10 @@ export function statusLine({
   switch (waiting) {
     case 'you':
       if (card.input_request) {
+        // ADR-0037 P8: a hand-off is finished work to review, not a question.
+        if (card.input_request.kind === 'handoff') {
+          return `Ready for review: "${clip(card.input_request.question, 200)}"`;
+        }
         const what =
           handoff === true && card.input_request.kind === 'agent_question'
             ? 'the agent reports'

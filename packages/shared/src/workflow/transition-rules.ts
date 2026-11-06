@@ -7,11 +7,12 @@ import {
   type TransitionObject,
   type WorkflowDefinition,
 } from './schema.js';
+import { resolvePresets } from './instructions.js';
 
 // ADR-0011: pure helpers over a definition's transitions, shared by the validator (T02), the
 // engine (T03, T08), the card derivation (api/rest.ts) and the editor (T06). Contract (M1b-T01).
 
-type Def = Pick<WorkflowDefinition, 'states'>;
+type Def = Pick<WorkflowDefinition, 'states'> & Partial<Pick<WorkflowDefinition, 'instructions'>>;
 
 /** Names that are always `system` (timeouts, command exits, connector results, the budget). */
 export const SYSTEM_TRANSITION_NAMES: readonly string[] = [
@@ -175,6 +176,14 @@ export const HumanTransitionOptionSchema = z.object({
   goto: z.string(),
   /** The button asks for text first (`transitionNeedsText`); it goes in the request's `text`. */
   needs_text: z.boolean(),
+  /**
+   * ADR-0037 P5: the transition's `presets`, resolved against the definition the session runs on
+   * (its pinned version): chips that fill the text box. Absent when it has none.
+   */
+  presets: z
+    .array(z.object({ slug: z.string(), label: z.string(), text: z.string().max(4_000) }))
+    .max(10)
+    .optional(),
 });
 export type HumanTransitionOption = z.infer<typeof HumanTransitionOptionSchema>;
 
@@ -185,10 +194,14 @@ export function humanTransitionOptions(
   kind: TicketKind | null,
   returnTo: string | null,
 ): HumanTransitionOption[] {
-  return transitionsOf(def, state, { actor: 'human', kind }).map((e) => ({
-    name: e.name,
-    title: transitionTitle(e.name, e.transition),
-    goto: e.transition.goto === RETURN_TO && returnTo !== null ? returnTo : e.transition.goto,
-    needs_text: transitionNeedsText(def, e.transition),
-  }));
+  return transitionsOf(def, state, { actor: 'human', kind }).map((e) => {
+    const presets = resolvePresets(def, e.transition);
+    return {
+      name: e.name,
+      title: transitionTitle(e.name, e.transition),
+      goto: e.transition.goto === RETURN_TO && returnTo !== null ? returnTo : e.transition.goto,
+      needs_text: transitionNeedsText(def, e.transition),
+      ...(presets.length > 0 ? { presets } : {}),
+    };
+  });
 }

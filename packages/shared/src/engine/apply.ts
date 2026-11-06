@@ -1,4 +1,5 @@
 import {
+  isAgentRequest,
   isGithubPrUrl,
   type InputRequestKind,
   type JsonObject,
@@ -8,6 +9,7 @@ import {
 import { evaluateGuard } from '../workflow/guards.js';
 import { resolveMcpPolicy } from '../workflow/mcp.js';
 import { stateTitle } from '../workflow/conductor.js';
+import { resolveInstruction } from '../workflow/instructions.js';
 import {
   AVAILABLE_TRANSITION_ACTIONS,
   parseDuration,
@@ -465,6 +467,8 @@ function onStarted(st: Step, commandId: string): ApplyIgnoreReason | null {
  * - a `question: true` transition: its target opens an `agent_question` with the reason; the
  *   state's `result` keys and guard are not checked (it is not a finished step); a non-empty
  *   result is still stored as `context[<state>]` (the plan a human is asked to approve);
+ * - a `handoff: true` transition (ADR-0037 P8): the same, but the request's kind is `handoff`
+ *   (the reason is a summary of finished work for review, not a question);
  * - any other transition: result keys, then the guard (failed → `fail`), then it is taken.
  */
 function onComplete(
@@ -497,7 +501,7 @@ function onComplete(
     plan.type === 'take' && e.transition != null
       ? { transition: plan.name, reason, actor: 'agent' }
       : undefined;
-  if (plan.type === 'take' && plan.question) {
+  if (plan.type === 'take' && (plan.question || plan.handoff)) {
     // 05 §Transitions: a question's non-empty result (e.g. plan_needs_approval's plan) is kept, so
     // the human can read what they are asked to approve. Its keys and guard are not checked.
     if (Object.keys(result).length > 0) st.s.context = { ...st.s.context, [name]: result };
@@ -505,7 +509,10 @@ function onComplete(
       st,
       outcome,
       { question: transitionQuestion(plan.name, plan.transition, reason), result },
-      { ...(move !== undefined ? { move } : {}), kind: 'agent_question' },
+      {
+        ...(move !== undefined ? { move } : {}),
+        kind: plan.handoff ? 'handoff' : 'agent_question',
+      },
     );
     return null;
   }
@@ -1157,7 +1164,7 @@ function kindForOutcome(outcome: string): InputRequestKind {
 }
 
 function questionFor(from: string, outcome: string, kind: InputRequestKind, info: OutcomeInfo) {
-  if (kind === 'agent_question' && info.question !== undefined) return info.question;
+  if (isAgentRequest(kind) && info.question !== undefined) return info.question;
   const why = info.detail ? ` (${info.detail})` : '';
   if (kind === 'timeout') return `"${from}" timed out${why}. Retry, skip, or abort?`;
   if (kind === 'retries_exhausted') {
@@ -1496,8 +1503,10 @@ function passMove(st: Step, r: GateStep, label: string): void {
   const move: MoveRecord = { transition: name, reason: r.reason, actor: r.actor ?? 'agent' };
   const raw = onOf(st.def, r.from)?.[name];
   const t = raw === undefined ? undefined : transitionObject(raw);
-  const question = t?.question === true;
-  const kind = question ? 'agent_question' : kindForOutcome(name);
+  // A question or an ADR-0037 hand-off opens the agent's own text, with its own kind.
+  const handoff = t?.handoff === true;
+  const question = t?.question === true || handoff;
+  const kind = handoff ? 'handoff' : question ? 'agent_question' : kindForOutcome(name);
   const humanText =
     move.actor === 'human' && r.reason !== null && st.def.states[r.to]?.type === 'agent'
       ? { input_request_id: null, answer: r.reason }
@@ -2203,7 +2212,9 @@ function stepUnmet(st: Step, spec: GateSpec, r: GateStep, unmet: ReviewFeedback[
   const feedback: ReviewFeedback = {
     heading: feedbackHeading({ kind: r.kind, from: r.from, to: r.to, title: spec.title }),
     unmet,
-    instruction: spec.on_unmet.instruction ?? null,
+    // ADR-0037 P5: a `$instructions.<slug>` ref resolves now, against the pinned definition, and
+    // the text is frozen into the feedback, so a later version doesn't change this ticket.
+    instruction: resolveInstruction(st.def, spec.on_unmet.instruction) ?? null,
   };
   const key =
     r.kind === 'entry'

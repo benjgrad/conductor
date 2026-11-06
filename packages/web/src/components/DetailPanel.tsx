@@ -3,7 +3,13 @@
 // 11-web-ui §Phone layout). Messages is a chat with the agent (the live log, the open question
 // inline, a composer pinned at the bottom); Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
 // where, the workflow, spend and the context under Technical details.
-import type { BoardCard, InputRequestDto, OutputChunk, SessionDetail } from '@conductor/shared';
+import {
+  isAgentRequest,
+  type BoardCard,
+  type InputRequestDto,
+  type OutputChunk,
+  type SessionDetail,
+} from '@conductor/shared';
 import { ArrowLeft } from 'lucide-react';
 import {
   useCallback,
@@ -601,7 +607,7 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
       }),
     );
 
-  const fromAgent = request.kind === 'agent_question';
+  const fromAgent = isAgentRequest(request.kind);
   const cls = classifyRequest(request);
   const stepFailed = cls === 'step_failed';
   const tone = requestTone(cls, request.kind);
@@ -624,7 +630,13 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
     <RequestCard
       tone={tone}
       label={stepFailed ? 'Step failed' : KIND_LABELS[request.kind]}
-      who={fromAgent ? `${agent} asks` : 'Conductor needs a decision'}
+      who={
+        request.kind === 'handoff'
+          ? `${agent} hands off for review`
+          : fromAgent
+            ? `${agent} asks`
+            : 'Conductor needs a decision'
+      }
       ariaLabel="Pending input"
     >
       {failed?.error && (

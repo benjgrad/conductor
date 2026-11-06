@@ -35,6 +35,8 @@ export function classifyRequest(
   req: Pick<InputRequestDto, 'kind' | 'question' | 'origin_transition' | 'step_failed'>,
   fallbackTransition?: string | null,
 ): RequestClass {
+  // ADR-0037 P8: a hand-off is a review by kind, whatever transition opened it.
+  if (req.kind === 'handoff') return 'review';
   const origin = req.origin_transition !== undefined ? req.origin_transition : fallbackTransition;
   if (isReviewTransition(origin)) return 'review';
   if (origin === PLAN_APPROVAL_TRANSITION) return 'plan_approval';
@@ -319,6 +321,17 @@ export function detailRequestTone(
   const req = detail.pending_input;
   if (!req) return null;
   return requestTone(classifyRequest(req, lastMoveTransition(detail)), req.kind);
+}
+
+/**
+ * ADR-0037 P5: while a review request is open, the saved instructions of the text button that asks
+ * for changes (the first `needs_text` option with `presets`), for the composer's chips.
+ */
+export function reviewPresets(
+  detail: Pick<SessionDetail, 'pending_input' | 'moves' | 'card'>,
+): HumanTransitionOption['presets'] {
+  if (detailRequestTone(detail) !== 'review') return undefined;
+  return detail.card.human_transitions.find((o) => o.needs_text && o.presets)?.presets;
 }
 
 /**

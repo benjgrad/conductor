@@ -73,7 +73,8 @@ export type InputClass = 'question' | 'handoff' | 'stop';
 /**
  * - `stop`: the engine stopped and asked a human (timeout, retries ran out, budget, an approval,
  *   a lost machine): not the agent asking.
- * - `handoff`: an `agent_question` opened by a hand-off transition (`isHandoffTransition`).
+ * - `handoff`: a request of kind `handoff` (ADR-0037 P8), or an `agent_question` opened by a
+ *   legacy hand-off transition (`isHandoffTransition`).
  * - `question`: any other `agent_question` (`ask_user`, `needs_approval_to_message`, planning).
  * `from`: the state the transition left (a gate label is resolved to its source). With no
  * definition, a transition named `…ready_for_review` is taken as a hand-off.
@@ -88,6 +89,8 @@ export function inputClass(
   },
   def: Pick<WorkflowDefinition, 'states'> | undefined,
 ): InputClass {
+  // ADR-0037 P8: a `handoff` request is a hand-off by kind; older rows are told apart below.
+  if (row.kind === 'handoff') return 'handoff';
   if (row.kind !== 'agent_question') return 'stop';
   if (row.transition === null || isEngineMove({ cause: row.cause ?? null })) return 'question';
   if (def === undefined)

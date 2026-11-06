@@ -334,9 +334,17 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(panel().getByRole('button', { name: 'Back to Planning → Needs input' }));
     expect(arrowPanel().getByRole('list', { name: 'Transitions on this arrow' })).toBeTruthy();
     fireEvent.click(arrowPanel().getByRole('button', { name: /^Scope changed/ }));
+    expect(panel().getByRole<HTMLInputElement>('radio', { name: /Asks a question/ }).checked).toBe(
+      true,
+    );
+    // ADR-0037 P8: the three-way choice; a hand-off clears the question.
+    fireEvent.click(panel().getByRole('radio', { name: /Hands off for review/ }));
     expect(
-      panel().getByRole<HTMLInputElement>('checkbox', { name: /Asks a question/ }).checked,
+      panel().getByRole<HTMLInputElement>('radio', { name: /Hands off for review/ }).checked,
     ).toBe(true);
+    expect(panel().getByRole<HTMLInputElement>('radio', { name: /Asks a question/ }).checked).toBe(
+      false,
+    );
     fireEvent.click(panel().getByRole('button', { name: 'Planning → Needs input' }));
     expect(arrowPanel().getByRole('heading', { name: 'Planning → Needs input' })).toBeTruthy();
     fireEvent.click(arrowPanel().getByRole('button', { name: 'Back to Planning' }));
@@ -1538,5 +1546,64 @@ describe('history, Compare and the Save review (UXR-70, UXR-73)', () => {
       /\(changed\)$/,
     );
     expect(lane('Planning').getAttribute('class')).not.toContain('changed');
+  });
+});
+
+describe('saved instructions (ADR-0037 P5)', () => {
+  const instructions = () => within(screen.getByRole('region', { name: 'Instructions' }));
+
+  /** Open the list, add one, name it `slug` and give it `text`. */
+  function addSaved(slug: string, text: string) {
+    fireEvent.click(instructions().getByRole('button', { name: /^Instructions \(\d+\)$/ }));
+    fireEvent.click(instructions().getByRole('button', { name: 'Add instruction' }));
+    const names = instructions().getAllByLabelText<HTMLInputElement>('Name');
+    const name = names[names.length - 1]!;
+    type(name, slug);
+    fireEvent.blur(name);
+    const texts = instructions().getAllByLabelText('Text');
+    type(texts[texts.length - 1]!, text);
+  }
+
+  it('the list round-trips; an on_unmet picks one as a ref; delete is refused while used', async () => {
+    const { saved } = await setup();
+    addSaved('resync_main', 'Merge main, then finish again.');
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    const picker = panel().getByRole<HTMLSelectElement>('combobox', {
+      name: 'Use a saved instruction',
+    });
+    fireEvent.change(picker, { target: { value: 'resync_main' } });
+    const box = panel().getByLabelText<HTMLTextAreaElement>('With instruction');
+    expect(box.value).toBe('Merge main, then finish again.');
+    expect(box.readOnly).toBe(true);
+    fireEvent.click(instructions().getByRole('button', { name: 'Delete instruction resync_main' }));
+    expect(instructions().getByRole('alert').textContent).toMatch(/Can’t delete “resync_main”/);
+    await save();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]!.instructions).toEqual({ resync_main: 'Merge main, then finish again.' });
+    expect(onOf(saved[0]!, 'implementing').ready_for_testing).toMatchObject({
+      on_unmet: { instruction: '$instructions.resync_main' },
+    });
+  });
+
+  it('a person’s text button offers saved replies, stored as presets', async () => {
+    const api = createMockApi();
+    const get = api.getWorkflow.bind(api);
+    api.getWorkflow = async (id, version) => {
+      const detail = await get(id, version);
+      if (detail.version !== 3) return detail;
+      const def = structuredClone(detail.definition);
+      const t = onOf(def, 'needs_input').waiting_on_someone;
+      if (typeof t === 'object') t.text = 'required';
+      return { ...detail, definition: def };
+    };
+    const { saved } = await setup(api);
+    addSaved('nudge', 'Ping the reviewer.');
+    fireEvent.click(arrow('Needs input', 'Waiting external'));
+    fireEvent.click(panel().getByRole('checkbox', { name: 'nudge' }));
+    await save();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(onOf(saved[0]!, 'needs_input').waiting_on_someone).toMatchObject({
+      presets: ['nudge'],
+    });
   });
 });

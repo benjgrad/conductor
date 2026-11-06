@@ -200,7 +200,7 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 |---|---|---|
 | id | uuid pk | |
 | session_id | fk | |
-| kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` · `machine_lost` (`MACHINE_LOST_KIND`: the session's machine was lost or revoked, [10](10-contracts.md#machines-protocol-v2); added by M2-T03) |
+| kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` · `machine_lost` (`MACHINE_LOST_KIND`: the session's machine was lost or revoked, [10](10-contracts.md#machines-protocol-v2); added by M2-T03) · `handoff` (a `handoff: true` transition handed finished work over for review; `question` is the agent's summary; [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P8, added by T3) |
 | question | text | shown as the card badge |
 | return_to | text null | copy of `session.return_to` when created |
 | answer | text null | |

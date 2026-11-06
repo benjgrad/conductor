@@ -12,6 +12,7 @@ import {
   type WorkflowFeature,
   type WorkflowState,
 } from './schema.js';
+import { instructionFields } from './instructions.js';
 import { transitionActor, transitionObject } from './transition-rules.js';
 import type { WorkflowValidationError } from './validate.js';
 
@@ -66,29 +67,6 @@ function transitionsOf(from: string, state: WorkflowState): At[] {
     t: transitionObject(raw),
     base: ['states', from, 'on', name],
   }));
-}
-
-/** Every instruction field that may hold a `$instructions.<slug>` ref, as `[path, text]`. */
-function instructionFields(def: WorkflowDefinition): [Path, string][] {
-  const fields: [Path, string][] = [];
-  const add = (path: Path, text: string | undefined) => {
-    if (text !== undefined) fields.push([path, text]);
-  };
-  for (const [name, state] of Object.entries(def.states)) {
-    add(['states', name, 'entry', 'on_unmet', 'instruction'], state.entry?.on_unmet.instruction);
-    if ((state.type === 'human' || state.type === 'event') && state.watch !== undefined) {
-      const ob = state.watch.on_broken;
-      if ('goto' in ob) add(['states', name, 'watch', 'on_broken', 'instruction'], ob.instruction);
-    }
-    for (const { t, base } of transitionsOf(name, state)) {
-      add([...base, 'on_unmet', 'instruction'], t.on_unmet?.instruction);
-      add(
-        [...base, 'requirements', 'on_unmet', 'instruction'],
-        t.requirements?.on_unmet.instruction,
-      );
-    }
-  }
-  return fields;
 }
 
 /** What a definition may use (rule 14). Omitted lists default to the AVAILABLE_* constants. */

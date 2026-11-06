@@ -300,12 +300,46 @@ function MetricsSection({
         </div>
       )}
       {data.more_groups > 0 && <p className="muted">And {data.more_groups} more.</p>}
+      {data.presets && <SavedReplies presets={data.presets} />}
       {data.rows_truncated && (
         <p className="muted">
           Only the newest rows were read for: {data.rows_truncated.join(', ')}.
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * ADR-0037 P5: how often a person's review reply was exactly a saved reply, and how often they
+ * typed something else where one was on offer: is the recipe still typed by hand?
+ */
+function SavedReplies({ presets }: { presets: NonNullable<ProcessMetricsResponse['presets']> }) {
+  return (
+    <div className="ins-scroll">
+      <table className="ins-table" aria-label="Saved replies">
+        <thead>
+          <tr>
+            <th scope="col">Saved reply</th>
+            <th scope="col">Sent as is</th>
+          </tr>
+        </thead>
+        <tbody>
+          {presets.uses.map((u) => (
+            <tr key={`${u.workflow_id}/${u.slug}`}>
+              <th scope="row" className="mono">
+                {u.slug}
+              </th>
+              <td>{u.used}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted">
+        {presets.typed} {presets.typed === 1 ? 'reply was' : 'replies were'} typed by hand where a
+        saved reply was on offer.
+      </p>
+    </div>
   );
 }
 

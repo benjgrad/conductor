@@ -14,6 +14,7 @@ import { useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { displayState } from '../workflow/review.js';
 import { humanize } from './format.js';
+import { PresetChips } from './PresetChips.js';
 
 type ItemStatus = BoardPendingItem['status'];
 
@@ -188,6 +189,14 @@ export function TransitionButtons({
       {open && (
         <form className="transition-text" aria-label={open.title} onSubmit={submit}>
           <label htmlFor={boxId}>{prompt}</label>
+          <PresetChips
+            presets={open.presets}
+            disabled={busy}
+            onPick={(t) => {
+              setText(t);
+              document.getElementById(boxId)?.focus();
+            }}
+          />
           <textarea
             id={boxId}
             rows={2}

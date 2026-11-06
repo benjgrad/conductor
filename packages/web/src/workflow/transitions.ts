@@ -4,6 +4,7 @@ import {
   conditionEnabled,
   DEFAULT_UI_PATHS,
   DurationSchema,
+  instructionRef,
   RETURN_TO,
   transitionActor,
   transitionObject,
@@ -472,6 +473,13 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
       if (t.question === true && t.goto !== RETURN_TO && typeOf(t.goto) !== 'human') {
         add('.question', 'only a transition to a human column can ask a question');
       }
+      // Rule 22 (ADR-0037 P8): a hand-off goes to a person, and is not also a question.
+      if (t.handoff === true) {
+        if (t.question === true) add('.handoff', 'hand off or ask a question, not both');
+        if (t.goto === RETURN_TO || typeOf(t.goto) !== 'human') {
+          add('.handoff', 'only a transition to a human column can hand off for review');
+        }
+      }
 
       const r = t.requires;
       if (r !== undefined) {
@@ -572,6 +580,25 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
         if (u.instruction !== undefined && u.instruction.trim() === '') {
           add(`${ub}.instruction`, 'the instruction is empty');
         }
+        // ADR-0037 rule 21: a saved instruction's ref names one.
+        const ref = u.instruction === undefined ? null : instructionRef(u.instruction);
+        if (ref !== null && (ref.slug === null || def.instructions?.[ref.slug] === undefined)) {
+          add(
+            `${ub}.instruction`,
+            `saved instruction "${ref.slug ?? u.instruction}" doesn't exist`,
+          );
+        }
+      }
+      // ADR-0037 rule 21: saved replies only on a person's button with a text box.
+      if (t.presets !== undefined) {
+        if (transitionActor(def, from, name, raw) !== 'human' || t.text === undefined) {
+          add('.presets', 'saved replies are only for a person’s button that asks for text');
+        }
+        t.presets.forEach((slug, i) => {
+          if (def.instructions?.[slug] === undefined) {
+            add(`.presets.${i}`, `saved instruction "${slug}" doesn't exist`);
+          }
+        });
       }
     }
   }
@@ -664,6 +691,7 @@ export function describeTransition(def: WorkflowDefinition, from: string, name: 
         : `When **${title}** happens`;
   if (t.kinds !== undefined && t.kinds.length === 1) opening += ` (${t.kinds[0]} tickets)`;
   if (t.question === true) opening += ', asking a question';
+  if (t.handoff === true) opening += ', handing off for review';
 
   const r = t.requires ?? {};
   const steps: string[] = [];
@@ -704,7 +732,8 @@ export function describeTransition(def: WorkflowDefinition, from: string, name: 
     else {
       out += ` If not met: back to ${stateTitle(def, u.goto)}`;
       if (u.instruction !== undefined && u.instruction.trim() !== '') {
-        out += ' with your instruction';
+        const ref = instructionRef(u.instruction);
+        out += ref?.slug ? ` with the saved instruction ${ref.slug}` : ' with your instruction';
       }
       out += `, up to ${plural(u.retries, 'time')}, then ${then}.`;
     }
@@ -722,7 +751,19 @@ export type TransitionSection = 'who' | 'checks' | 'review' | 'actions' | 'condi
 export function sectionOfPath(suffix: string): TransitionSection | null {
   const under = (p: string) => suffix === p || suffix.startsWith(`${p}.`);
   if (
-    ['', '.title', '.goto', '.when', '.actor', '.kinds', '.question', '.notify'].includes(suffix)
+    [
+      '',
+      '.title',
+      '.goto',
+      '.when',
+      '.actor',
+      '.kinds',
+      '.question',
+      '.handoff',
+      '.notify',
+    ].includes(suffix) ||
+    under('.presets') ||
+    suffix === '.text'
   ) {
     return 'who';
   }

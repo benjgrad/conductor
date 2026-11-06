@@ -27,6 +27,8 @@ import {
 import { ConditionRow } from './ConditionFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import { EditorHead, type Crumb } from './EditorHead.js';
+import { InstructionField } from './InstructionField.js';
+import { instructionsOf, setPresets } from './instructions.js';
 import { RepoOverridesHint } from './RepoOverridesHint.js';
 import {
   ACTION_SHORT,
@@ -96,6 +98,28 @@ export interface TransitionEditorProps {
 }
 
 const KIND_TEXT: Record<TicketKind, string> = { work: 'Work', personal: 'Personal' };
+
+/** ADR-0037 P8: what a transition's `reason` is: plain, a question, or a hand-off for review. */
+type AskMode = 'plain' | 'question' | 'handoff';
+
+const ASK_MODES: readonly { mode: AskMode; text: string }[] = [
+  { mode: 'plain', text: 'Plain' },
+  { mode: 'question', text: 'Asks a question (the agent’s reason is the question)' },
+  { mode: 'handoff', text: 'Hands off for review (the agent’s reason is its summary)' },
+];
+
+function askMode(t: Pick<TransitionObject, 'question' | 'handoff'>): AskMode {
+  if (t.handoff === true) return 'handoff';
+  return t.question === true ? 'question' : 'plain';
+}
+
+/** The fields one mode sets; the other is cleared (rule 22: not both). */
+function askPatch(mode: AskMode): Partial<TransitionObject> {
+  return {
+    question: mode === 'question' ? true : undefined,
+    handoff: mode === 'handoff' ? true : undefined,
+  };
+}
 
 export function TransitionEditor(props: TransitionEditorProps) {
   const { definition, from, name, onClose, onSelectColumn, onSelectArrow, onBack } = props;
@@ -386,15 +410,22 @@ function TransitionForm({
           ))}
         </fieldset>
         {at('.kinds')}
-        <label className="wf-toggle">
-          <input
-            type="checkbox"
-            checked={t.question === true}
-            onChange={(e) => patch({ question: e.target.checked ? true : undefined })}
-          />
-          Asks a question (the agent’s reason is the question)
-        </label>
+        <fieldset className="wf-kinds">
+          <legend>The agent’s reason</legend>
+          {ASK_MODES.map(({ mode, text }) => (
+            <label key={mode} className="wf-toggle">
+              <input
+                type="radio"
+                name={`${uid}-ask`}
+                checked={askMode(t) === mode}
+                onChange={() => patch(askPatch(mode))}
+              />
+              {text}
+            </label>
+          ))}
+        </fieldset>
         {at('.question')}
+        {at('.handoff')}
         <label className="wf-toggle">
           <input
             type="checkbox"
@@ -404,6 +435,38 @@ function TransitionForm({
           Notify me when this is taken
         </label>
         {at('.notify')}
+        {/* ADR-0037 P5: shown while set, so a refused one (rule 21) can be unticked. */}
+        {(t.presets !== undefined ||
+          ((t.actor ?? inferred) === 'human' &&
+            t.text !== undefined &&
+            instructionsOf(definition).length > 0)) && (
+          <fieldset className="wf-kinds">
+            <legend>Saved replies (fill the text box)</legend>
+            {[
+              ...new Set([...instructionsOf(definition).map(([k]) => k), ...(t.presets ?? [])]),
+            ].map((slug) => (
+              <label key={slug} className="wf-toggle">
+                <input
+                  type="checkbox"
+                  checked={(t.presets ?? []).includes(slug)}
+                  onChange={(e) => {
+                    const now = t.presets ?? [];
+                    onChange(
+                      setPresets(
+                        definition,
+                        from,
+                        name,
+                        e.target.checked ? [...now, slug] : now.filter((x) => x !== slug),
+                      ),
+                    );
+                  }}
+                />
+                {slug}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {at('.presets')}
 
         <div className="wf-advanced">
           <button
@@ -694,16 +757,15 @@ function TransitionForm({
               ))}
             </select>
             <label htmlFor={`${uid}-instruction`}>With instruction</label>
-            <textarea
+            <InstructionField
+              definition={definition}
               id={`${uid}-instruction`}
-              rows={3}
-              value={u.instruction ?? ''}
+              value={u.instruction}
               placeholder="What the agent should do about it (optional)"
-              onChange={(e) => {
+              onChange={(v) => {
                 const rest = { ...u };
                 delete rest.instruction;
-                const v = e.target.value;
-                patch({ on_unmet: v.trim() === '' ? rest : { ...rest, instruction: v } });
+                patch({ on_unmet: v === undefined ? rest : { ...rest, instruction: v } });
               }}
             />
             <label htmlFor={`${uid}-retries`}>Up to (times)</label>

@@ -182,6 +182,88 @@ describe('loadAdvisorRows (ADR-0033)', () => {
     expect(ticketId).toBeTruthy();
   });
 
+  it('counts review answers that equal a saved reply of the pinned definition (ADR-0037 P5)', async () => {
+    const d = await account('D');
+    const md = await machine(d);
+    const v2 = structuredClone(CONDUCTOR_V4_DEF) as typeof CONDUCTOR_V4_DEF & {
+      instructions?: Record<string, string>;
+    };
+    v2.version = 2;
+    v2.instructions = { resync_main: 'Merge main, then finish again.' };
+    const answer = v2.states.needs_input!;
+    if (answer.type !== 'human') throw new Error('needs_input is a human state');
+    answer.on = {
+      ...answer.on,
+      answer: { goto: '$return_to', actor: 'human', text: 'required', presets: ['resync_main'] },
+    };
+    await db.pool.query(
+      "INSERT INTO workflow_definition (id, version, definition) VALUES ('conductor', 2, $1) " +
+        'ON CONFLICT DO NOTHING',
+      [JSON.stringify(v2)],
+    );
+    const gate = moveStateLabel('implementing', 'needs_input', 'personal_pr_ready_for_review');
+    const handoff = async (text: string, ago: number) => {
+      const { sessionId } = await advisorHistory(db.pool, {
+        accountId: d,
+        machineId: md,
+        repo: 'github.com/acme/app',
+        ago,
+        now: NOW,
+      });
+      await db.pool.query('UPDATE session SET workflow_version = 2 WHERE id = $1', [sessionId]);
+      const at = daysAgo(ago, 60);
+      await db.pool.query(
+        "INSERT INTO event (session_id, type, payload, ts) VALUES ($1, 'state.entered', $2, $3)",
+        [
+          sessionId,
+          JSON.stringify({
+            from: 'implementing',
+            to: gate,
+            visit: 1,
+            transition: 'personal_pr_ready_for_review',
+            actor: 'agent',
+          }),
+          at,
+        ],
+      );
+      await db.pool.query(
+        'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at, ' +
+          "answer, answered_by, answered_at) VALUES ($1, $2, 'agent_question', 'PR ready.', $3, $4, $5, 'ben', $4)",
+        [randomUUID(), sessionId, gate, new Date(at.getTime() + 1_000), text],
+      );
+    };
+    await handoff('  Merge main, then finish again.\n', 2);
+    await handoff('Please rebase', 3);
+
+    const rows = await loadAdvisorRows(db.pool, { accountId: d, windowDays: 30, now: NOW });
+    expect(processMetrics(rows, 'state').presets).toEqual({
+      uses: [
+        { workflow_id: 'conductor', slug: 'resync_main', used: 1, examples: [expect.any(String)] },
+      ],
+      typed: 1,
+    });
+  });
+
+  it('a handoff-kind input (ADR-0037 P8) is a hand-off, not a question', async () => {
+    const d = await account('D');
+    const md = await machine(d);
+    const { sessionId } = await advisorHistory(db.pool, {
+      accountId: d,
+      machineId: md,
+      repo: 'github.com/acme/app',
+      ago: 3,
+      now: NOW,
+    });
+    await db.pool.query(
+      'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at) ' +
+        "VALUES ($1, $2, 'handoff', 'Added /health.', 'implementing', $3)",
+      [randomUUID(), sessionId, daysAgo(3, 90)],
+    );
+    const rows = await loadAdvisorRows(db.pool, { accountId: d, windowDays: 30, now: NOW });
+    expect(rows.inputs.find((i) => i.kind === 'handoff')).toMatchObject({ class: 'handoff' });
+    expect(processMetrics(rows, 'state').totals).toMatchObject({ questions: 1, handoffs: 1 });
+  });
+
   it('ADR-0037 P7: reads each move’s cause and actor (null on rows before it)', async () => {
     const d = await account('D');
     const md = await machine(d);

@@ -66,6 +66,10 @@ describe('isHandoffTransition / inputClass', () => {
     ).toBe('question');
     expect(inputClass(row('agent_question', null, 'implementing'), def)).toBe('question');
     expect(inputClass(row('retries_exhausted', null, gate), def)).toBe('stop');
+    // ADR-0037 P8: the `handoff` kind is a hand-off, with or without a definition.
+    expect(inputClass(row('handoff', 'pr_ready_for_review', gate), def)).toBe('handoff');
+    expect(inputClass(row('handoff', null, null), def)).toBe('handoff');
+    expect(inputClass(row('handoff', null, null), undefined)).toBe('handoff');
     expect(inputClass(row('timeout', 'timeout', 'implementing'), def)).toBe('stop');
     // No definition: the name decides.
     expect(inputClass(row('agent_question', 'pr_ready_for_review', gate), undefined)).toBe(

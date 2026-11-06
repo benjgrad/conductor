@@ -55,8 +55,18 @@ export const InputRequestKindSchema = z.enum([
   'approval',
   /** M2-T02 `machine.lost` (MACHINE_LOST_KIND): the machine running the session is gone. */
   'machine_lost',
+  /**
+   * ADR-0037 P8: a `handoff: true` transition handed finished work to a human for review; the
+   * request's `question` is the agent's summary, not a question.
+   */
+  'handoff',
 ]);
 export type InputRequestKind = z.infer<typeof InputRequestKindSchema>;
+
+/** The agent raised the request (a question or a hand-off), not an engine stop. */
+export function isAgentRequest(kind: InputRequestKind): boolean {
+  return kind === 'agent_question' || kind === 'handoff';
+}
 
 /** `outbox.kind` (02). Each has exactly one Effect (engine/types.ts); see 10-contracts. */
 export const OutboxKindSchema = z.enum([

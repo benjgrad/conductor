@@ -138,6 +138,261 @@ pub async fn fresh_checkout(i: &FreshCheckoutInput) -> FreshCheckout {
     }
 }
 
+// ---------------------------------------------------------------- base-branch probe
+
+/// How a failed setup did on the base branch's tip (`cmd_exit.setup_on_base`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupOnBase {
+    Pass,
+    Fail,
+    Unknown,
+}
+
+impl SetupOnBase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SetupOnBase::Pass => "pass",
+            SetupOnBase::Fail => "fail",
+            SetupOnBase::Unknown => "unknown",
+        }
+    }
+}
+
+pub struct BaseCheckoutInput {
+    pub root: PathBuf,
+    /// The session worktree (its clone's `origin/*` refs are shared).
+    pub worktree: PathBuf,
+    pub env: Option<Env>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BaseCheckout {
+    Ok {
+        dir: PathBuf,
+        sha: String,
+        branch: String,
+    },
+    Err {
+        error: String,
+        branch: Option<String>,
+    },
+}
+
+const ORIGIN: &str = "refs/remotes/origin/";
+
+/// How long the best-effort `git fetch origin <base>` may take before the old ref is used.
+pub const BASE_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn safe_branch(b: &str) -> bool {
+    let mut chars = b.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric())
+        && b.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))
+        && !b.contains("..")
+}
+
+/// A fresh, conductor-owned checkout of the base branch's tip: the session clone's
+/// `origin/HEAD` target (TD-181), fetched first, best effort; hardened like [`fresh_checkout`].
+pub async fn fresh_base_checkout(i: &BaseCheckoutInput) -> BaseCheckout {
+    let in_tree = |args: Vec<String>, timeout: Duration| {
+        let mut a = no_hooks();
+        a.extend(args);
+        let wt = i.worktree.clone();
+        let base = i.env.clone().unwrap_or_else(platform::spawn::process_env);
+        async move {
+            exec::run_raw(
+                "git",
+                &a,
+                &wt,
+                exec::clean_env(&base),
+                exec::RUN_MAX_BUFFER,
+                timeout,
+            )
+            .await
+        }
+    };
+    let head = in_tree(
+        sv(&["symbolic-ref", "--quiet", &format!("{ORIGIN}HEAD")]),
+        exec::RUN_TIMEOUT,
+    )
+    .await;
+    let r#ref = head.stdout.trim().to_string();
+    if head.code != Some(0) || !r#ref.starts_with(ORIGIN) || r#ref.len() == ORIGIN.len() {
+        return BaseCheckout::Err {
+            error: "the clone has no origin/HEAD".into(),
+            branch: None,
+        };
+    }
+    let branch = r#ref[ORIGIN.len()..].to_string();
+    if !safe_branch(&branch) {
+        return BaseCheckout::Err {
+            error: format!("invalid base branch {branch:?}"),
+            branch: None,
+        };
+    }
+    // Best effort: a failed or slow fetch leaves the ref the clone already has.
+    in_tree(
+        sv(&[
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "origin",
+            &format!("+refs/heads/{branch}:{ORIGIN}{branch}"),
+        ]),
+        BASE_FETCH_TIMEOUT,
+    )
+    .await;
+    let dir = match private_dir(&i.root, "check-") {
+        Ok(d) => d,
+        Err(e) => {
+            return BaseCheckout::Err {
+                error: format!("base checkout: {e}"),
+                branch: Some(branch),
+            };
+        }
+    };
+    let fail = |error: String| {
+        remove_checkout(&dir);
+        BaseCheckout::Err {
+            error,
+            branch: Some(branch.clone()),
+        }
+    };
+    let git = |args: Vec<String>| {
+        let mut a = no_hooks();
+        a.extend(args);
+        let dir = dir.clone();
+        let env = i.env.clone();
+        async move { exec::run("git", &a, &dir, env.as_deref()).await }
+    };
+    let d = dir.to_string_lossy().into_owned();
+    let init = git(sv(&["init", "--quiet", &d])).await;
+    if init.code != Some(0) {
+        return fail(format!("git init failed: {}", tail600(&init.stderr)));
+    }
+    let local = "refs/heads/conductor-base";
+    let wt = i.worktree.to_string_lossy().into_owned();
+    let fetch = git(sv(&[
+        "-c",
+        "protocol.allow=never",
+        "-c",
+        "protocol.file.allow=always",
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--upload-pack=git-upload-pack",
+        &wt,
+        &format!("+{ORIGIN}{branch}:{local}"),
+    ]))
+    .await;
+    if fetch.code != Some(0) {
+        return fail(format!(
+            "could not read origin/{branch}: {}",
+            tail600(&fetch.stderr)
+        ));
+    }
+    let sha = git(sv(&[
+        "rev-parse",
+        "--verify",
+        &format!("{local}^{{commit}}"),
+    ]))
+    .await;
+    let sha = sha.stdout.trim().to_string();
+    if !exec::is_sha(&sha) {
+        return fail(format!("origin/{branch} has no commit"));
+    }
+    let co = git(sv(&[
+        "-c",
+        "advice.detachedHead=false",
+        "checkout",
+        "--quiet",
+        "--detach",
+        "--force",
+        &sha,
+    ]))
+    .await;
+    if co.code != Some(0) {
+        return fail(format!("git checkout failed: {}", tail600(&co.stderr)));
+    }
+    BaseCheckout::Ok { dir, sha, branch }
+}
+
+pub struct ProbeSetupInput {
+    pub base: BaseCheckoutInput,
+    /// The commit whose setup failed: a base at the same commit fails the same way.
+    pub sha: String,
+    /// The gate's configured setup (None = auto-detect, `""` = none).
+    pub configured: Option<String>,
+}
+
+/// What the base-branch probe needs next.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BaseProbeNext {
+    /// Decided without running anything.
+    Verdict(SetupOnBase),
+    /// Run `setup` in `dir` (the probe's checkout: the caller removes it with
+    /// [`remove_checkout`]); exit 0 in time = `Pass`, else `Fail`.
+    Run { setup: String, dir: PathBuf },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaseProbe {
+    pub next: BaseProbeNext,
+    /// The base branch (None when it could not be resolved).
+    pub branch: Option<String>,
+    /// Lines for the session's output.
+    pub log: Vec<String>,
+}
+
+/// The first half of running a failed setup once on the base branch's tip (05 §Requirements to
+/// enter a column, "Setup failures"): the base checkout, and whether the setup needs to run there.
+/// A `Verdict` leaves no checkout behind.
+pub async fn prepare_base_probe(i: &ProbeSetupInput) -> BaseProbe {
+    let (dir, sha, branch) = match fresh_base_checkout(&i.base).await {
+        BaseCheckout::Err { error, branch } => {
+            return BaseProbe {
+                next: BaseProbeNext::Verdict(SetupOnBase::Unknown),
+                branch,
+                log: vec![format!("could not check the base branch: {error}")],
+            };
+        }
+        BaseCheckout::Ok { dir, sha, branch } => (dir, sha, branch),
+    };
+    let short = sha[..12.min(sha.len())].to_string();
+    let done = |v: SetupOnBase, line: Option<String>| {
+        remove_checkout(&dir);
+        BaseProbe {
+            next: BaseProbeNext::Verdict(v),
+            branch: Some(branch.clone()),
+            log: line.into_iter().collect(),
+        }
+    };
+    if sha == i.sha {
+        return done(
+            SetupOnBase::Fail,
+            Some(format!(
+                "origin/{branch} is the commit under check ({short})"
+            )),
+        );
+    }
+    match detect_setup(&dir, i.configured.as_deref()) {
+        None => done(
+            SetupOnBase::Pass,
+            Some(format!("origin/{branch} ({short}) needs no setup")),
+        ),
+        Some(setup) if missing_manager(&setup, None).is_some() => done(SetupOnBase::Fail, None),
+        Some(setup) => BaseProbe {
+            log: vec![format!("running `{setup}` on origin/{branch} ({short})")],
+            next: BaseProbeNext::Run {
+                setup,
+                dir: dir.clone(),
+            },
+            branch: Some(branch.clone()),
+        },
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PackageManager {
     Pnpm,

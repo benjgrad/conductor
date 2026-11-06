@@ -102,6 +102,7 @@ export const MOVE_STEP_FIXTURE: GateStep = {
   conditions_note: null,
   approvals: null,
   repo_checks: null,
+  repo_checks_meta: null,
 };
 
 /** A work ticket's session on `conductor` v2 (draft) in `implementing`, running. */

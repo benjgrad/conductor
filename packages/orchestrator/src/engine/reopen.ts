@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  CHECK_CONFIG_KEY,
   sessionBranch,
   toBoardCard,
   type BoardSseEvent,
@@ -93,8 +94,9 @@ export async function reopenSession(
         JSON.stringify(pending),
         // ADR-0009: never carry a review step (a session that ended mid-review); the reopened
         // session starts at def.start and resumes the worker's Claude session, never a reviewer's.
-        // ADR-0037 P1: nor a watch (the reopened session arms its own on entering a watched state).
-        JSON.stringify(withoutWatch(splitStep(old.context).context)),
+        // ADR-0037 P1: nor a watch (the reopened session arms its own on entering a watched state),
+        // nor a gate waiting for a check-config fix (`gate.retry` belongs to that visit only).
+        JSON.stringify(withoutCheckConfig(withoutWatch(splitStep(old.context).context))),
         JSON.stringify(old.claude_spend_totals),
         // ADR-0037 P6: `once` is per ticket, so a reopen keeps what already pushed.
         old.notified_transitions ?? [],
@@ -144,4 +146,11 @@ export async function reopenSession(
     ]);
     return { status: 'reopened', sessionId, boardEvents } as const;
   });
+}
+
+function withoutCheckConfig<T extends Record<string, unknown>>(context: T): T {
+  if (!(CHECK_CONFIG_KEY in context)) return context;
+  const rest = { ...context };
+  delete rest[CHECK_CONFIG_KEY];
+  return rest;
 }

@@ -947,6 +947,7 @@ async fn ask_user_park_send_input_complete_state_end_exit_0() {
     assert!(t.has(&DriverEvent::AskUser {
         question: "Which colour?".into(),
         options: None,
+        proposed_checks: None,
     }));
     assert!(t.has(&out(OutputStream::Assistant, "Need a decision.")));
     assert!(t.has(&out(OutputStream::Debug, "claude_code_version 9.9.9-fake")));
@@ -1657,7 +1658,7 @@ fn real_base(dir: &Path) -> DriverStartOptions {
 fn noop_handlers() -> OutcomeHandlers {
     OutcomeHandlers {
         on_complete_state: Arc::new(|_, _| {}),
-        on_ask_user: Arc::new(|_, _| {}),
+        on_ask_user: Arc::new(|_, _, _| {}),
         on_permission_request: None,
         on_attach_file: None,
         on_publish_page: None,

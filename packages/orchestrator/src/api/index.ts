@@ -27,6 +27,7 @@ import {
   type QueueOrderResponse,
   type ReopenSessionResponse,
   type TranscriptResponse,
+  RETRY_CHECKS,
 } from '@conductor/shared';
 import Fastify, { type FastifyReply } from 'fastify';
 import { DEFAULT_AUTH, type AuthConfig } from '../auth/config.js';
@@ -177,9 +178,9 @@ export const createApi = (({
   // The create-ticket form's repo suggestions.
   void app.register(registerRepoRoutes, { db });
   // ADR-0030: per-repo check overrides (also MCP's list/get/set/clear_repo_checks).
-  void app.register(registerRepoChecksRoutes, { db });
+  void app.register(registerRepoChecksRoutes, { db, engine });
   // ADR-0033 P3: the workflow advisor's change proposals (also MCP's propose_change, list_change_proposals, apply_change).
-  void app.register(registerChangeProposalRoutes, { db });
+  void app.register(registerChangeProposalRoutes, { db, engine });
   // UXR-84: the advisor's metrics, findings, report and session insights (read-only).
   void app.register(registerInsightsRoutes, { db });
   // ADR-0032: recurring tickets (also MCP's list/save/delete_schedule, run_schedule_now).
@@ -296,14 +297,18 @@ export const createApi = (({
         'ORDER BY created_at DESC LIMIT 1',
       [id],
     );
-    const event: EngineEvent = {
-      type: 'human.transition',
-      name: body.name,
-      text: body.text ?? null,
-      actor: UI_ACTOR,
-      input_request_id: open.rows[0]?.id ?? null,
-    };
-    return applyFromRoute(reply, 'transition', id, event);
+    // A check-config request's "Retry checks" button re-runs the gate (not a workflow transition).
+    const event: EngineEvent =
+      body.name === RETRY_CHECKS
+        ? { type: 'gate.retry', actor: UI_ACTOR }
+        : {
+            type: 'human.transition',
+            name: body.name,
+            text: body.text ?? null,
+            actor: UI_ACTOR,
+            input_request_id: open.rows[0]?.id ?? null,
+          };
+    return applyFromRoute(reply, 'transition', id, event, { actor: UI_ACTOR });
   });
 
   /**

@@ -14,6 +14,7 @@ import type {
   McpPolicy,
   PermissionBehavior,
   PermissionScope,
+  ProposedChecks,
   QuestionOptions,
 } from '@conductor/shared';
 
@@ -67,7 +68,13 @@ export type DriverEvent =
       text: string;
     }
   /** `options` (Questions UX): the agent's bounded choices; absent when none or invalid. */
-  | { kind: 'ask_user'; question: string; options?: QuestionOptions }
+  | {
+      kind: 'ask_user';
+      question: string;
+      options?: QuestionOptions;
+      /** The agent's proposed repo checks (outcome server, already validated). */
+      proposed_checks?: ProposedChecks;
+    }
   /**
    * ADR-0023 (M2-T29b): Claude called the `permission` prompt tool; the call is held until
    * `resolvePermission` / `denyPermission`, its timeout at `expiresAt`, or the process exits. The

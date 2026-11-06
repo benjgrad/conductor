@@ -61,10 +61,23 @@ struct Pending {
 struct State {
     calls: Vec<RunCommandOptions>,
     scripts: HashMap<String, FakeCommandScript>,
+    /// `scriptBy`: a script decided per run (e.g. by its cwd); wins over `scripts`.
+    dynamic: HashMap<String, ScriptFn>,
     queue: VecDeque<Pending>,
     /// In start order (the TS `Set`'s insertion order).
     running: Vec<Pending>,
     next_id: u64,
+}
+
+type ScriptFn = Arc<dyn Fn(&RunCommandOptions) -> FakeCommandScript + Send + Sync>;
+
+impl State {
+    fn script_of(&self, opts: &RunCommandOptions) -> Option<FakeCommandScript> {
+        match self.dynamic.get(&opts.cmd) {
+            Some(f) => Some(f(opts)),
+            None => self.scripts.get(&opts.cmd).cloned(),
+        }
+    }
 }
 
 /// What to do once the lock is released.
@@ -110,6 +123,16 @@ impl FakeCommandRunner {
         self
     }
 
+    /// `scriptBy`: a script decided per run (e.g. by its cwd); wins over `script` for that cmd.
+    pub fn script_by(
+        self,
+        cmd: impl Into<String>,
+        f: impl Fn(&RunCommandOptions) -> FakeCommandScript + Send + Sync + 'static,
+    ) -> Self {
+        self.st().dynamic.insert(cmd.into(), Arc::new(f));
+        self
+    }
+
     /// Every `run`'s options, in order.
     pub fn calls(&self) -> Vec<RunCommandOptions> {
         self.st().calls.clone()
@@ -144,7 +167,7 @@ impl FakeCommandRunner {
     }
 
     fn begin(&self, s: &mut State, p: Pending, effects: &mut Vec<Effect>) {
-        let out = s.scripts.get(&p.opts.cmd).and_then(|sc| sc.output.clone());
+        let out = s.script_of(&p.opts).and_then(|sc| sc.output);
         if let (Some(out), Some(cb)) = (out, p.opts.on_output.clone())
             && !out.is_empty()
         {
@@ -167,7 +190,7 @@ impl FakeCommandRunner {
             } else {
                 return;
             };
-            let sc = s.scripts.get(&p.opts.cmd).cloned().unwrap_or_default();
+            let sc = s.script_of(&p.opts).unwrap_or_default();
             let timed_out = !abort && sc.timed_out;
             let killed = abort || timed_out;
             effects.push(Effect::Finish(

@@ -74,6 +74,8 @@ which its tickets pin), so the conditions poll fast with no test-only knob.
 | 3. human done | Planning → `needs_product_context` → Needs input → `POST /transition {name: "done"}` → Done; a name that isn't a transition of Needs input → 409 |
 | 4. personal | a `kind: personal` ticket: Planning → Implementing → `done` (checks, `open_pr`, no review, no conditions) → Done, never Waiting external; its implementing prompt lists `personal_pr_ready_for_review`, not the work transitions |
 | 5. v1 regression | conductor v1's definition saved as the latest version, a ticket pins it, v2 is saved back; the pinned ticket runs the ADR-0010 path (unnamed `done`s, the `(entry)` step, `open_pr`, Waiting external, Approve, Done) with M1 move records |
+| 8. setup failures | the repo's checks set up with `git fetch -q origin`, which the fresh checkout (no remote) can't do on the branch nor on the base (the daemon's probe): Needs input as a `check_config` request whose question names the command, its source and `set_repo_checks`; no retry counted, Implementing entered once, a `$retry_checks` button; `PUT /api/repo-checks` with a working setup retries the gate → the PR opens |
+| 9. agent-proposed checks | the agent asks with `proposed_checks` (fake `tool` action): a `repo_checks` proposal on the ticket (`GET /api/change-proposals?ticket_id=`), the repo's checks unchanged; applying it answers the agent, which ships, and the gate passes |
 
 ## Pages (ADR-0038)
 

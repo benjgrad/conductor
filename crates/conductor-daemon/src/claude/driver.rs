@@ -165,6 +165,8 @@ pub enum DriverEvent {
     AskUser {
         question: String,
         options: Option<QuestionOptions>,
+        /// The agent's proposed repo checks (outcome server, already validated); None = none.
+        proposed_checks: Option<serde_json::Value>,
     },
     /// ADR-0023: Claude called the `permission` prompt tool; the call is held until
     /// `resolve_permission` / `deny_permission`, its timeout at `expires_at`, or the exit.
@@ -351,6 +353,7 @@ mod tests {
         let ev = DriverEvent::AskUser {
             question: "q?".into(),
             options: None,
+            proposed_checks: None,
         };
         ls.emit(&ev);
         ls.remove(ia);

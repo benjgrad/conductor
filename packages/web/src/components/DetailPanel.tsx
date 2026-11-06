@@ -5,6 +5,7 @@
 // where, the workflow, spend and the context under Technical details.
 import {
   isAgentRequest,
+  setupFailureSummary,
   type BoardCard,
   type InputRequestDto,
   type OutputChunk,
@@ -38,6 +39,7 @@ import { isOldVersion, SessionInsightSection } from './details-sections.js';
 import { headStatus, KIND_LABELS, TERMINAL_STATUSES } from './format.js';
 import { FocusToggle } from './FocusToggle.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
+import { TicketCheckProposal } from './TicketCheckProposal.js';
 import { Markdown } from './markdown.js';
 import { CheckRuns, latestRunText, OutputLog, runCount } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
@@ -210,6 +212,10 @@ export function DetailPanel({
             output={output}
           />
         ))}
+      {/* An agent's proposed repo checks wait on a human here, with their diff. */}
+      {detail.pending_input && (
+        <TicketCheckProposal api={api} ticketId={detail.card.ticket_id} onDone={reload} />
+      )}
       {detail.card.sub_status === 'needs_permission' &&
         detail.card.permission &&
         detail.card.session_id !== null && (
@@ -646,12 +652,19 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
       who={
         request.kind === 'handoff'
           ? `${agent} hands off for review`
-          : fromAgent
-            ? `${agent} asks`
-            : 'Conductor needs a decision'
+          : request.kind === 'check_config'
+            ? "Conductor's check config failed, not the branch"
+            : fromAgent
+              ? `${agent} asks`
+              : 'Conductor needs a decision'
       }
       ariaLabel="Pending input"
     >
+      {request.kind === 'check_config' && (
+        <p className="step-failed-item">
+          <strong>{setupFailureSummary(request.question)}</strong>
+        </p>
+      )}
       {failed?.error && (
         <p className="step-failed-item">
           {failed.item && <strong>{failed.item}</strong>}

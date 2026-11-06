@@ -135,6 +135,7 @@ export function toSummary(row: ChangeProposalRow): ChangeProposalSummary {
     expected_effect: effect.text ?? '',
     created_at: row.created_at.toISOString(),
     applied_at: iso(row.applied_at),
+    ticket_id: row.ticket_id ?? null,
   };
 }
 
@@ -259,6 +260,8 @@ export async function createProposal(
   q: Queryable,
   actor: ProposalActor,
   input: unknown,
+  /** An agent's proposal (ask_user `proposed_checks`): its ticket and the request it opened. */
+  link: { ticketId: string; inputRequestId: string | null } | null = null,
 ): Promise<ProposalResult<ChangeProposalDetail>> {
   const parsed = ProposeChangeInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -287,8 +290,8 @@ export async function createProposal(
   const m = parsed.data;
   const r = await q.query<ChangeProposalRow>(
     'INSERT INTO change_proposal (account_id, kind, title, payload, base, diff, rationale, ' +
-      'evidence, expected_effect, rollback, created_by) ' +
-      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *',
+      'evidence, expected_effect, rollback, created_by, ticket_id, input_request_id) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *',
     [
       actor.accountId,
       change.kind,
@@ -301,6 +304,8 @@ export async function createProposal(
       JSON.stringify(m.expected_effect),
       m.rollback,
       actor.by,
+      link?.ticketId ?? null,
+      link?.inputRequestId ?? null,
     ],
   );
   return { ok: true, value: toDetail(r.rows[0]!) };
@@ -317,6 +322,8 @@ export async function listProposals(
     /** UXR-73: only this kind, and only this target (a repo or a workflow id). */
     kind?: ChangeKind | undefined;
     target?: string | undefined;
+    /** Only the proposals an agent made on this ticket. */
+    ticket_id?: string | undefined;
   } = {},
 ): Promise<ChangeProposalListResponse> {
   const status = opts.status === undefined || opts.status === 'all' ? null : opts.status;
@@ -327,17 +334,20 @@ export async function listProposals(
   const where =
     'WHERE account_id = $1 AND ($2::text IS NULL OR status = $2) ' +
     'AND ($3::text IS NULL OR kind = $3) ' +
-    "AND ($4::text[] IS NULL OR coalesce(payload->>'repo', payload->>'workflow_id') = ANY($4))";
+    "AND ($4::text[] IS NULL OR coalesce(payload->>'repo', payload->>'workflow_id') = ANY($4)) " +
+    'AND ($5::uuid IS NULL OR ticket_id = $5)';
+  const ticket = opts.ticket_id ?? null;
   const [rows, total] = await Promise.all([
     q.query<ChangeProposalRow>(
-      `SELECT * FROM change_proposal ${where} ORDER BY created_at DESC, id OFFSET $5 LIMIT $6`,
-      [accountId, status, kind, target, cursor, PROPOSALS_PAGE],
+      `SELECT * FROM change_proposal ${where} ORDER BY created_at DESC, id OFFSET $6 LIMIT $7`,
+      [accountId, status, kind, target, ticket, cursor, PROPOSALS_PAGE],
     ),
     q.query<{ n: number }>(`SELECT count(*)::int AS n FROM change_proposal ${where}`, [
       accountId,
       status,
       kind,
       target,
+      ticket,
     ]),
   ]);
   const n = total.rows[0]?.n ?? 0;

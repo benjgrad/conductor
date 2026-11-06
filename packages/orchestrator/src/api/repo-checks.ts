@@ -20,7 +20,8 @@ import {
 } from '@conductor/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import { loadCheckRuns } from '../advisor/queries.js';
-import type { Queryable } from '../contracts.js';
+import type { EngineService, Queryable } from '../contracts.js';
+import { afterRepoChecksChangedSafe } from './check-config.js';
 import type { RepoChecksRow } from '../db/types.js';
 import type { Db } from '../main.js';
 import { parseBody, pathString, sendError, type ErrorDetail } from './errors.js';
@@ -184,14 +185,17 @@ export async function getRepoChecksHealth(
 
 export interface RepoChecksRoutesOptions {
   db: Db;
+  /** Retries the gates waiting on this repo's checks after a change (check-config.ts). */
+  engine?: EngineService;
 }
 
 type RepoQuery = { Querystring: { repo?: string } };
 
 export const registerRepoChecksRoutes: FastifyPluginAsync<RepoChecksRoutesOptions> = (
   app,
-  { db },
+  { db, engine },
 ) => {
+  const after = engine === undefined ? null : { db, engine };
   const repoOf = (raw: string | undefined): string | null => {
     const repo = raw?.trim() ?? '';
     return repo === '' || repo.length > 200 ? null : repo;
@@ -210,6 +214,7 @@ export const registerRepoChecksRoutes: FastifyPluginAsync<RepoChecksRoutesOption
     if (!body) return reply;
     const res = await setRepoChecks(db, req.auth!.scope.account_id, body, req.auth!.user.email);
     if (!res.ok) return sendError(reply, 400, 'bad_request', res.message, res.details);
+    await afterRepoChecksChangedSafe(after, req.auth!.scope.account_id, body.repo);
     return res.dto;
   });
 
@@ -246,6 +251,7 @@ export const registerRepoChecksRoutes: FastifyPluginAsync<RepoChecksRoutesOption
     if (!(await clearRepoChecks(db, req.auth!.scope.account_id, body.repo))) {
       return sendError(reply, 404, 'not_found', `no repo checks for ${repoChecksKey(body.repo)}`);
     }
+    await afterRepoChecksChangedSafe(after, req.auth!.scope.account_id, body.repo);
     return { ok: true };
   });
   return Promise.resolve();

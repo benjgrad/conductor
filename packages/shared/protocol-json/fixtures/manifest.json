@@ -749,6 +749,20 @@
     "array": false
   },
   {
+    "file": "SETUP_TRIAGE_WS_FIXTURES.ask_user_proposed_checks.json",
+    "export": "SETUP_TRIAGE_WS_FIXTURES",
+    "key": "ask_user_proposed_checks",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SETUP_TRIAGE_WS_FIXTURES.cmd_exit_setup_failed_on_base.json",
+    "export": "SETUP_TRIAGE_WS_FIXTURES",
+    "key": "cmd_exit_setup_failed_on_base",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
     "file": "UPDATE_FIXTURE_IDS.json",
     "export": "UPDATE_FIXTURE_IDS",
     "key": null,

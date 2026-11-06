@@ -109,6 +109,35 @@ export class Api {
     );
   }
 
+  /** ADR-0030: the repo's own checks (PUT /api/repo-checks); waiting check-config gates retry. */
+  setRepoChecks(body: {
+    repo: string;
+    setup?: string;
+    checks: { name: string; cmd: string; timeout?: string }[];
+  }) {
+    return this.call<unknown>('PUT', '/api/repo-checks', body, 200);
+  }
+
+  /** GET /api/repo-checks?repo= (`override` is null without one). */
+  repoChecks(repo: string) {
+    return this.call<{ override: unknown }>(
+      'GET',
+      `/api/repo-checks?repo=${encodeURIComponent(repo)}`,
+    );
+  }
+
+  /** The repo-checks change proposals an agent made on a ticket. */
+  ticketCheckProposals(ticketId: string) {
+    return this.call<{ proposals: { id: string; status: string; title: string }[] }>(
+      'GET',
+      `/api/change-proposals?kind=repo_checks&ticket_id=${ticketId}`,
+    );
+  }
+
+  applyChangeProposal(id: string) {
+    return this.call<{ status: string }>('POST', `/api/change-proposals/${id}/apply`, {}, 200);
+  }
+
   /** ADR-0007: a message to the running agent. */
   message(sessionId: string, text: string) {
     return this.call<{ ok: true }>('POST', `/api/sessions/${sessionId}/messages`, { text }, 202);

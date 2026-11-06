@@ -175,3 +175,7 @@ The decision above stands; these are the choices made implementing it. Details: 
   - **Cleanup.** A session kill (cancel, step timeout, budget) or a new agent start for the session removes a checkout kept between checks. A run only ever removes its own checkout, never a newer visit's. The startup sweep lstat/owner-checks `<root>/private` and never follows a symlink.
   - **The e2e** proves it: a gitignored `.e2e/override-test` that makes `npm test` pass in the worktree doesn't help, because the fresh checkout doesn't have it. The fixture fails `npm test` while a committed `fail-test` exists. The fresh checkout's auto-detected `npm install` runs with `npm_config_offline` set, so nothing touches the network.
 - **E2E.** The stack always puts a fake `gh` first on the daemon's PATH (also under `E2E_REAL_CLAUDE=1`), so no run reaches GitHub. The conductor scenario: Planning → Implementing → entry checks (tests red once → back with the output) → open_pr (fake gh) → Waiting external → Approve → Done.
+
+## Note (2026-11-06): setup failures are triaged
+
+A fresh checkout's failed setup is no longer always the branch's fault. The daemon runs the same setup once on the base branch's tip (`cmd_exit.setup_on_base`); when it fails there too, the gate goes to `on_unmet.else` as a `check_config` request (uncounted) that names the command, its source and the fix, and `gate.retry` re-runs it once the checks are fixed. Otherwise it is unmet as before, with the same message. [05](../design/05-workflow-engine.md#requirements-to-enter-a-column-adr-0010) "Setup failures".

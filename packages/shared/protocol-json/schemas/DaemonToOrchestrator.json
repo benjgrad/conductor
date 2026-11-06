@@ -1337,6 +1337,74 @@
             "multi_select",
             "items"
           ]
+        },
+        "proposed_checks": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "rationale": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "checks": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "setup": {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    "checks": {
+                      "minItems": 1,
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "cmd": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "timeout": {
+                            "type": "string",
+                            "pattern": "^(\\d+)(ms|s|m|h|d)$"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "cmd"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "checks"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "title",
+            "rationale",
+            "checks"
+          ]
         }
       },
       "required": [
@@ -1443,6 +1511,20 @@
         },
         "setup_failed": {
           "type": "boolean"
+        },
+        "setup_cmd": {
+          "type": "string"
+        },
+        "setup_on_base": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail",
+            "unknown"
+          ]
+        },
+        "base_ref": {
+          "type": "string"
         }
       },
       "required": [

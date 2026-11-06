@@ -240,6 +240,8 @@ export interface ApiClient {
     /** UXR-73: only this kind, for this target (a repo or a workflow id). */
     kind?: ChangeKind;
     target?: string;
+    /** Only the proposals an agent made on this ticket (ask_user `proposed_checks`). */
+    ticketId?: string;
   }): Promise<ChangeProposalListResponse>;
   /** ADR-0033 P3: GET /api/change-proposals/:id → one proposal with its diff. 404 not_found. */
   getChangeProposal(id: string): Promise<ChangeProposalDetail>;

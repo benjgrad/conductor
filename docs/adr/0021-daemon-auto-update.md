@@ -54,6 +54,11 @@ Engine invariants still apply: every loop bounded, every failure path ends at a 
 - Login: the T18 units, now `exec`ing the launcher.
 - Wake (opening the lid): the daemon isn't restarted, it was only suspended. Its timers stall during sleep, so a check that sees wall-clock time jump by more than 30 s between 5 s ticks resets the reconnect backoff and reconnects at once. Without it, waking can wait up to the 30 s backoff cap (`reconnect.maxMs`).
 
+### Amendment 2026-11-06 (MR-T14a, the Rust updater)
+Two additions, neither a reversal:
+- **The switch is gated on the launcher.** A daemon switches `current` only when it is supervised (`CONDUCTOR_SUPERVISED`) **and** the installed `<root>/bin/conductor-launch` (or `conductor-launch.ps1`) contains the line `# conductor-launch: trial-v1`. Machines installed before MR-T14 have M2-T18's plain launcher, which can't roll back; switching there could leave a machine on a bad build with no one at it. They stage the build and log that re-running the install command enables automatic updates (install.sh writes the new launcher from the tarball). This keeps "rollback logic must not live in the code being rolled back": the daemon only checks that the launcher it depends on is there.
+- **Windows (U-114)**: the launcher is `conductor-launch.ps1`, the Scheduled Task's script, with the same trial and rollback logic as the sh one. `current` is a junction, removed and re-made (not atomic, TD-218); if making the new one fails, the old one is put back.
+
 ## Alternatives considered
 | Option | Why not |
 |---|---|

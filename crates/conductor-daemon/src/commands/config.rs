@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 pub const CONFIG_USAGE: &str = "usage: conductor-daemon config roots <dir…>
        conductor-daemon config repo <path> --mode reference|checkout
+       conductor-daemon config auto-update on|off
        conductor-daemon config show";
 
 const APPLY_HINT: &str = "a running daemon picks this up on its next scan; `conductor-daemon rescan` \
@@ -44,6 +45,7 @@ struct Shown<'a> {
     roots: Vec<String>,
     roots_from: &'a str,
     repos: &'a BTreeMap<String, RepoFileConfig>,
+    auto_update: bool,
 }
 
 /// Run `config …` for the daemon root of `env` (`home` is the default root's parent); returns the
@@ -171,8 +173,32 @@ fn run(argv: &[String], env: &Env, root: &Path, io: &mut dyn Output) -> Result<i
                     None => cfg.roots.clone(),
                 },
                 repos: &cfg.repos,
+                auto_update: cfg.auto_update,
             };
             io.out(&serde_json::to_string_pretty(&shown).expect("serialises"));
+            Ok(0)
+        }
+        "auto-update" => {
+            // ADR-0021 §4: read by the running daemon on each `update_available`, so no restart.
+            let on = match rest {
+                [v] if v == "on" => true,
+                [v] if v == "off" => false,
+                _ => return Ok(usage(io, "config auto-update needs on or off")),
+            };
+            let mut cfg = read_file_config(root).map_err(|e| e.to_string())?;
+            cfg.auto_update = on;
+            let path = write_file_config(root, &cfg).map_err(|e| e.to_string())?;
+            io.out(&format!(
+                "auto-update: {} (saved to {})",
+                if on { "on" } else { "off" },
+                path.display()
+            ));
+            if !on {
+                io.out(
+                    "this machine no longer updates itself; the Machines page shows it as outdated \
+                     until you re-run the install command",
+                );
+            }
             Ok(0)
         }
         other => Ok(usage(io, &format!("unknown config command: {other}"))),

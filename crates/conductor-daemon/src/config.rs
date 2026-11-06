@@ -235,12 +235,35 @@ pub struct RepoFileConfig {
 /// the per-repo working-copy mode (U-060; default `reference`). Written 0600.
 ///
 /// `repos` is kept sorted by repo; TS kept insertion order. Both read either.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `auto_update` (ADR-0021 §4, MR-T14; Rust only, TS never had it): `conductor-daemon config
+/// auto-update on|off`, default on. Written only when off, so a file without it stays unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DaemonFileConfig {
     #[serde(default)]
     pub roots: Vec<String>,
     #[serde(default)]
     pub repos: BTreeMap<String, RepoFileConfig>,
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub auto_update: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_yes(b: &bool) -> bool {
+    *b
+}
+
+impl Default for DaemonFileConfig {
+    fn default() -> Self {
+        DaemonFileConfig {
+            roots: Vec::new(),
+            repos: BTreeMap::new(),
+            auto_update: true,
+        }
+    }
 }
 
 impl DaemonFileConfig {

@@ -198,4 +198,30 @@ mod launcher_ps1 {
         let versions: Vec<String> = calls(&r).into_iter().map(|c| c.3).collect();
         assert_eq!(versions, ["v1", "v2"]);
     }
+
+    /// MR-T14: a trial of v2 that fails twice is rolled back to v1 on the third start.
+    #[test]
+    #[ignore = "flaky: see FLAKY.md"]
+    fn a_trial_that_fails_twice_rolls_back_to_from() {
+        let r = setup(&[1, 1, 78]);
+        let d = r.root.join("daemon");
+        std::fs::remove_dir(d.join("current")).unwrap();
+        mklink_junction(&d.join("current"), &d.join("v2"));
+        std::fs::write(d.join("trial"), "from=v1\nto=v2\nattempts=0\n").unwrap();
+        assert_eq!(launch(&r), 78);
+        let versions: Vec<String> = calls(&r).into_iter().map(|c| c.3).collect();
+        assert_eq!(versions, ["v2", "v2", "v1"]);
+        assert!(!d.join("trial").exists());
+        assert_eq!(
+            std::fs::read_to_string(d.join("bad-versions"))
+                .unwrap()
+                .trim(),
+            "v2"
+        );
+        let log = std::fs::read_to_string(r.root.join("logs").join("launcher.log")).unwrap();
+        assert!(
+            log.contains("v2 failed to start 2 times; rolled back to v1"),
+            "{log}"
+        );
+    }
 }

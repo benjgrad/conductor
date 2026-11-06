@@ -59,6 +59,8 @@ struct Inner {
     /// The latest daemon socket (the TS `socket`).
     socket: Option<Conn>,
     tasks: Vec<AbortHandle>,
+    /// ADR-0021 tests: never answer `register` (a server reached that never registers).
+    silent_register: bool,
 }
 
 struct Shared {
@@ -113,6 +115,7 @@ impl FakeOrchestrator {
                 rejected: 0,
                 socket: None,
                 tasks: Vec::new(),
+                silent_register: false,
             }),
             frames: Notify::new(),
         });
@@ -219,6 +222,7 @@ impl FakeOrchestrator {
             let mut inner = shared.lock();
             inner.received.push(msg.clone());
             match &msg {
+                DaemonToOrchestrator::Register { .. } if inner.silent_register => None,
                 DaemonToOrchestrator::Register { payload, .. } => {
                     Some(OrchestratorToDaemon::Registered {
                         fencing_token: (),
@@ -239,7 +243,8 @@ impl FakeOrchestrator {
                 }
                 DaemonToOrchestrator::SessionEvent { seq, .. }
                 | DaemonToOrchestrator::PermissionRequest { seq, .. }
-                | DaemonToOrchestrator::AssistantResult { seq, .. } => {
+                | DaemonToOrchestrator::AssistantResult { seq, .. }
+                | DaemonToOrchestrator::Alert { seq, .. } => {
                     // Mirror machine.last_seq: the highest processed seq (ADR-0023:
                     // permission_request too; ADR-0033: assistant_result).
                     if inner.last_seq.is_none_or(|l| *seq > l) {
@@ -289,6 +294,11 @@ impl FakeOrchestrator {
 
     pub fn set_heartbeat_interval_ms(&self, ms: NonZeroU64) {
         self.lock().heartbeat_interval_ms = ms;
+    }
+
+    /// Stop (or resume) answering `register` with `registered`.
+    pub fn set_silent_register(&self, silent: bool) {
+        self.lock().silent_register = silent;
     }
 
     /// Reply to request_work.

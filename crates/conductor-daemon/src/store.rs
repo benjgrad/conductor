@@ -11,7 +11,8 @@
 //! inside `sessions` and `repos` is sorted here, insertion order in TS; neither reader cares.
 
 use conductor_protocol::{
-    AssistantResultPayload, DaemonToOrchestrator, PermissionRequestPayload, SessionEventPayload,
+    AlertPayload, AssistantResultPayload, DaemonToOrchestrator, PermissionRequestPayload,
+    SessionEventPayload,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
@@ -21,7 +22,8 @@ use std::path::{Path, PathBuf};
 /// A durable daemon message without its `seq`: what TS's `DurableMessage` is (`session_event`,
 /// and ADR-0023's `permission_request`, buffered and replayed the same way), plus the Rust-only
 /// machine-level `assistant_result` (ADR-0033 P2, MR-T12; its `session_id` / `fencing_token` are
-/// `null`, as on the wire, so a TS daemon rolled back onto this file replays it verbatim). Built
+/// `null`, as on the wire, so a TS daemon rolled back onto this file replays it verbatim) and the
+/// Rust-only machine-level `alert` (ADR-0021 §3 `update_failed`, MR-T14; the same shape). Built
 /// from the protocol's payload types; [`DurableMessage::with_seq`] makes the wire frame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -46,6 +48,13 @@ pub enum DurableMessage {
         session_id: (),
         fencing_token: (),
         payload: AssistantResultPayload,
+    },
+    #[serde(rename = "alert")]
+    Alert {
+        msg_id: uuid::Uuid,
+        session_id: (),
+        fencing_token: (),
+        payload: AlertPayload,
     },
 }
 
@@ -80,6 +89,15 @@ impl DurableMessage {
             DurableMessage::AssistantResult {
                 msg_id, payload, ..
             } => DaemonToOrchestrator::AssistantResult {
+                fencing_token: (),
+                msg_id,
+                payload,
+                seq,
+                session_id: (),
+            },
+            DurableMessage::Alert {
+                msg_id, payload, ..
+            } => DaemonToOrchestrator::Alert {
                 fencing_token: (),
                 msg_id,
                 payload,

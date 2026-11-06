@@ -6,6 +6,9 @@
 //! - 0 after SIGINT/SIGTERM (Ctrl-C / console close on Windows);
 //! - 78 (`EXIT_FATAL_AUTH`) when the link is revoked, unauthorized or the protocol is too old, so
 //!   the service units don't restart-loop (TD-119); under launchd the job also boots itself out;
+//! - 75 (`EXIT_RESTART_FOR_UPDATE`) when the daemon switched `current` to a new version after
+//!   draining, or a trial start reached the server but never registered (ADR-0021 §2.4, §3): the
+//!   service manager restarts the launcher, which starts (or rolls back) the new version;
 //! - 1 when the daemon can't start (bad config, the root can't be made private).
 //!
 //! The first of shutdown and fatal wins, as TS's `exiting` flag: the SIGTERM that launchd's
@@ -184,6 +187,7 @@ pub async fn run_daemon(env: &Env, mut deps: RunDeps) -> i32 {
     });
     // The link can fail before the loop below runs: the channel keeps the code until then.
     let (fatal_tx, mut fatal_rx) = mpsc::unbounded_channel::<u16>();
+    let (restart_tx, mut restart_rx) = mpsc::unbounded_channel::<()>();
     let version = claude_code_version(&claude_bin, &*log).await;
     let daemon = match Daemon::new(DaemonOptions {
         claude_code_version: version,
@@ -194,6 +198,11 @@ pub async fn run_daemon(env: &Env, mut deps: RunDeps) -> i32 {
         sysinfo: deps.sysinfo.take(),
         on_fatal: Some(Arc::new(move |code: u16, _: &str| {
             let _ = fatal_tx.send(code);
+        })),
+        // ADR-0021: set by the service units; without it an update is staged, never switched to.
+        supervised: env.get("CONDUCTOR_SUPERVISED").cloned(),
+        on_restart_for_update: Some(Arc::new(move || {
+            let _ = restart_tx.send(());
         })),
         ..DaemonOptions::new(config.clone(), Arc::new(driver))
     }) {
@@ -221,6 +230,10 @@ pub async fn run_daemon(env: &Env, mut deps: RunDeps) -> i32 {
                 // A closed channel: nothing can stop us any more, so stop now.
                 Some(DaemonSignal::Shutdown) | None => break 0,
             },
+            Some(()) = restart_rx.recv() => {
+                log("restarting for an update (exit 75)");
+                break conductor_protocol::EXIT_RESTART_FOR_UPDATE;
+            }
             Some(close) = fatal_rx.recv() => {
                 // Revoked, unauthorized or protocol too old: the daemon already logged why. Under
                 // launchd also boot the job out, so KeepAlive doesn't restart it (TD-119).

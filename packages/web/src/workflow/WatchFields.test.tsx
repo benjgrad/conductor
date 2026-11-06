@@ -6,16 +6,25 @@ import {
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setWatch, watchOfColumn } from './columns.js';
 import { WatchFields } from './WatchFields.js';
-import V6_DRAFT from '../../../../docs/design/workflows/conductor.v6.draft.json';
 
 // ADR-0037 P1 (T6): the "While here, keep checking" panel on a human or event column.
 
 afterEach(cleanup);
 
+// Read at run time, not imported: the deploy image's build context has no docs/ (.dockerignore),
+// and `tsc -b` there typechecks this file, so a static import of the draft breaks `pnpm build`.
+const V6_DRAFT: unknown = JSON.parse(
+  readFileSync(
+    join(import.meta.dirname, '../../../../docs/design/workflows/conductor.v6.draft.json'),
+    'utf8',
+  ),
+);
 const V6 = WorkflowDefinitionSchema.parse(V6_DRAFT);
 
 /** v6 without the T7 concurrency (not available yet), so it validates without allowUnavailable. */

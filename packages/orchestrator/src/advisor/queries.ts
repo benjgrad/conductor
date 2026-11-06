@@ -22,6 +22,7 @@ import {
   type NotifyDecision,
   type PageCountRow,
   type PermissionRow,
+  type HoldRow,
   type PresetTextRow,
   type RepoChecks,
   type WorkflowDefinition,
@@ -206,6 +207,34 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
 
   const checks = await loadCheckRuns(db, f);
 
+  // ADR-0037 P4: the holds that ended in the window (`concurrency.released` rows).
+  const holdRows = await db.query<{
+    session_id: string;
+    ticket_id: string;
+    repo: string;
+    state: string | null;
+    held_ms: string | null;
+    cause: string | null;
+  }>(
+    "SELECT e.session_id, s.ticket_id, t.repo, e.payload->>'state' AS state, " +
+      "e.payload->>'held_ms' AS held_ms, e.payload->>'cause' AS cause " +
+      `${SCOPE.replace('FROM session s', 'FROM event e JOIN session s ON s.id = e.session_id')} ` +
+      "AND e.type = 'concurrency.released' AND e.ts >= $2 " +
+      'AND ($7::timestamptz IS NULL OR e.ts < $7) ' +
+      'ORDER BY e.id DESC LIMIT $5',
+    args,
+  );
+  const holds: HoldRow[] = holdRows.rows
+    .filter((r) => r.state !== null)
+    .map((r) => ({
+      session_id: r.session_id,
+      ticket_id: r.ticket_id,
+      repo: r.repo,
+      state: r.state!,
+      held_minutes: Math.max(0, Number(r.held_ms ?? 0) / 60_000),
+      cause: r.cause ?? 'left',
+    }));
+
   const inputs = await db.query<{
     session_id: string;
     ticket_id: string;
@@ -360,6 +389,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     truncated,
     ...(pages.length > 0 ? { pages } : {}),
     ...(presetTexts.length > 0 ? { preset_texts: presetTexts } : {}),
+    ...(holds.length > 0 ? { holds } : {}),
     moves: moveRows,
     checks: checkRows,
     inputs: inputRows.map((r) => r.row),

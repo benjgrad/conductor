@@ -108,6 +108,9 @@ import {
   type WorkflowDetail,
   type TranscriptResponse,
   type WorkflowSummary,
+  AVAILABLE_WORKFLOW_FEATURES,
+  ticketBaseProblems,
+  type TicketBase,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -129,6 +132,7 @@ import {
   mockChangeProposals,
   mockSchedules,
   mockSeeds,
+  SEED_IDS,
   type MockSession,
 } from './mock-data.js';
 
@@ -170,7 +174,24 @@ export interface MockApiOptions {
    * reports its version as `default_available`, and `adoptDefaultWorkflow` saves it. Default none.
    */
   defaultWorkflow?: WorkflowDefinition;
+  /**
+   * ADR-0039 (B3): the base-refs scene (`?mock-bases=1`). `conductor` gains `bases` and
+   * `base_default`, a queued card names a base, a running one has a resolved `base_ref`, and ticket
+   * bases are accepted (the app treats the feature as available, workflow/features.ts).
+   */
+  bases?: boolean;
 }
+
+/** ADR-0039: the mock base-refs scene's `bases` (the v7 draft's, shortened). */
+export const MOCK_BASES: NonNullable<WorkflowDefinition['bases']> = {
+  default: { ref: '$default_branch' },
+  sprint: {
+    cmd: "git ls-remote --heads origin | grep -E -- '-sb-[12]$' | sort -V | tail -n 1",
+    timeout: '1m',
+  },
+  master: { ref: 'master' },
+  hotfix: { cmd: 'az pipelines runs list --top 1 --query [0].sourceVersion', pr_into: 'master' },
+};
 
 /** The mock's one user in `password` mode (an admin). */
 export const MOCK_ADMIN = { email: 'ben@example.com', password: 'correct horse battery' } as const;
@@ -224,6 +245,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const now = opts.now ?? (() => new Date());
   const latency = opts.latencyMs ?? 0;
   const replyDelay = opts.replyDelayMs ?? 700;
+  /** ADR-0039 (B3): the base-refs scene. */
+  const basesScene = opts.bases === true;
   const cards = new Map<string, BoardCard>();
   const sessions = new Map<string, MockSession>();
   const answered = new Set<string>();
@@ -346,6 +369,48 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     if (s.session && s.card.session_id) sessions.set(s.card.session_id, s.session);
     cards.set(s.card.ticket_id, { ...s.card, column: columnOf(s.card) });
   }
+
+  if (basesScene) {
+    // ADR-0039 (B3): the base-refs scene.
+    const latest = workflows.get(CONDUCTOR.id)?.at(-1);
+    if (latest) {
+      latest.definition = {
+        ...latest.definition,
+        bases: MOCK_BASES,
+        base_default: { work: 'sprint', personal: 'default' },
+      };
+    }
+    const queued = cards.get(SEED_IDS.queuedUrgent.ticket);
+    if (queued) cards.set(queued.ticket_id, { ...queued, base: 'master' });
+    const running = cards.get(SEED_IDS.running.ticket);
+    if (running) {
+      cards.set(running.ticket_id, {
+        ...running,
+        base_ref: {
+          name: 'sprint',
+          ref: 'ncng-26-sb-2',
+          sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          pr_into: null,
+        },
+      });
+    }
+  }
+  /** ADR-0039: what a ticket's `base` is refused for, as the server's `ticketBaseProblems`. */
+  const baseRefusal = (base: TicketBase, workflowId: string): string | null => {
+    const def = workflows.get(workflowId)?.at(-1)?.definition ?? null;
+    const problems = ticketBaseProblems(
+      def,
+      base,
+      basesScene ? [...AVAILABLE_WORKFLOW_FEATURES, 'bases'] : AVAILABLE_WORKFLOW_FEATURES,
+    );
+    return problems[0]?.message ?? null;
+  };
+  const refuseBase = (base: TicketBase, workflowId: string) => {
+    const message = baseRefusal(base, workflowId);
+    if (message !== null) {
+      throw new ApiRequestError(400, 'bad_request', message, [{ path: 'base', message }]);
+    }
+  };
 
   /** ADR-0032: recurring jobs by id; a seeded schedule's last ticket names it on its card. */
   const schedules = new Map<string, ScheduleDto>(mockSchedules(now()).map((d) => [d.id, d]));
@@ -545,6 +610,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       kind: req.kind ?? null,
       size: req.size,
       base_ref: null,
+      base: req.base ?? null,
       pending: null,
       watching: null,
       human_transitions: [],
@@ -848,6 +914,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         priority: card.priority,
         created_at: card.created_at,
         kind: card.kind,
+        base: card.base,
         updated_at: card.created_at,
       };
       tickets.set(ticketId, t);
@@ -866,6 +933,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       title: card.title,
       priority: card.priority,
       kind: card.kind,
+      base: card.base,
+      base_ref: card.base_ref,
       session_id: card.session_id,
       workflow_state: card.workflow_state,
       column: card.column,
@@ -1020,6 +1089,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         if (!workflows.has(req.workflow_id)) {
           throw new ApiRequestError(400, 'bad_request', `unknown workflow "${req.workflow_id}"`);
         }
+        if (req.base !== undefined) refuseBase(req.base, req.workflow_id);
         return addTicket(req);
       }),
 
@@ -1194,6 +1264,15 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         if (Date.parse(req.expected_updated_at) !== Date.parse(t.updated_at)) {
           throw new ApiRequestError(409, 'conflict', 'the ticket changed since it was loaded');
         }
+        // ADR-0039: the base is fixed once a session starts.
+        if (req.base !== undefined && before.column !== 'queued') {
+          throw new ApiRequestError(
+            403,
+            'ticket_not_editable',
+            'the base is fixed once the ticket has started',
+          );
+        }
+        if (req.base != null) refuseBase(req.base, t.workflow_id);
         for (const id of req.remove_attachment_ids ?? []) {
           if (attachments.get(id)?.ticketId === ticketId) attachments.delete(id);
         }
@@ -1205,12 +1284,18 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           ...(req.body !== undefined ? { body: req.body } : {}),
           ...(req.priority !== undefined ? { priority: req.priority } : {}),
           ...(req.kind !== undefined ? { kind: req.kind } : {}),
+          ...(req.base !== undefined ? { base: req.base } : {}),
           updated_at: at,
         });
         const s = before.session_id ? sessions.get(before.session_id) : undefined;
         if (s && req.body !== undefined) s.ticket_body = req.body;
         const card = cards.get(ticketId)!;
-        const next = { title: t.title, priority: t.priority, kind: t.kind ?? null };
+        const next = {
+          title: t.title,
+          priority: t.priority,
+          kind: t.kind ?? null,
+          base: t.base ?? null,
+        };
         if (card.session_id !== null) {
           update(card, next);
         } else {
@@ -1652,9 +1737,13 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     saveWorkflow: (definition, opts) =>
       reply(() => {
         // The orchestrator's validator (T03), plus the ADR-0009 gate and ADR-0010 entry rules.
-        const result = validateWorkflow(definition);
+        // The base-refs scene treats `bases` as available (ADR-0039), as B2 will.
+        const result = validateWorkflow(definition, basesScene ? { allowUnavailable: true } : {});
         const details = result.ok
-          ? validateColumns(result.def).map(({ path, message }) => ({ path, message }))
+          ? validateColumns(
+              result.def,
+              basesScene ? [...AVAILABLE_WORKFLOW_FEATURES, 'bases'] : AVAILABLE_WORKFLOW_FEATURES,
+            ).map(({ path, message }) => ({ path, message }))
           : result.errors.map((e) => ({
               path: e.path.join('.'),
               message: `rule ${e.rule}: ${e.message}`,
@@ -1676,7 +1765,11 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           note: opts?.note?.trim() ? opts.note.trim() : null,
         });
         workflows.set(result.def.id, versions);
-        return { id: result.def.id, version };
+        const warnings = (result.warnings ?? []).map((w) => ({
+          path: w.path.join('.'),
+          message: `rule ${w.rule}: ${w.message}`,
+        }));
+        return { id: result.def.id, version, ...(warnings.length > 0 ? { warnings } : {}) };
       }),
 
     getWorkflowDefault: (id) =>

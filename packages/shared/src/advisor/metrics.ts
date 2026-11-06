@@ -117,6 +117,23 @@ export interface AdvisorRows {
   pages?: PageCountRow[];
   /** ADR-0037 P5: texts people wrote where a saved reply was on offer. */
   preset_texts?: PresetTextRow[];
+  /** ADR-0037 P4: the concurrency holds that ended in the window (`concurrency.released` rows). */
+  holds?: HoldRow[];
+}
+
+/**
+ * ADR-0037 P4 (T7): one hold that ended: a move queued behind other tickets on its repo
+ * (`requires.concurrency`), from its `concurrency.released` event row. Queued time, never slow.
+ */
+export interface HoldRow {
+  session_id: string;
+  ticket_id: string;
+  repo: string;
+  /** The move step's label (`moveStateLabel`), as its `state.entered` row has it. */
+  state: string;
+  held_minutes: number;
+  /** How it ended: `concurrency_released`, `timeout`, or `left` (cancelled, sent back, …). */
+  cause: string;
 }
 
 /**
@@ -221,6 +238,31 @@ export function stateDurations(moves: readonly MoveRow[]): StateSpan[] {
     }
   }
   return spans;
+}
+
+/**
+ * ADR-0037 P4: the stays with their queued time taken out. Each hold's minutes come off the
+ * same session's stays in that state (oldest first, never below 0), so a held move's wait is
+ * never counted as a slow state.
+ */
+export function withoutHeld(
+  spans: readonly StateSpan[],
+  holds: readonly HoldRow[] | undefined,
+): StateSpan[] {
+  if (holds === undefined || holds.length === 0) return [...spans];
+  const left = new Map<string, number>();
+  for (const h of holds) {
+    const k = `${h.session_id}\u0000${stateKey(h.state)}`;
+    left.set(k, (left.get(k) ?? 0) + h.held_minutes);
+  }
+  return spans.map((sp) => {
+    const k = `${sp.session_id}\u0000${sp.state}`;
+    const held = left.get(k) ?? 0;
+    if (held <= 0) return sp;
+    const take = Math.min(held, sp.minutes);
+    left.set(k, held - take);
+    return { ...sp, minutes: sp.minutes - take };
+  });
 }
 
 /** `LoopKey.cause` of the bucket that holds every re-entry recorded before ADR-0037 P7. */
@@ -717,6 +759,21 @@ export const ProcessMetricsSchema = z.object({
       ),
     })
     .optional(),
+  /**
+   * ADR-0037 P4: moves queued behind other tickets on their repo (`requires.concurrency`) whose
+   * hold ended in the window: their time (taken out of the state groups, never slow) and how the
+   * holds ended (`concurrency_released`, `timeout`, `left`). Absent when nothing was held.
+   */
+  queued: z
+    .object({
+      holds: z.number().int().nonnegative(),
+      tickets: z.number().int().nonnegative(),
+      total_hours: z.number().nonnegative(),
+      median_minutes: z.number().nonnegative(),
+      p90_minutes: z.number().nonnegative(),
+      by_cause: z.array(z.object({ cause: z.string(), count: z.number().int().nonnegative() })),
+    })
+    .optional(),
 });
 export type ProcessMetrics = z.infer<typeof ProcessMetricsSchema>;
 
@@ -768,7 +825,7 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
           ? (r.machine_id ?? 'none')
           : null;
 
-  for (const s of stateDurations(rows.moves)) {
+  for (const s of withoutHeld(stateDurations(rows.moves), rows.holds)) {
     const g = at(keyOf(s, s.state));
     if (g === null) continue;
     g.tickets.add(s.ticket_id);
@@ -856,6 +913,30 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     ...pageCounts(rows.pages ?? []),
     ...presetUses(rows.preset_texts ?? []),
     ...pushCounts(rows.moves),
+    ...queuedTime(rows.holds ?? []),
+  };
+}
+
+/**
+ * ADR-0037 P4: `{queued}` for ProcessMetrics: the holds that ended, their time (its own bucket,
+ * never a slow state) and how they ended. Nothing when no move was held in the window.
+ */
+export function queuedTime(holds: readonly HoldRow[]): Pick<ProcessMetrics, 'queued'> {
+  if (holds.length === 0) return {};
+  const mins = holds.map((h) => h.held_minutes);
+  const causes = new Map<string, number>();
+  for (const h of holds) causes.set(h.cause, (causes.get(h.cause) ?? 0) + 1);
+  return {
+    queued: {
+      holds: holds.length,
+      tickets: new Set(holds.map((h) => h.ticket_id)).size,
+      total_hours: round1(mins.reduce((a, b) => a + b, 0) / 60),
+      median_minutes: round1(median(mins)),
+      p90_minutes: round1(percentile(mins, 0.9)),
+      by_cause: [...causes.entries()]
+        .map(([cause, count]) => ({ cause, count }))
+        .sort((a, b) => b.count - a.count || a.cause.localeCompare(b.cause)),
+    },
   };
 }
 
@@ -1075,7 +1156,9 @@ export function rankFindings(rows: AdvisorRows, extra: readonly Finding[] = []):
   // Slow states: median stay well above the median of every stay. States and gates that wait on
   // someone outside by design (`rows.waits`: an approval, an event) are neither slow nor part of
   // the baseline; get_process_metrics marks them `waits_on_others` with their ceiling.
-  const spans = stateDurations(rows.moves).filter((s) => rows.waits?.[s.state] === undefined);
+  const spans = withoutHeld(stateDurations(rows.moves), rows.holds).filter(
+    (s) => rows.waits?.[s.state] === undefined,
+  );
   const overall = median(spans.map((s) => s.minutes));
   const byState = new Map<string, StateSpan[]>();
   for (const s of spans) bucket(byState, s.state, () => []).push(s);

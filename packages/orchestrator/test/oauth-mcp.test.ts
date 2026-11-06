@@ -704,6 +704,79 @@ describe('/mcp tools (approved set)', () => {
     expect(await ids({ repo: 'GitHub.com/acme/app', status: 'all' })).toEqual([work, gone].sort());
   });
 
+  it('ticket base (ADR-0039, B3): create_ticket refuses each shape until B2; get/list show it', async () => {
+    const a = await minted();
+    const sha = 'a1b2c3d'.padEnd(40, '0');
+    const mk = (base: unknown) =>
+      call(a.access, 'create_ticket', {
+        title: 'Based',
+        repo: 'github.com/acme/app',
+        body: '## Goal\nX.',
+        kind: 'work',
+        base,
+      });
+    for (const base of ['master', { ref: 'master' }, { ref: sha, pr_into: 'master' }]) {
+      const r = await mk(base);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r.body)).toContain('a ticket base is not available yet');
+    }
+    // A commit with no PR target is not a base at all: the tool's input check refuses it.
+    const bad = await mcp(a.access, 'tools/call', {
+      name: 'create_ticket',
+      arguments: {
+        title: 'Based',
+        repo: 'github.com/acme/app',
+        body: 'x',
+        kind: 'work',
+        base: { ref: sha },
+      },
+    });
+    const badResult = bad.json.result as { content: { text: string }[]; isError?: boolean };
+    expect(badResult.isError).toBe(true);
+    expect(badResult.content[0]!.text).toContain('pr_into');
+
+    // Stored as B2 will store it: a queued ticket shows its base, with no base_ref yet.
+    const queued = (
+      await call(a.access, 'create_ticket', {
+        title: 'Queued',
+        repo: 'github.com/acme/app',
+        body: '## Goal\nX.',
+        kind: 'work',
+      })
+    ).body.id as string;
+    await db.pool.query(`UPDATE ticket SET base = '"master"'::jsonb WHERE id = $1`, [queued]);
+    expect((await call(a.access, 'get_ticket', { ticket: queued })).body).toMatchObject({
+      base: 'master',
+      base_ref: null,
+    });
+    const listed = (await call(a.access, 'list_tickets', {})).body.tickets as {
+      id: string;
+      base?: string;
+    }[];
+    expect(listed.find((t) => t.id === queued)?.base).toBe('master');
+
+    // A started one: its resolved base_ref too; an explicit ref lists as the ref.
+    const { ticketId, sessionId } = await seedTicketSession(a.user.accountId, 'needs_input');
+    const ref = { name: null, ref: 'release/1', sha, pr_into: 'master' };
+    await db.pool.query('UPDATE ticket SET base = $2 WHERE id = $1', [
+      ticketId,
+      JSON.stringify({ ref: 'release/1', pr_into: 'master' }),
+    ]);
+    await db.pool.query('UPDATE session SET base_ref = $2 WHERE id = $1', [
+      sessionId,
+      JSON.stringify(ref),
+    ]);
+    expect((await call(a.access, 'get_ticket', { ticket: ticketId })).body).toMatchObject({
+      base: { ref: 'release/1', pr_into: 'master' },
+      base_ref: ref,
+    });
+    const all = (await call(a.access, 'list_tickets', {})).body.tickets as {
+      id: string;
+      base?: string;
+    }[];
+    expect(all.find((t) => t.id === ticketId)?.base).toBe('release/1');
+  });
+
   it('take_transition lists the allowed names and refuses an approval-gated move', async () => {
     const a = await connect();
     const { ticketId, sessionId } = await seedTicketSession(a.user.accountId, 'needs_input');

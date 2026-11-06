@@ -89,6 +89,8 @@ const PHONE_MAX_WIDTH = 899.98;
  */
 
 const PHONE = { isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
+/** ADR-0039 (B3): the ticket Base and the workflow's Bases section (`?mock-bases=1`). */
+const BASE_SHOTS = ['base-new-ticket', 'base-new-ticket-off', 'base-ticket', 'wf-bases'];
 /** @type {Viewport[]} */
 const VIEWPORTS = [
   {
@@ -100,6 +102,7 @@ const VIEWPORTS = [
       dark: ['board', 'detail', 'new-ticket', 'ticket-plan', ...REQUEST_SHOTS],
     },
   },
+
   {
     w: 360,
     h: 740,
@@ -194,6 +197,7 @@ const VIEWPORTS = [
         'insights',
         'insights-full',
         'detail-checks',
+        ...BASE_SHOTS,
       ],
       dark: ['board', 'detail', 'insights', ...REQUEST_SHOTS],
     },
@@ -548,6 +552,45 @@ const SCREENS = [
     },
   },
   { id: 'workflows', path: '/#/workflows' },
+  // ADR-0039 (B3): the base-refs scene. A custom commit with no PR target yet, so the problem shows.
+  {
+    id: 'base-new-ticket',
+    path: '/?mock-bases=1#/',
+    act: async (page) => {
+      await clickNamed(page, 'button', 'New ticket');
+      await page.locator('form.create-ticket').waitFor();
+      await page.waitForTimeout(800);
+      await page.getByRole('radio', { name: 'Work' }).check();
+      await page.getByRole('combobox', { name: 'Base' }).selectOption({ label: 'Custom ref…' });
+      await page
+        .getByRole('textbox', { name: 'Ref' })
+        .fill('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678');
+      await page.locator('.base-field').scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    id: 'base-new-ticket-off',
+    path: '/#/',
+    act: async (page) => {
+      await clickNamed(page, 'button', 'New ticket');
+      await page.locator('form.create-ticket').waitFor();
+      await page.waitForTimeout(800);
+      await page.locator('.base-field').scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    id: 'base-ticket',
+    path: '/?mock-bases=1#/',
+    act: (page) => openCard(page, 'Hotfix: crash on empty cart'),
+  },
+  {
+    id: 'wf-bases',
+    path: '/?mock-bases=1#/workflows',
+    act: async (page) => {
+      await page.getByRole('button', { name: /^Bases \(/ }).click();
+      await page.locator('.wf-bases').scrollIntoViewIfNeeded();
+    },
+  },
   // UXR-45: the diagram's scroll box scrolled to its right end (fit to width: nothing hidden).
   {
     id: 'wf-diagram-end',

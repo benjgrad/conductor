@@ -94,6 +94,16 @@ describe('toBoardCard / toInputRequestDto', () => {
     expect(toBoardCard({ ...ticket, status: 'ready' }, null, null, VIEW).base_ref).toBeNull();
   });
 
+  it('exposes the ticket base (ADR-0039), null when absent or invalid', () => {
+    const ready = { ...ticket, status: 'ready' as const };
+    expect(toBoardCard({ ...ready, base: 'sprint' }, null, null, VIEW).base).toBe('sprint');
+    expect(toBoardCard({ ...ready, base: { ref: 'master' } }, null, null, VIEW).base).toEqual({
+      ref: 'master',
+    });
+    expect(toBoardCard(ready, null, null, VIEW).base).toBeNull();
+    expect(toBoardCard({ ...ready, base: 'Not A Name' }, null, null, VIEW).base).toBeNull();
+  });
+
   it('derives column, spend (numeric string), open input and the latest updated_at', () => {
     const card = BoardCardSchema.parse(toBoardCard(ticket, session, input, VIEW));
     expect(card).toMatchObject({

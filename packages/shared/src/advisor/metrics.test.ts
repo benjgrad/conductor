@@ -16,7 +16,9 @@ import {
   ProcessMetricsSchema,
   rankFindings,
   stateDurations,
+  withoutHeld,
   type AdvisorRows,
+  type HoldRow,
   type CheckRunRow,
   type InputRow,
   type MoveRow,
@@ -728,5 +730,66 @@ describe('pushCounts (ADR-0037 P6)', () => {
     ]);
     const all = processMetrics({ moves, checks: [], inputs: [], permissions: [] }, 'state');
     expect(ProcessMetricsSchema.parse(all).pushes).toEqual(r);
+  });
+});
+
+describe('queued: concurrency holds (ADR-0037 P4, T7)', () => {
+  const LABEL = 'implementing → in_review (move: pr_ready)';
+  const hold = (ticket: string, minutes: number, cause = 'concurrency_released'): HoldRow => ({
+    session_id: `s-${ticket}`,
+    ticket_id: ticket,
+    repo: 'github.com/acme/app',
+    state: LABEL,
+    held_minutes: minutes,
+    cause,
+  });
+  /** Each ticket spends 190 minutes in the move step, 180 of them held. */
+  const moves = ['a', 'b', 'c'].flatMap((t) =>
+    walk(t, [
+      ['planning', 0],
+      ['implementing', 10],
+      [LABEL, 20],
+      ['in_review', 210],
+      ['done', 220],
+    ]),
+  );
+  const holds = [hold('a', 180), hold('b', 180), hold('c', 180, 'timeout')];
+
+  it('held time is taken out of the stay, so the move step is not a slow state', () => {
+    expect(rankFindings({ ...EMPTY, moves }).map((f) => f.id)).toContain(
+      'slow_state:implementing.pr_ready',
+    );
+    expect(
+      rankFindings({ ...EMPTY, moves, holds }).filter((f) => f.category === 'slow_state'),
+    ).toEqual([]);
+  });
+
+  it('get_process_metrics: its own queued bucket, releases by cause', () => {
+    const m = processMetrics({ ...EMPTY, moves, holds }, 'state');
+    expect(ProcessMetricsSchema.parse(m).queued).toEqual({
+      holds: 3,
+      tickets: 3,
+      total_hours: 9,
+      median_minutes: 180,
+      p90_minutes: 180,
+      by_cause: [
+        { cause: 'concurrency_released', count: 2 },
+        { cause: 'timeout', count: 1 },
+      ],
+    });
+    const step = m.groups.find((g) => g.key === 'implementing.pr_ready')!;
+    expect(step.median_minutes).toBe(10);
+    expect(processMetrics({ ...EMPTY, moves }, 'state').queued).toBeUndefined();
+  });
+
+  it('withoutHeld never goes below zero and touches only the same session and state', () => {
+    const spans = stateDurations(moves);
+    const out = withoutHeld(spans, [hold('a', 999)]);
+    const a = out.filter((sp) => sp.session_id === 's-a');
+    expect(a.find((sp) => sp.state === 'implementing.pr_ready')!.minutes).toBe(0);
+    expect(a.find((sp) => sp.state === 'implementing')!.minutes).toBe(10);
+    expect(
+      out.find((sp) => sp.session_id === 's-b' && sp.state === 'implementing.pr_ready')!.minutes,
+    ).toBe(190);
   });
 });

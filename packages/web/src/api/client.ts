@@ -99,6 +99,8 @@ export interface StreamHandlers<T> {
 export interface SaveWorkflowResponse {
   id: string;
   version: number;
+  /** ADR-0039: problems that don't block the save (`{path, message}`, as `details`). */
+  warnings?: ApiErrorDetail[] | undefined;
 }
 
 /** One validation failure in an ApiError's `details` (path is dot-joined, e.g. states.build.on). */

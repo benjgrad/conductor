@@ -2,6 +2,7 @@
 // and saved reply follows), edit the text, and delete, refused while anything uses it.
 import type { WorkflowDefinition } from '@conductor/shared';
 import { useId, useState } from 'react';
+import { BasePreview } from './BasePreview.js';
 import type { ColumnIssue } from './columns.js';
 import {
   addInstruction,
@@ -125,6 +126,7 @@ function InstructionRow({
         readOnly={readOnly}
         onChange={(e) => onChange(setInstructionText(definition, slug, e.target.value))}
       />
+      <BasePreview text={text} />
       {issues.map((i) => (
         <p key={i.message} className="error" role="alert">
           {i.message}

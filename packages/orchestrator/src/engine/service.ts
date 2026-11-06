@@ -3,6 +3,7 @@ import {
   RETRY_CHECKS,
   apply as sharedApply,
   commandPayloadForEffect,
+  moveSpecOf,
   notifyBucketKey,
   parseDuration,
   sessionBranch,
@@ -36,6 +37,7 @@ import {
 } from '../push/enqueue.js';
 import { transitionPayload, watchEscalatePayload, watchEscalateTag } from '../push/payload.js';
 import { nudgeSameRepoWatches, nudgesWatches } from './watch-nudge.js';
+import { nudgeSameRepoHolds, releasesHolds, withHolders } from './concurrency.js';
 import { CardViews, MachineCardFields } from './board-view.js';
 import {
   DefinitionCache,
@@ -142,7 +144,7 @@ export class EngineServiceImpl implements EngineService {
   private async applyInTx(
     tx: Queryable,
     sessionId: string,
-    event: EngineEvent,
+    incoming: EngineEvent,
     opts: ApplyEventOptions,
   ): Promise<{ result: ApplyEventResult; wroteOutbox: boolean; wrotePush?: boolean }> {
     const rejected = (reason: Extract<ApplyEventResult, { status: 'rejected' }>['reason']) => ({
@@ -150,6 +152,7 @@ export class EngineServiceImpl implements EngineService {
       wroteOutbox: false,
     });
 
+    let event = incoming;
     const locked = await lockSession(tx, sessionId);
     if (!locked) return rejected('unknown_session');
     const { session, ticket } = locked;
@@ -207,6 +210,14 @@ export class EngineServiceImpl implements EngineService {
       ),
       ticket,
     );
+    // ADR-0037 P4: a held move step's timer is its "check me": answer it with the holders,
+    // computed here under the repo's lock (the event row records `concurrency.checked`).
+    event = await withHolders(tx, event, {
+      accountId: ticket.account_id,
+      repo: ticket.repo,
+      before,
+      conc: before.step !== null ? moveSpecOf(def, before.step)?.concurrency : undefined,
+    });
     const res = this.applyFn(def, before, event, now);
 
     const ev = await tx.query<{ id: string }>(
@@ -496,6 +507,20 @@ export class EngineServiceImpl implements EngineService {
             now,
           ]);
           break;
+        case 'hold_changed':
+          // ADR-0037 P4: audit only (never a push); Insights' `queued` bucket reads these rows.
+          await tx.query('INSERT INTO event (session_id, type, payload) VALUES ($1, $2, $3)', [
+            sessionId,
+            effect.held ? 'concurrency.held' : 'concurrency.released',
+            JSON.stringify({
+              state: effect.state,
+              behind: effect.behind,
+              since: effect.since,
+              ...(effect.cause !== undefined ? { cause: effect.cause } : {}),
+              ...(effect.held_ms !== undefined ? { held_ms: effect.held_ms } : {}),
+            }),
+          ]);
+          break;
         case 'watch_escalated': {
           // ADR-0037 P1 / P6: a watch's `notify: escalate` always pushes (the user asked for it),
           // in legacy mode too; once per stay (the tag is the idempotency key).
@@ -599,6 +624,16 @@ export class EngineServiceImpl implements EngineService {
     // ADR-0037 P1 (Q1): a merge or a push on this repo: check the repo's other watched tickets now.
     if (nudgesWatches(event, before, s1)) {
       await nudgeSameRepoWatches(tx, {
+        accountId: ticket.account_id,
+        repo: ticket.repo,
+        exceptSessionId: sessionId,
+        now,
+      });
+    }
+    // ADR-0037 P4: a session on this repo left a state (merged, sent back, cancelled…): re-check
+    // the repo's held moves at the next sweep tick.
+    if (nudgesWatches(event, before, s1) || releasesHolds(before, s1)) {
+      await nudgeSameRepoHolds(tx, {
         accountId: ticket.account_id,
         repo: ticket.repo,
         exceptSessionId: sessionId,

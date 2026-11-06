@@ -163,6 +163,12 @@ export const ConcurrencySchema = z.strictObject({
   - A session without `files`, or a holder without them, makes no overlap claim, so there is no hold. Until planning reliably emits `files`, the primitive does nothing rather than serialising the repo.
   - Without `overlap`, the hold is by key alone, which is the explicit "one at a time" for a user who wants it.
   - *Alternative (recorded, not chosen):* treat missing `files` as overlapping everything, and leave `requires.concurrency` out of v6 until T7 has seen `files` on 20 consecutive plans. Rejected because the safe default is "no evidence, no hold". A primitive that silently serialises five parallel tickets fails worse than one that occasionally lets a conflict through to the P1 watch.
+- *As built (T7):*
+  - **The wrapper translates the timer.** apply keeps a held step's `state_deadline` armed ("check me"); the EngineService wrapper replaces that `timer.fired` with `concurrency.checked {holders}`, computed in its transaction under a per-repo advisory lock, so two held tickets are never released by racing transactions. No new sweep and no nested apply.
+  - **In flight** means (a) in a `scope` state, (b) in a move step past `held` on its way into one, or (c) held too and ahead in the queue (older `step.started_at`). (c) is what makes release oldest first.
+  - **Nudge on any departure.** Not only the T6 triggers: any same-repo session leaving a real state or ending brings the held moves' check to now, so "Merged, done", a send-back or a cancel releases within one sweep tick.
+  - **Notify.** A released move notifies as its own transition (`concurrency_released` is not an engine move for P6), so v6's PR-ready `once` push still reaches Ben; the hold itself is silent.
+  - **Overlap of two globs** is approximate (TD-220): equal, one matches the other as a path, or two wildcard globs whose literal leading segments are prefix-compatible.
 - **Builder.** A "One at a time" section on a transition: key, max, scope (column picker), "only when files overlap", hold timeout.
 - **Insights.** Held time is its own bucket, "queued", not counted as a slow state. Releases are counted by cause.
 - **v5 migration.** Absent means no hold, so nothing changes.
@@ -302,7 +308,7 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
 **Rule 14 grows** the "not available yet" list. Until its ticket marks it available, each of these is refused at its path:
 - `watch` (T6);
 - the `cmd` / `pr_mergeable` / `age_below` conditions and `no_checks` (T5);
-- `requires.concurrency` (T7);
+- `requires.concurrency` (T7, available);
 - `instructions` refs and `presets` (T8);
 - the `notify` block and string notify values (T4, available);
 - `handoff` (T3).
@@ -322,7 +328,7 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
 - `in_review.request_changes` gets `presets: [resync_main]`.
 - `needs_input.watch`: an `age_below 2h` condition with `on_broken: {notify: escalate}` (the question SLA).
 
-**Saved (T9, 2026-11-06).** The live `conductor` v6 is this draft without `requires.concurrency`: [`conductor.v6.json`](../design/workflows/conductor.v6.json), checked by `conductor.v6.test.ts`. T7 isn't available yet and U-120 (are planning `files` reliable?) is undecided, so concurrency comes in a v7 edit once both land.
+**Saved (T9).** The live `conductor` v6 is this draft without `requires.concurrency`: [`conductor.v6.json`](../design/workflows/conductor.v6.json), checked by `conductor.v6.test.ts`. U-120 (are planning `files` reliable?) is undecided, so concurrency comes in a v7 edit once it passes.
 
 [`conductor.repo-checks.draft.json`](../design/workflows/conductor.repo-checks.draft.json) is the `set_repo_checks` payload for `github.com/benjgrad/conductor`:
 - setup: `pnpm install --frozen-lockfile && git fetch -q origin && git branch -f main origin/main`, which fixes 2.3's stale local `main`;

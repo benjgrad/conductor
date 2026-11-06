@@ -30,6 +30,8 @@ export function mockOptionsFromSearch(search: string): MockApiOptions {
   return {
     ...(q.get('mock-auth') === 'password' ? { auth: 'password' as const } : {}),
     ...(q.get('mock-machines') === 'none' ? { machines: 'none' as const } : {}),
+    // ADR-0039 (B3): the base-refs scene (workflow/features.ts treats bases as available).
+    ...(q.get('mock-bases') === '1' ? { bases: true } : {}),
   };
 }
 
@@ -40,7 +42,7 @@ export function mockOptionsFromSearch(search: string): MockApiOptions {
  * permission (ADR-0023) on the running "Add pagination to /orders" card (UXR-32 screenshots).
  * `?mock-auth=password` in the page's query starts the mock in password mode, signed in as its
  * admin (the screenshots' admin page and admin account menu); `?mock-machines=none` starts it
- * with no machines (the first-run guide). See `mockOptionsFromSearch`.
+ * with no machines (the first-run guide); `?mock-bases=1` is the base-refs scene (ADR-0039). See `mockOptionsFromSearch`.
  */
 export function createApiFromEnv(
   env: Record<string, unknown>,

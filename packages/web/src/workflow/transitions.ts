@@ -291,13 +291,15 @@ export function requiresAnything(r: TransitionRequires | undefined): boolean {
     (r.checks?.length ?? 0) > 0 ||
     r.review !== undefined ||
     (r.actions?.length ?? 0) > 0 ||
-    (r.conditions?.length ?? 0) > 0
+    (r.conditions?.length ?? 0) > 0 ||
+    r.concurrency !== undefined
   );
 }
 
 /**
  * Tidy a `requires` after an edit: empty lists go, `setup` only stays with checks, the condition
- * timeout and poll only with conditions; nothing left → undefined.
+ * timeout only with conditions, the poll with conditions or a concurrency hold (ADR-0037 P4: the
+ * hold is re-checked at that interval too); nothing left → undefined.
  */
 export function normalizeRequires(r: TransitionRequires): TransitionRequires | undefined {
   const out: TransitionRequires = {};
@@ -310,7 +312,13 @@ export function normalizeRequires(r: TransitionRequires): TransitionRequires | u
   if ((r.conditions?.length ?? 0) > 0) {
     out.conditions = r.conditions!;
     if (r.condition_timeout !== undefined) out.condition_timeout = r.condition_timeout;
-    if (r.condition_poll !== undefined) out.condition_poll = r.condition_poll;
+  }
+  if (r.concurrency !== undefined) out.concurrency = r.concurrency;
+  if (
+    r.condition_poll !== undefined &&
+    (out.conditions !== undefined || out.concurrency !== undefined)
+  ) {
+    out.condition_poll = r.condition_poll;
   }
   return requiresAnything(out) ? out : undefined;
 }
@@ -699,6 +707,17 @@ export function describeTransition(def: WorkflowDefinition, from: string, name: 
 
   const r = t.requires ?? {};
   const steps: string[] = [];
+  // ADR-0037 P4: the hold comes first.
+  const c = r.concurrency;
+  if (c !== undefined) {
+    const where = listJoin(c.scope.map((n) => stateTitle(def, n)));
+    steps.push(
+      `wait while ${c.max_in_flight} other ticket${c.max_in_flight === 1 ? '' : 's'} on the ` +
+        `${c.key === '$repo' ? 'repo' : 'repo and kind'}` +
+        `${c.overlap === 'planned_files' ? ' touching the same files' : ''} ` +
+        `${c.max_in_flight === 1 ? 'is' : 'are'} in ${where} (at most ${humanDuration(c.hold_timeout)})`,
+    );
+  }
   const checks = r.checks ?? [];
   if (checks.length > 0) {
     steps.push(
@@ -746,7 +765,8 @@ export function describeTransition(def: WorkflowDefinition, from: string, name: 
 }
 
 /** The transition editor's sections (TransitionEditor.tsx). */
-export type TransitionSection = 'who' | 'checks' | 'review' | 'actions' | 'conditions' | 'unmet';
+export type TransitionSection =
+  'who' | 'concurrency' | 'checks' | 'review' | 'actions' | 'conditions' | 'unmet';
 
 /**
  * Which editor section shows a problem at `suffix` (the path after `states.<s>.on.<name>`), so a
@@ -771,6 +791,7 @@ export function sectionOfPath(suffix: string): TransitionSection | null {
   ) {
     return 'who';
   }
+  if (under('.requires.concurrency')) return 'concurrency';
   if (under('.requires.checks') || under('.requires.setup')) return 'checks';
   if (under('.requires.review')) return 'review';
   if (under('.requires.actions')) return 'actions';

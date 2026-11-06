@@ -994,11 +994,17 @@ describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
       'Conditions (4 · wait 3d, poll 2m)',
       'If the requirements aren’t met (back to Implementing · 3× · then Needs input)',
     ];
-    // In this order, all open (each has content).
-    expect(heads().map((b) => b.textContent?.replace(/^[▾▸]/, ''))).toEqual(names);
+    // In this order, all open (each has content); ADR-0037 P4's "One at a time" (an agent's
+    // move) second, closed while off.
+    expect(heads().map((b) => b.textContent?.replace(/^[▾▸]/, ''))).toEqual([
+      names[0],
+      'One at a time (off)',
+      ...names.slice(1),
+    ]);
     for (const n of names) {
       expect(panel().getByRole('button', { name: n }).getAttribute('aria-expanded')).toBe('true');
     }
+    expect(sectionHead('One at a time (off)').getAttribute('aria-expanded')).toBe('false');
     // A section closes and opens again from its header.
     fireEvent.click(sectionHead('Checks (2)'));
     expect(sectionHead('Checks (2)').getAttribute('aria-expanded')).toBe('false');

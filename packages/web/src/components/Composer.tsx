@@ -46,14 +46,15 @@ export function composerMode(detail: SessionDetail): ComposerMode {
   // ADR-0008: a done or failed session reopens the ticket (lost ones can't: their machine is gone).
   if (status === 'done' || status === 'failed') return { mode: 'reopen' };
   if (TERMINAL_STATUSES.has(status)) return { mode: 'off', reason: 'Session finished' };
-  // A move step waiting on its conditions (the PR's checks or approvals) out of an agent state: a
-  // message ends the wait and the agent resumes with it. The source state comes from the step's
+  // A move step waiting on its conditions (the PR's checks or approvals), or held behind other
+  // tickets (ADR-0037 P4), out of an agent state: a message ends the wait and the agent resumes
+  // with it. The source state comes from the step's
   // label: a card waiting only on approvals shows in Waiting external, not its source column.
   const source =
     (card.workflow_state !== null ? gateStepSource(card.workflow_state) : null) ?? card.column;
   if (
     status === 'waiting_external' &&
-    card.checking?.phase === 'conditions' &&
+    (card.checking?.phase === 'conditions' || card.checking?.phase === 'held') &&
     detail.workflow.states[source]?.type === 'agent'
   ) {
     return { mode: 'message', resumes: true };

@@ -14,6 +14,7 @@ import { transitionObject } from '../workflow/transition-rules.js';
 //   today's behaviour (every input_request pushes, `notify: true` transitions push).
 // - A named transition (cause `transition`) takes its own mode, `inherit` (or absent) the
 //   workflow default. `true` reads as `every`, `false` as `never`.
+// - `concurrency_released` (P4, T7) is that same named transition, released from a hold.
 // - Any other cause is an engine move: silent under `engine_moves: never`; under `inherit`, the
 //   mode of the transition it was taken for (the gate's, the counted loop's), else the default.
 // - `once`: pushes the first time the transition (by name) is taken on the ticket
@@ -60,7 +61,12 @@ export function notifyDecision(
   const declared = transitionMode(def, move.from, move.transition);
   let via: string;
   let mode: NotifyMode;
-  if (move.cause === 'transition' && move.transition !== null) {
+  // ADR-0037 P4 (T7): a move released from a concurrency hold is the named transition landing
+  // late (e.g. the PR-ready hand-off), so it notifies as that transition, not as an engine move.
+  if (
+    (move.cause === 'transition' || move.cause === 'concurrency_released') &&
+    move.transition !== null
+  ) {
     via = move.transition;
     mode = declared === undefined || declared === 'inherit' ? policy.default : declared;
   } else if (policy.engine_moves === 'never') {

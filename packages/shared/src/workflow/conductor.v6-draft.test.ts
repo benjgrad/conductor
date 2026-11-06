@@ -5,10 +5,9 @@ import { RepoChecksSchema } from './repo-checks.js';
 import { validateWorkflow } from './validate.js';
 
 // ADR-0037 T1: docs/design/workflows/conductor.v6.draft.json is the definition the builder would
-// save once P1–P8 land. With the schema in, it parses as is and passes every rule but rule 14's
-// "not available yet" refusals (`allowUnavailable`). Each primitive's ticket shrinks the refusal
-// list below until it is empty. T9 saved v6 without `requires.concurrency`
-// (conductor.v6.json, conductor.v6.test.ts); the two refusals left are T7's.
+// save once P1–P8 land. Each primitive's ticket lifted its rule-14 "not available yet" refusal; T7
+// lifted the last, so it now validates as is. T9 saved it as v6 without
+// `requires.concurrency` until U-120 decides (conductor.v6.json, conductor.v6.test.ts).
 
 const read = (name: string): unknown =>
   JSON.parse(
@@ -26,23 +25,9 @@ describe('conductor v6 draft (ADR-0037)', () => {
     expect(res.ok ? [] : res.errors).toEqual([]);
   });
 
-  it('without it, only rule 14 refuses, once per ADR-0037 field not available yet', () => {
+  it('validates without allowUnavailable: every ADR-0037 primitive is available (T7 last)', () => {
     const res = validateWorkflow(draft);
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.errors.every((e) => e.rule === 14)).toBe(true);
-    const pr = ['pr_ready_for_review', 'personal_pr_ready_for_review'];
-    const at = (s: string, t: string, ...rest: (string | number)[]) =>
-      ['states', s, 'on', t, ...rest].join('.');
-    // T8: instructions, their refs and presets are available.
-    expect(res.errors.filter((e) => /instruction|presets/.test(e.path.join('.')))).toEqual([]);
-    // T4: the notify block and string notify values are available.
-    expect(res.errors.filter((e) => e.path.at(-1) === 'notify')).toEqual([]);
-    // T6: both watches are available.
-    expect(res.errors.filter((e) => e.path.includes('watch'))).toEqual([]);
-    expect(res.errors.map((e) => e.path.join('.')).sort()).toEqual(
-      pr.map((t) => at('implementing', t, 'requires', 'concurrency')).sort(),
-    );
+    expect(res.ok ? [] : res.errors).toEqual([]);
   });
 
   it('the repo-checks draft is a valid set_repo_checks payload', () => {

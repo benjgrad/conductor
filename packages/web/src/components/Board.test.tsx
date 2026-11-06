@@ -262,6 +262,23 @@ describe('board card in a gate step (UX-5)', () => {
     const conditions = screen.getByText('Card 2').closest('article')!;
     expect(conditions.querySelector('.status-conductor')).toBeNull();
   });
+
+  it('ADR-0037 P4: a held move says "Queued behind #N", not "Conductor is checking"', () => {
+    renderCards([
+      step(1, {
+        status: 'waiting_external',
+        checking: {
+          ...mockChecking(0),
+          phase: 'held',
+          label: 'Queued behind #aaaaaaaa',
+          hold: { behind: ['aaaaaaaa'], since: '2026-11-06T12:00:00.000Z' },
+        },
+      }),
+    ]);
+    const a = article('Card 1');
+    expect(a.getByText('Queued behind #aaaaaaaa')).toBeTruthy();
+    expect(a.queryByText(/Conductor is checking/)).toBeNull();
+  });
 });
 
 /** Text a sighted user sees: `.visually-hidden` spans left out. */
@@ -332,6 +349,22 @@ describe('board card says only what its column does not (UX card cleanup)', () =
     expect(tag('Card 1')?.textContent).toBe('M');
     expect(tag('Card 1')?.title).toBe('Size: Medium');
     expect(tag('Card 2')).toBeNull();
+  });
+
+  it('ADR-0039 (B3): a card shows its base, resolved or not; none without one', () => {
+    const sha = 'a1b2c3d'.padEnd(40, '0');
+    const queued = { input_request: null, column: 'queued', status: null } as const;
+    renderCards([
+      card(1, {}, { ...queued, base: 'sprint' }),
+      card(2, {}, { base_ref: { name: 'sprint', ref: 'ncng-26-sb-2', sha, pr_into: null } }),
+      card(3, {}, { ...queued, base: null }),
+    ]);
+    const tag = (t: string) =>
+      screen.getByText(t).closest('article')!.querySelector<HTMLElement>('.tag-base');
+    expect(tag('Card 1')?.title).toBe('Base: sprint (resolved at start)');
+    expect(tag('Card 1')?.textContent).toBe('Base: sprint');
+    expect(tag('Card 2')?.title).toBe('Base: sprint (ncng-26-sb-2 @ a1b2c3d)');
+    expect(tag('Card 3')).toBeNull();
   });
 
   it('UXR-30: with two workflows on the board, each card names its workflow', () => {

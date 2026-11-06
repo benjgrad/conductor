@@ -13,10 +13,13 @@ import {
   type OnUnmet,
   type Watch,
   type WorkflowDefinition,
+  type WorkflowFeature,
   type WorkflowState,
 } from '@conductor/shared';
 import { humanStates, transitionForPath, validateGates } from './model.js';
 import { instructionIssues } from './instructions.js';
+import { basesIssues } from './bases.js';
+import { webWorkflowFeatures } from './features.js';
 import { validateTransitions } from './transitions.js';
 
 export { humanStates };
@@ -749,8 +752,14 @@ export function issueAt(def: WorkflowDefinition, path: string, message: string):
   };
 }
 
-/** ADR-0010's entry rules (and ADR-0009's for old gates), checked before Save. */
-export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
+/**
+ * ADR-0010's entry rules (and ADR-0009's for old gates), checked before Save. `features`: which
+ * workflow features count as available (ADR-0039's `bases`, rule 14).
+ */
+export function validateColumns(
+  def: WorkflowDefinition,
+  features: readonly WorkflowFeature[] = webWorkflowFeatures(),
+): ColumnIssue[] {
   const issues: ColumnIssue[] = [];
   // Mirrors the server's rule 9 (shared workflow/validate.ts, ADR-0010) so problems show before Save.
   const seen = new Set<string>();
@@ -923,6 +932,11 @@ export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
   }
   // ADR-0037 P5: the saved instructions themselves (the Instructions list shows these).
   for (const i of instructionIssues(def)) issues.push({ state: null, ...i });
+  // ADR-0039: the bases (the Bases section shows these; a `$base` use marks its column). Warnings
+  // never block a save, so they are the Bases section's own.
+  for (const i of basesIssues(def, features)) {
+    if (i.warning !== true) issues.push(issueAt(def, i.path, i.message));
+  }
   return issues;
 }
 

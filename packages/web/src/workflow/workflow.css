@@ -1345,3 +1345,40 @@ dialog.modal.wf-review-dialog {
   grid-column: 2;
   justify-self: start;
 }
+
+/* ADR-0039 (B3): the Bases section and the `$base` preview. */
+.wf-base-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.wf-base-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.wf-base-row > .muted.wf-base-warning {
+  grid-column: 2;
+}
+.wf-base-defaults {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  border: none;
+  padding: 0;
+  margin: var(--space-2) 0;
+}
+.wf-base-defaults legend {
+  font-weight: 600;
+  padding: 0;
+}
+.wf-base-defaults label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wf-base-preview {
+  font-size: var(--text-sm);
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}

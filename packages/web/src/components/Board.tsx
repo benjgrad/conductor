@@ -1,4 +1,5 @@
 import {
+  baseLabel,
   DEFAULT_TICKET_PRIORITY,
   isReorderable,
   moveInOrder,
@@ -803,6 +804,7 @@ function Card({
             {card.size}
           </span>
         )}
+        {(card.base !== null || card.base_ref !== null) && <BaseTag card={card} />}
         <span
           className="card-agent"
           title={
@@ -1061,4 +1063,15 @@ export function requestLabel(cls: RequestClass, kind: keyof typeof KIND_LABELS):
   if (cls === 'plan_approval') return 'Plan to approve';
   if (cls === 'step_failed') return 'Step failed';
   return KIND_LABELS[kind];
+}
+
+/** ADR-0039 (B3): where the card's branch starts (or will), as a chip; the title has it all. */
+function BaseTag({ card }: { card: BoardCard }) {
+  const label = baseLabel(card.base, card.base_ref, null, card.kind);
+  return (
+    <span className="tag tag-base" title={`Base: ${label.text}`}>
+      <span className="visually-hidden">Base: </span>
+      {label.short}
+    </span>
+  );
 }

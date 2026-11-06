@@ -9,6 +9,7 @@ import {
   type FocusEvent,
   type ReactNode,
 } from 'react';
+import { BasePreviewRow } from './BasePreview.js';
 
 // A check list and the setup before it: a transition's `requires.checks` (TransitionEditor) and a
 // repo's check override (ADR-0030, the Repo checks page). Every change goes to `onChange`; the
@@ -223,6 +224,7 @@ export function ChecksFields({
                         />
                       </td>
                     </tr>
+                    <BasePreviewRow text={c.cmd} colSpan={4} />
                     {problems.length > 0 && (
                       <tr className="wf-checks-problems">
                         <td colSpan={4}>

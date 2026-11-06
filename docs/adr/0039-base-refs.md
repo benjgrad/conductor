@@ -112,7 +112,7 @@ It passes `validateWorkflow(draft, {allowUnavailable: true})` with one warning. 
 ## Consequences
 
 - Two nullable jsonb columns (`ticket.base`, `session.base_ref`, migration `1764000000000_ticket-base`); existing rows have neither.
-- `validateWorkflow` has a warnings channel. That is the first one; rule 14's note that "the editor has no warning channel" stays true for the editor until B3.
+- `validateWorkflow` has a warnings channel. That is the first one. From B3 the save routes return it (`SaveWorkflowResponse.warnings`, MCP `save_workflow`), and the editor shows it after a save and in the Bases section.
 - `$base` and `$base_sha` become reserved spellings in the substitution sites, once B2 lands.
 
 ## Revisit when

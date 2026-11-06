@@ -7,11 +7,14 @@ import {
   type RepoSuggestion,
   type TicketKind,
   type TicketSize,
+  type WorkflowFeature,
 } from '@conductor/shared';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { basesAvailable, webWorkflowFeatures } from '../workflow/features.js';
 import { AttachmentPicker, useAttachmentUploads } from './AttachmentPicker.js';
+import { BaseField, type BaseChoice } from './BaseField.js';
 import {
   priorityChoices,
   priorityLabel,
@@ -22,6 +25,7 @@ import { RepoCombobox } from './RepoCombobox.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
 import { TicketBodyField } from './ticket-editor/TicketBodyField.js';
 import { stripPlaceholders, TICKET_TEMPLATE } from './ticket-editor/template.js';
+import { useWorkflowBases } from './useWorkflowBases.js';
 
 interface CreateTicketFormProps {
   api: ApiClient;
@@ -31,6 +35,8 @@ interface CreateTicketFormProps {
    * unsaved input the sheet asks first (UXR-41 FR-4).
    */
   onClose: () => void;
+  /** ADR-0039: which workflow features are on (the Base control while `bases` is off). */
+  features?: readonly WorkflowFeature[];
 }
 
 /**
@@ -42,7 +48,12 @@ interface CreateTicketFormProps {
  * required (ADR-0011: transitions filter on it; no triage until M4). The new card arrives on the
  * board stream (card.upserted), not from here.
  */
-export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormProps) {
+export function CreateTicketForm({
+  api,
+  onCreated,
+  onClose,
+  features = webWorkflowFeatures(),
+}: CreateTicketFormProps) {
   const [title, setTitle] = useState('');
   // UX-3: markdown from the requirements template; untouched placeholders are dropped on submit.
   const [body, setBody] = useState(TICKET_TEMPLATE);
@@ -56,6 +67,11 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
   const [priority, setPriority] = useState(DEFAULT_TICKET_PRIORITY);
   const [kind, setKind] = useState<TicketKind | null>(null);
   const [size, setSize] = useState<TicketSize | null>(null);
+  // ADR-0039: the ticket's own base; null = its kind's default.
+  const [base, setBase] = useState<BaseChoice>({ value: null, valid: true });
+  const [baseKey, setBaseKey] = useState(0);
+  const workflowBases = useWorkflowBases(api, CONDUCTOR_WORKFLOW_ID);
+  const sendBase = basesAvailable(features) ? base : { value: null, valid: true };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 06 §Attachments: uploaded as they are picked, linked when the ticket is created.
@@ -139,6 +155,7 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
         // Always sent: the shared contract makes it required once M1b-T04 merges.
         kind,
         ...(size !== null ? { size } : {}),
+        ...(sendBase.value !== null ? { base: sendBase.value } : {}),
         ...(uploads.ids.length > 0 ? { attachment_ids: uploads.ids } : {}),
       });
       uploads.reset();
@@ -147,6 +164,8 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
       setBodyKey((k) => k + 1);
       setKind(null);
       setSize(null);
+      setBase({ value: null, valid: true });
+      setBaseKey((k) => k + 1);
       // The repo stays chosen; its ranking changed.
       repoTouched.current = true;
       setReposKey((k) => k + 1);
@@ -158,11 +177,17 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
     }
   }
 
-  const valid = title.trim() !== '' && repo.trim() !== '' && kind !== null && !uploads.uploading;
+  const valid =
+    title.trim() !== '' &&
+    repo.trim() !== '' &&
+    kind !== null &&
+    sendBase.valid &&
+    !uploads.uploading;
   const missing = [
     title.trim() === '' && 'a title',
     repo.trim() === '' && 'a repo',
     kind === null && 'Work or Personal',
+    !sendBase.valid && 'a valid base',
     uploads.uploading && 'the uploads to finish',
   ].filter((m): m is string => m !== false);
   const form = (
@@ -222,6 +247,14 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
           </label>
         ))}
       </fieldset>
+      <BaseField
+        key={baseKey}
+        value={base.value}
+        onChange={setBase}
+        workflow={workflowBases}
+        kind={kind}
+        features={features}
+      />
       <div className="wide" onPasteCapture={uploads.onPaste}>
         <TicketBodyField
           value={body}

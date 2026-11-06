@@ -55,6 +55,7 @@ export * from './api/proposals.js';
 export * from './api/pages.js';
 export * from './api/planned-files.js';
 export * from './api/plan-base.js';
+export * from './api/base-label.js';
 export * from './api/attachments.js';
 export * from './api/schedules.js';
 export * from './api/repo-rank.js';

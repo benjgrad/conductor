@@ -741,7 +741,19 @@ export const createApi = (({
     }
     // No base_version over REST, so no conflict either.
     if (!result.ok) throw new Error(`unexpected workflow save result ${result.code}`);
-    return await reply.code(201).send({ id: result.id, version: result.version });
+    return await reply.code(201).send({
+      id: result.id,
+      version: result.version,
+      // ADR-0039: problems that don't block the save, in the shape of a 400's `details`.
+      ...(result.warnings !== undefined && result.warnings.length > 0
+        ? {
+            warnings: result.warnings.map((w) => ({
+              path: pathString(w.path),
+              message: `rule ${w.rule}: ${w.message}`,
+            })),
+          }
+        : {}),
+    });
   });
 
   // ---------------------------------------------------------------- SSE

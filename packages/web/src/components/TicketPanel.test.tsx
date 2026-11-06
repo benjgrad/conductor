@@ -27,6 +27,26 @@ async function openQueued(patch?: (api: ReturnType<typeof createMockApi>) => voi
 }
 
 describe('a queued ticket', () => {
+  it('ADR-0039: sets skip permissions (asking before on), back to the machine default', async () => {
+    const { api, panel } = await openQueued();
+    const section = within(panel.getByRole('region', { name: 'Agent permissions' }));
+    const select = section.getByLabelText<HTMLSelectElement>('Permission checks');
+    expect(select.value).toBe('default');
+    fireEvent.change(select, { target: { value: 'on' } });
+    const dialog = await screen.findByRole('dialog', { name: 'Skip permissions for this ticket?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Skip permissions' }));
+    await section.findByText(/This ticket's agents skip permission checks/);
+    const id = (await api.getBoard()).columns[0]!.cards.find(
+      (c) => c.title === 'Queued idea',
+    )!.ticket_id;
+    expect((await api.getTicket(id)).skip_permissions).toBe(true);
+    fireEvent.change(select, { target: { value: 'off' } });
+    await waitFor(async () => expect((await api.getTicket(id)).skip_permissions).toBe(false));
+    expect(section.queryByText(/skip permission checks/)).toBeNull();
+    fireEvent.change(select, { target: { value: 'default' } });
+    await waitFor(async () => expect((await api.getTicket(id)).skip_permissions).toBeNull());
+  });
+
   it('opens read-only with its description, and edits through PATCH', async () => {
     const { api, panel } = await openQueued();
     fireEvent.click(panel.getByRole('button', { name: 'Edit ticket' }));

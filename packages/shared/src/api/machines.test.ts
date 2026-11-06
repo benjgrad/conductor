@@ -136,6 +136,26 @@ describe('machines DTOs', () => {
     ).toBe(true);
   });
 
+  it('skip permissions (ADR-0039) is additive: absent reads as false; PATCH may set only it', () => {
+    const {
+      skip_permissions_default: _d,
+      skip_permissions_supported: _s,
+      ...older
+    } = MACHINE_ROW_FIXTURES.online;
+    void _d;
+    void _s;
+    expect(MachineRowSchema.parse(older)).toMatchObject({
+      skip_permissions_default: false,
+      skip_permissions_supported: false,
+    });
+    expect(UpdateMachineRequestSchema.parse({ skip_permissions_default: true })).toEqual({
+      skip_permissions_default: true,
+    });
+    expect(UpdateMachineRequestSchema.safeParse({ skip_permissions_default: 'yes' }).success).toBe(
+      false,
+    );
+  });
+
   it('cannot_take (M2-T16a) is additive: absent reads as [], capped at 50', () => {
     const { cannot_take: _c, ...older } = MACHINE_DETAIL_FIXTURE;
     void _c;

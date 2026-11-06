@@ -17,7 +17,7 @@ The Machines page shows repos, capabilities and alerts. It shows none of the abo
 1. **Workflow profile (base).** The state's `tools` aliases, as today. Edited with the workflow.
 2. **Machine override.** Stored by the orchestrator in `machine_settings` and edited on the Machines page by the account owner or an admin. It holds:
    - `states: {<state>: {add_aliases?, allow?, deny?}}` plus `all_states`. Extra aliases, extra **exact** allow rules, extra deny rules.
-   - `permission_mode`: `auto` (default, ADR-0023) | `default` | `bypassPermissions` (opt-in).
+   - `permission_mode`: `auto` (default, ADR-0023) | `default` | `bypassPermissions` (opt-in). Until this override exists, the `bypassPermissions` opt-in is `machine.skip_permissions_default` ([ADR-0039](0039-skip-permissions-per-ticket-and-machine.md)), which moves here then.
    - `permission_timeout_min`, `max_sessions`, `tags`, `roots`, `allowed_repo_hosts`.
 3. ~~Daemon ceiling (local)~~ **deferred** (Ben, 2026-10-28, U-098): no daemon-side way to refuse the override for now. The daemon applies every valid override. A `config.json` `remote_settings` ceiling can be added later without a contract break (the ack already carries `refused` + `reason`).
 

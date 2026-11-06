@@ -549,6 +549,49 @@ fn old_cli_fallback_uses_the_pre_adr_0023_flags() {
 }
 
 #[test]
+fn skip_permissions_runs_a_worker_in_bypass_but_never_a_reviewer() {
+    // ADR-0039 (Rust only: the TS daemon is frozen).
+    let mut o = base_opts();
+    o.skip_permissions = true;
+    o.tools = resolve_tool_policy(&["read", "edit", "bash", "git"]).unwrap();
+    for perm in [
+        PermissionArgs::Host,
+        PermissionArgs::None { legacy_mode: None },
+        PermissionArgs::None {
+            legacy_mode: Some("auto".into()),
+        },
+    ] {
+        let args = build_claude_args(&o, "{}", "s.json", &perm);
+        assert_eq!(
+            flag_of(&args, "--permission-mode"),
+            Some("bypassPermissions"),
+            "{perm:?}"
+        );
+        assert_eq!(count(&args, "--permission-mode"), 1);
+        assert!(!args.contains(&"--dangerously-skip-permissions".to_string()));
+        // The deny rules still go to Claude (they apply in bypass mode too).
+        assert!(
+            flag_of(&args, "--disallowedTools")
+                .unwrap_or("")
+                .split(',')
+                .any(|r| r == "Bash(git push:*)"),
+            "{perm:?}"
+        );
+    }
+    let host = build_claude_args(&o, "{}", "s.json", &PermissionArgs::Host);
+    assert_eq!(flag_of(&host, "--permission-prompts"), Some("host"));
+    let mut reviewer = o.clone();
+    reviewer.review = true;
+    let args = build_claude_args(&reviewer, "{}", "s.json", &PermissionArgs::Host);
+    assert_eq!(flag_of(&args, "--permission-mode"), Some("dontAsk"));
+    assert_eq!(flag_of(&args, "--permission-prompts"), Some("none"));
+    // Off: auto, as before.
+    o.skip_permissions = false;
+    let args = build_claude_args(&o, "{}", "s.json", &PermissionArgs::Host);
+    assert_eq!(flag_of(&args, "--permission-mode"), Some("auto"));
+}
+
+#[test]
 fn git_push_stays_a_deny_rule_beside_the_prompt_tool() {
     // The real workflow aliases, as start_session sends them.
     let mut o = base_opts();

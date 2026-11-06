@@ -123,6 +123,11 @@ export const API_PATHS = {
   /** POST ReopenTicketRequest → 202 OkResponse (a cancelled queued ticket, or a finished one). */
   ticketReopen: (id: string) => `/api/tickets/${id}/reopen`,
   /**
+   * ADR-0039: PUT SetSkipPermissionsRequest → TicketDetail, in any column (not `editable`-gated).
+   * Turning it on also allows the session's pending permission prompts.
+   */
+  ticketSkipPermissions: (id: string) => `/api/tickets/${id}/skip-permissions`,
+  /**
    * POST the file's raw bytes (`application/octet-stream`, name in `x-conductor-filename`) →
    * 201 AttachmentDto, not linked to a ticket yet (06 §Attachments).
    */
@@ -1330,8 +1335,27 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
   pages: z.array(TicketPageSchema).optional(),
   /** 06 §Attachments: the ticket's files, oldest first; absent ≡ [] (older servers). */
   attachments: z.array(AttachmentDtoSchema).optional(),
+  /**
+   * ADR-0039: the ticket's "skip permissions" setting; null = the machine's default. Absent from
+   * older servers ≡ null.
+   */
+  skip_permissions: z.boolean().nullable().optional(),
+  /**
+   * ADR-0039: the default of the machine the latest session runs on; null = no machine yet.
+   * `effectiveSkipPermissions` combines the two.
+   */
+  machine_skip_permissions_default: z.boolean().nullable().optional(),
 });
 export type TicketDetail = z.infer<typeof TicketDetailSchema>;
+
+/**
+ * ADR-0039: PUT /api/tickets/:id/skip-permissions. `true` = on, `false` = off (even if the
+ * machine's default is on), `null` = the machine's default.
+ */
+export const SetSkipPermissionsRequestSchema = z.object({
+  skip_permissions: z.boolean().nullable(),
+});
+export type SetSkipPermissionsRequest = z.infer<typeof SetSkipPermissionsRequestSchema>;
 
 // ---------------------------------------------------------------- UXR-85: ticket search
 

@@ -67,6 +67,11 @@ export interface MachineRow {
    * commit as conductor@localhost. null = not reported (an older daemon, or no inventory yet).
    */
   git_identity_missing: boolean | null;
+  /**
+   * ADR-0039 (migration 1763900000000): the machine's default for "skip permissions" (a ticket's
+   * own setting wins). Optional only so hand-built rows in tests may leave it out (≡ false).
+   */
+  skip_permissions_default?: boolean;
   /** `register.daemon_version`, written on every register (M2-T09). */
   daemon_version: string | null;
   /** `register.protocol_version` (absent = 1, an M1 daemon); null = never registered. */
@@ -199,6 +204,12 @@ export interface TicketRow {
    * sessions, until the machine override exists (M2-T28c). Default `{}`.
    */
   session_allow: string[];
+  /**
+   * ADR-0039 (migration 1763900000000): "skip permissions" for this ticket's working agents; true
+   * = on, false = off, null = the machine's default. Optional only so hand-built rows in tests may
+   * leave it out (≡ null).
+   */
+  skip_permissions?: boolean | null;
   /**
    * UX-13a: uuid, FK agent: the teammate the claim assigned (migration 1762000000000). Never
    * cleared; null = not assigned yet (queued, or a ticket from before UX-13a).

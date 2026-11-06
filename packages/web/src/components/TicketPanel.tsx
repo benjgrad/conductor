@@ -19,6 +19,7 @@ import { AgentAttachments, AttachmentGallery } from './AttachmentGallery.js';
 import { splitAttachments } from './attachment-groups.js';
 import { ago, TICKET_KIND_LABELS } from './format.js';
 import { Markdown } from './markdown.js';
+import { SkipPermissionsSection } from './SkipPermissions.js';
 import { TicketEditor } from './TicketEditor.js';
 
 /** GET /api/tickets/:id, again whenever `version` (the card's updated_at) changes. */
@@ -209,6 +210,7 @@ function TicketView({
         </section>
       )}
       <TicketAttachmentSections api={api} ticket={ticket} />
+      {!finished && <SkipPermissionsSection api={api} ticket={ticket} onChanged={onChanged} />}
     </>
   );
 }
@@ -463,6 +465,24 @@ export function TicketAttachments({
       <TicketAttachmentSections api={api} ticket={ticket} />
     </div>
   );
+}
+
+/**
+ * ADR-0039: a session panel's "Agent permissions" (the session detail doesn't carry the ticket's
+ * setting; GET /api/tickets/:id does). Nothing until it loads.
+ */
+export function TicketSkipPermissions({
+  api,
+  ticketId,
+  version,
+}: {
+  api: ApiClient;
+  ticketId: string;
+  version: string;
+}) {
+  const { ticket, setTicket } = useTicket(api, ticketId, version);
+  if (ticket === null) return null;
+  return <SkipPermissionsSection api={api} ticket={ticket} onChanged={setTicket} />;
 }
 
 /**

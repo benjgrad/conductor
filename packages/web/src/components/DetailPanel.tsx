@@ -56,6 +56,7 @@ import {
 import { RequestCard } from './RequestCard.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
+import { TicketSkipPermissions } from './TicketPanel.js';
 import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
 import { TransitionButtons } from './transitions.js';
 
@@ -214,6 +215,7 @@ export function DetailPanel({
         detail.card.session_id !== null && (
           <PermissionRequests
             api={api}
+            ticketId={detail.card.ticket_id}
             sessionId={detail.card.session_id}
             permission={detail.card.permission}
             agent={name}
@@ -416,6 +418,15 @@ export function DetailPanel({
                 body={body}
                 onReload={reload}
               />
+              {/* ADR-0039: while the session isn't finished. */}
+              {!(detail.card.status !== null && TERMINAL_STATUSES.has(detail.card.status)) && (
+                <TicketSkipPermissions
+                  key={`skip-${sessionId}`}
+                  api={api}
+                  ticketId={detail.card.ticket_id}
+                  version={detail.card.updated_at}
+                />
+              )}
               <SessionInsightSection
                 key={`insight-${sessionId}`}
                 api={api}

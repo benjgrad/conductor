@@ -110,7 +110,7 @@ export function statusLine({
           return (
             `Waiting on you: ${KIND_TEXT.check_config}. ` +
             `${setupFailureSummary(card.input_request.question)} ` +
-            'Fix it with set_repo_checks (or the board\'s repo checks); the checks then re-run, or take retry_checks.'
+            'Fix it with set_repo_checks (or the board\'s repo checks); the checks then re-run (or take_transition $retry_checks).'
           );
         }
         const what =

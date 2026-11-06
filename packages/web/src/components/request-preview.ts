@@ -5,6 +5,7 @@ import type {
   SessionDetail,
   TransitionSessionRequest,
 } from '@conductor/shared';
+import { isEngineMove } from '@conductor/shared';
 
 // UX-4: what an open input request is (a review request, a plan to approve, a failed step, or a
 // real question) and the short preview the board card shows. Pure, so the card and the panel agree.
@@ -55,7 +56,7 @@ export function lastMoveTransition(detail: Pick<SessionDetail, 'moves' | 'card'>
   for (let i = moves.length - 1; i >= 0; i--) {
     const m = moves[i]!;
     // An engine route is not a transition someone took (`isNamedMove`).
-    if (m.to === detail.card.workflow_state) return m.actor === 'engine' ? null : m.transition;
+    if (m.to === detail.card.workflow_state) return isEngineMove(m) ? null : m.transition;
   }
   return null;
 }

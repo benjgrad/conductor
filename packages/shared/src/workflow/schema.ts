@@ -171,12 +171,46 @@ export const TransitionActorSchema = z.enum(['agent', 'human', 'system']);
 export type TransitionActor = z.infer<typeof TransitionActorSchema>;
 
 /**
- * Who made a recorded move (`state_entered`, MoveDto): a transition's actor, or `engine` for a
- * route conductor took on its own (requirements not met, a step that failed, a fallback to a
- * human, the budget, a lost machine). Never valid in a definition (`TransitionActorSchema`).
+ * Who made a recorded move (`state_entered`, MoveDto): a transition's actor. Since ADR-0037 (P7) a
+ * route conductor took on its own is recorded with actor `system` and a `cause` other than
+ * `transition`; `engine` is read on rows written before that (requirements not met, a step that
+ * failed, a fallback to a human, the budget, a lost machine) and no longer written. Never valid in
+ * a definition (`TransitionActorSchema`).
  */
 export const MoveActorSchema = z.enum(['agent', 'human', 'system', 'engine']);
 export type MoveActor = z.infer<typeof MoveActorSchema>;
+
+/**
+ * ADR-0037 P7: why a session entered a state, on every `state_entered` (`MoveDto.cause`; null on
+ * rows written before it). `transition`: a named transition an agent, a human or an event took;
+ * `start`: the first entry into the start state; `answer_routed`: a human's answer routed the
+ * session; every other value is an engine move (actor `system`, `ENGINE_CAUSES`).
+ */
+export const MOVE_CAUSES = [
+  'transition',
+  'start',
+  'check_failed',
+  'review_unmet',
+  'action_failed',
+  'condition_unmet',
+  'condition_timeout',
+  'watch_broken',
+  'concurrency_released',
+  'timeout',
+  'retry',
+  'retries_exhausted',
+  'budget_exceeded',
+  'machine_lost',
+  'answer_routed',
+  'fallback',
+] as const;
+export const MoveCauseSchema = z.enum(MOVE_CAUSES);
+export type MoveCause = z.infer<typeof MoveCauseSchema>;
+
+/** The causes conductor produces on its own (recorded with actor `system`). */
+export const ENGINE_CAUSES: readonly MoveCause[] = MOVE_CAUSES.filter(
+  (c) => c !== 'transition' && c !== 'start' && c !== 'answer_routed',
+);
 
 /**
  * ADR-0011 (U-061): the `goto` of a human transition that returns to the state that routed into

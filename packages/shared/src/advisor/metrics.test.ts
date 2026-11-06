@@ -168,6 +168,57 @@ describe('loopCounts', () => {
     ]);
   });
 
+  it('ADR-0037 P7: keys loops by (from, transition, cause); engine routes are not transitions', () => {
+    // The same gate under two versions (v4 → needs_input, v5 → in_review) sends the ticket back
+    // with check_failed: one loop, whatever the gate's target.
+    const gate = (to: string) => `implementing → ${to} (move: personal_pr_ready_for_review)`;
+    const back = (ticket: string, to: string): MoveRow[] =>
+      walk(ticket, [
+        ['implementing', 0],
+        [gate(to), 10, 'personal_pr_ready_for_review'],
+        ['implementing', 12, 'personal_pr_ready_for_review'],
+      ]).map((m, i) =>
+        i === 2
+          ? { ...m, cause: 'check_failed', actor: 'system' }
+          : { ...m, cause: i === 0 ? 'start' : 'transition', actor: 'agent' },
+      );
+    // A row from before P7 (no cause).
+    const old = walk('c', [
+      ['implementing', 0],
+      ['qa', 10, 'ready_for_testing'],
+      ['implementing', 20, 'requirements_unmet'],
+    ]).map((m, i) => (i === 2 ? { ...m, actor: 'engine' } : m));
+    const res = loopCounts([...back('a', 'needs_input'), ...back('b', 'in_review'), ...old]);
+    expect(res.loops).toEqual([
+      {
+        from: 'implementing.personal_pr_ready_for_review',
+        transition: 'personal_pr_ready_for_review',
+        cause: 'check_failed',
+        count: 2,
+        tickets: 2,
+        examples: ['a', 'b'],
+      },
+      { from: '*', transition: '*', cause: 'unrecorded', count: 1, tickets: 1, examples: ['c'] },
+    ]);
+    // The engine routes (new: a cause; old: actor engine) are not counted as transitions.
+    expect(res.transitions).toEqual([
+      { name: 'personal_pr_ready_for_review', count: 2 },
+      { name: 'ready_for_testing', count: 1 },
+    ]);
+    expect(res.causes).toEqual([
+      { cause: 'check_failed', count: 2 },
+      { cause: 'start', count: 2 },
+      { cause: 'transition', count: 2 },
+    ]);
+    // processMetrics exposes them, and they parse.
+    const m = processMetrics({ ...EMPTY, moves: [...back('a', 'needs_input'), ...old] }, 'state');
+    expect(
+      ProcessMetricsSchema.parse(m)
+        .loops.map((l) => l.cause)
+        .sort(),
+    ).toEqual(['check_failed', 'unrecorded']);
+  });
+
   it('lists no ticket that went straight through', () => {
     expect(
       loopCounts(

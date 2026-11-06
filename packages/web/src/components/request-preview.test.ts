@@ -104,6 +104,19 @@ describe('classifyRequest (FR-2, FR-3)', () => {
       }),
     ).toBe('pr_ready_for_review');
     expect(lastMoveTransition({ card })).toBeNull();
+    // ADR-0037 P7: an engine move carries the gate's name, but no one took it.
+    expect(
+      lastMoveTransition({
+        card,
+        moves: [
+          {
+            ...move('needs_input', 'pr_ready_for_review'),
+            actor: 'system',
+            cause: 'retries_exhausted',
+          },
+        ],
+      }),
+    ).toBeNull();
   });
 });
 

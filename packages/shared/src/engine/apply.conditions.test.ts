@@ -190,6 +190,7 @@ describe('the conditions phase', () => {
       transition: 'ready_for_testing',
       reason: 'Ready.',
       actor: 'agent',
+      cause: 'transition',
     });
     expect(r.snapshot.state_deadline).toBeNull();
   });

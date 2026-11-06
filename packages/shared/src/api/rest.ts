@@ -48,6 +48,7 @@ import {
   StateNameSchema,
   TicketKindSchema,
   MoveActorSchema,
+  MoveCauseSchema,
   WorkflowDefinitionSchema,
   conditionEnabled,
   conditionLabel,
@@ -768,7 +769,9 @@ export const SESSION_MOVES_LIMIT = 50;
  * passed or failed). `transition`, `reason` and `actor` are null on rows written before M1b and on
  * a start or requeue. Since the 2026-11 metric fixes, a route conductor took on its own has actor
  * `engine` and an ENGINE_MOVE transition with its reason, and an answer has actor `human` with a
- * null transition (`isNamedMove`).
+ * null transition (`isNamedMove`). Since ADR-0037 P7 every move has a `cause` (null on older rows):
+ * an engine route has actor `system`, a cause in ENGINE_CAUSES and the gate's transition name
+ * (`isEngineMove`).
  */
 export const MoveDtoSchema = z.object({
   at: IsoDateTimeSchema,
@@ -777,6 +780,11 @@ export const MoveDtoSchema = z.object({
   transition: z.string().nullable(),
   reason: z.string().nullable(),
   actor: MoveActorSchema.nullable(),
+  /**
+   * ADR-0037 P7: why the session moved; null on rows before it. Optional on the wire so older
+   * servers parse (absent ≡ null).
+   */
+  cause: MoveCauseSchema.nullable().optional(),
 });
 export type MoveDto = z.infer<typeof MoveDtoSchema>;
 
@@ -790,6 +798,7 @@ export function toMoveDto(row: { ts: Date | string; payload: unknown }): MoveDto
     transition: p.transition ?? null,
     reason: p.reason ?? null,
     actor: p.actor ?? null,
+    cause: p.cause ?? null,
   };
 }
 
@@ -1840,6 +1849,8 @@ export interface InputRequestLike {
   origin_from?: string | null | undefined;
   /** That row's `actor`: an `engine` route is not a named transition (`isNamedMove`). */
   origin_actor?: string | null | undefined;
+  /** That row's ADR-0037 `cause`: an engine cause is not a named transition (`isNamedMove`). */
+  origin_cause?: string | null | undefined;
   /** Questions UX: the `options` jsonb. Absent or null ≡ none; malformed ≡ none. */
   options?: unknown;
 }
@@ -1884,6 +1895,7 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
   const named = isNamedMove({
     transition: row.origin_transition ?? null,
     actor: row.origin_actor ?? null,
+    cause: row.origin_cause ?? null,
   });
   const transition = named ? (row.origin_transition ?? null) : null;
   const from = row.origin_from ?? null;

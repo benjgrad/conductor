@@ -134,7 +134,8 @@ describe('applyEvent: session.assigned (one transaction)', () => {
     ]);
     expect(res.eventId).toBe(Number(evs[0]!.id));
     expect(evs[0]!.payload).toEqual({ machine_id: MACHINE });
-    expect(evs[1]!.payload).toEqual({ from: null, to: 'implement', visit: 1 });
+    // ADR-0037 P7: the cause is always written.
+    expect(evs[1]!.payload).toEqual({ from: null, to: 'implement', visit: 1, cause: 'start' });
 
     // ADR-0010: the claim entered `implement` (m1_basic, an agent state), so the card moves from
     // Queued to Implementing (the state-type fallback for an old workflow).

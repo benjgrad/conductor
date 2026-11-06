@@ -18,6 +18,7 @@ import {
   type AgentState,
   type EntryCheck,
   type MoveActor,
+  type MoveCause,
   type RequirementsGate,
   type Transition,
   type TransitionAction,
@@ -119,7 +120,6 @@ import {
 import {
   CONDITIONS_NO_MACHINE_NOTE,
   conditionsIdempotencyKey,
-  ENGINE_MOVE,
   FRESH_CONVERSATION_MOVE,
   MACHINE_LOST_KILL_REASON,
   MESSAGE_MOVE,
@@ -323,7 +323,12 @@ function onAssigned(st: Step, machineId: string): ApplyIgnoreReason | null {
   if (name === null || state === undefined) {
     // ADR-0008: a reopened session is created with the human's message as its pending answer;
     // its first start delivers it (resuming the old Claude conversation when there is one).
-    enter(st, st.def.start, { ...NO_ROUTE, assigning: true, answer: st.s.pending_answer });
+    enter(st, st.def.start, {
+      ...NO_ROUTE,
+      assigning: true,
+      answer: st.s.pending_answer,
+      record: { cause: 'start', transition: null, reason: null, actor: 'system' },
+    });
     return null;
   }
   switch (state.type) {
@@ -393,16 +398,14 @@ function onRefused(
       if (state?.type !== 'agent') return null;
       // ADR-0020 §2: the QA's checkout failed (fetch, head ≠ sha, setup): a human, uncounted.
       if (isQaState(state) && e.reason.startsWith('checkout_failed')) {
-        toFallbackHuman(
-          st,
-          'agent_question',
-          `QA could not start (${e.reason}). Answer to run QA again, or move the ticket.`,
-        );
+        const q = `QA could not start (${e.reason}). Answer to run QA again, or move the ticket.`;
+        toFallbackHuman(st, 'agent_question', q, engineMove('action_failed', null, q));
         return null;
       }
       st.s.machine_id = null;
       if (startFailedTooOften(st, e.reason)) {
-        toFallbackHuman(st, 'retries_exhausted', startFailedQuestion(`"${name}"`, e.reason));
+        const q = startFailedQuestion(`"${name}"`, e.reason);
+        toFallbackHuman(st, 'retries_exhausted', q, engineMove('retries_exhausted', null, q));
         return null;
       }
       // pending_answer is kept so the re-claim re-answers (U-026).
@@ -485,7 +488,10 @@ function onComplete(
       st,
       ASK_USER,
       { question: plan.question },
-      plan.named ? { move: { transition: ASK_USER, reason, actor: 'agent' } } : {},
+      plan.named
+        ? { move: { transition: ASK_USER, reason, actor: 'agent' } }
+        : // A name the agent may not take: conductor routes it to a human (not a transition).
+          { record: engineMove('fallback', null, plan.question) },
     );
     return null;
   }
@@ -583,6 +589,7 @@ function onHumanTransition(
       attachment: null,
       info: { detail },
       move,
+      record: named(move),
     });
     return null;
   }
@@ -606,7 +613,7 @@ function onHumanTransition(
     continuation: plan.continuation,
     outcome: plan.name,
     info: { detail },
-    move,
+    record: named(move),
     ...notifyFor(plan.name, plan.transition),
   });
   return null;
@@ -650,7 +657,7 @@ function onFreshConversation(
     skipEntry: true,
     outcome: FRESH_CONVERSATION_MOVE,
     info: { detail: `a human started a fresh conversation: ${text}` },
-    move: { transition: FRESH_CONVERSATION_MOVE, reason: text, actor: 'human' },
+    record: named({ transition: FRESH_CONVERSATION_MOVE, reason: text, actor: 'human' }),
   });
   return null;
 }
@@ -709,7 +716,7 @@ function onMachineLost(st: Step, e: MachineLostEvent): ApplyIgnoreReason | null 
     question,
     skipEntry: true,
     noDeadline: true,
-    record: engineMove(ENGINE_MOVE.machineLost, `${name}: ${e.reason}`),
+    record: engineMove('machine_lost', null, `${name}: ${e.reason}`),
   });
   if (prev === 'queued') st.ticket('in_progress');
   return null;
@@ -891,7 +898,12 @@ function onInput(
     outcome: 'answered',
     info: { detail: `a human answered: ${e.answer}` },
     // An answer, not a transition: the timeline matches it to its request (transition null).
-    record: { transition: null, reason: clipReason(e.answer), actor: 'human' },
+    record: {
+      cause: 'answer_routed',
+      transition: null,
+      reason: clipReason(e.answer),
+      actor: 'human',
+    },
   });
   return null;
 }
@@ -941,9 +953,9 @@ function onBudget(
   const unit = e.dimension === 'usd' ? 'USD' : 'minutes';
   const question = `Budget exceeded in "${name}": spent ${e.spent} of ${e.limit} ${unit}. Raise the budget, skip, or abort?`;
   const target = st.def.states[st.def.on_budget_exceeded] ? st.def.on_budget_exceeded : null;
-  const record = engineMove(ENGINE_MOVE.budget, question);
+  const record = engineMove('budget_exceeded', null, question);
   if (target === null) {
-    toFallbackHuman(st, 'budget_exceeded', question, undefined, record);
+    toFallbackHuman(st, 'budget_exceeded', question, record);
   } else {
     enter(st, target, { ...NO_ROUTE, kind: 'budget_exceeded', question, skipEntry: true, record });
   }
@@ -980,7 +992,7 @@ function takeOutcome(
   st: Step,
   outcome: string,
   info: OutcomeInfo,
-  opts: { move?: MoveRecord; kind?: InputRequestKind } = {},
+  opts: { move?: MoveRecord; record?: MoveFields; kind?: InputRequestKind } = {},
 ): void {
   const from = st.stateName ?? st.def.start;
   const state = st.state;
@@ -988,22 +1000,45 @@ function takeOutcome(
   const kind = opts.kind ?? kindForOutcome(outcome);
   const question = questionFor(from, outcome, kind, info);
   // A named transition is recorded as taken; an outcome conductor produced itself (a timeout, a
-  // failed process) as an engine move with its detail; any other unnamed outcome keeps the M1
-  // record (no transition fields).
+  // failed process) as an engine move with its detail; any other unnamed outcome (a legacy `done`,
+  // an event's name) as a transition taken by the state's own actor (ADR-0037 P7).
   const engineOutcome = outcomeRecord(outcome, info);
-  const move =
+  const record: MoveFields =
     opts.move !== undefined
-      ? { move: opts.move }
-      : engineOutcome !== undefined
-        ? { record: engineOutcome }
-        : {};
+      ? named(opts.move)
+      : (opts.record ??
+        engineOutcome ?? {
+          cause: 'transition',
+          transition: outcome,
+          reason: info.detail ?? null,
+          actor:
+            t !== undefined
+              ? transitionActor(st.def, from, outcome, t)
+              : state?.type === 'agent'
+                ? 'agent'
+                : 'system',
+        });
   const notify = notifyFor(outcome, t);
   // Questions UX: only the agent's own question carries its options.
   const options =
     kind === 'agent_question' && info.options !== undefined ? { options: info.options } : {};
 
   if (t === undefined) {
-    toFallbackHuman(st, kind, question, info.options, opts.move ?? engineOutcome);
+    // No route for it: a named move keeps its record, anything else is the fallback.
+    toFallbackHuman(
+      st,
+      kind,
+      question,
+      opts.move !== undefined
+        ? named(opts.move)
+        : (opts.record ??
+            engineMove(
+              engineOutcome?.cause === 'timeout' ? 'timeout' : 'fallback',
+              outcome,
+              info.detail ?? question,
+            )),
+      info.options,
+    );
     return;
   }
   if (typeof t === 'string') {
@@ -1015,12 +1050,21 @@ function takeOutcome(
       attachment: null,
       outcome,
       info,
-      ...move,
+      record,
     });
     return;
   }
   const gate = t.requirements;
   const moveStep = gate === undefined && runsRequirements(outcome, t);
+  // A move step always records who took it (a system outcome's actor when not named); an
+  // ADR-0009 review keeps the outcome's record.
+  const stepMove: MoveRecord | undefined = moveStep
+    ? (opts.move ?? {
+        transition: outcome,
+        reason: info.detail ?? null,
+        actor: transitionActor(st.def, from, outcome, t),
+      })
+    : undefined;
   const step = (attachment: PromptAttachment | null) =>
     enterStep(st, {
       kind: moveStep ? 'move' : 'transition',
@@ -1029,17 +1073,8 @@ function takeOutcome(
       to: t.goto,
       attachment,
       info,
-      // A move step always records who took it (a system outcome's actor when not named); an
-      // ADR-0009 review keeps its M1 record.
-      ...(moveStep
-        ? {
-            move: opts.move ?? {
-              transition: outcome,
-              reason: info.detail ?? null,
-              actor: transitionActor(st.def, from, outcome, t),
-            },
-          }
-        : {}),
+      ...(stepMove !== undefined ? { move: stepMove } : {}),
+      record: stepMove !== undefined ? named(stepMove) : record,
     });
   // ADR-0009 / ADR-0011: an object that isn't a counted loop is a plain forward transition, like
   // a string target: no counter on its goto leg (requirement retries count under their own key).
@@ -1056,7 +1091,7 @@ function takeOutcome(
       attachment: null,
       outcome,
       info,
-      ...move,
+      record,
       ...notify,
     });
     return;
@@ -1082,7 +1117,7 @@ function takeOutcome(
       attachment,
       outcome,
       info,
-      ...move,
+      record,
       ...notify,
     });
     return;
@@ -1094,7 +1129,8 @@ function takeOutcome(
       info.output,
     ) + (fixes.length > 0 ? `\n${fixes.join('\n')}` : '');
   const loopOut = engineMove(
-    ENGINE_MOVE.loopExhausted,
+    'retries_exhausted',
+    outcome,
     `${info.detail ?? outcome} (retry limit ${cap})`,
   );
   if (t.else !== undefined) {
@@ -1108,7 +1144,7 @@ function takeOutcome(
       ...notify,
     });
   } else {
-    toFallbackHuman(st, 'retries_exhausted', exhausted, undefined, loopOut);
+    toFallbackHuman(st, 'retries_exhausted', exhausted, loopOut);
   }
 }
 
@@ -1145,8 +1181,8 @@ function toFallbackHuman(
   st: Step,
   kind: InputRequestKind,
   question: string,
+  record: MoveFields,
   options?: QuestionOptions,
-  record?: MoveFields,
 ): void {
   const target = fallbackHumanState(st.def);
   if (target === null) {
@@ -1159,7 +1195,7 @@ function toFallbackHuman(
     question,
     ...(kind === 'agent_question' && options !== undefined ? { options } : {}),
     skipEntry: true,
-    record: record ?? engineMove(ENGINE_MOVE.fallback, question),
+    record,
   });
 }
 
@@ -1249,6 +1285,8 @@ function enterStep(
     info: OutcomeInfo;
     /** ADR-0011 (`kind: 'move'`): the transition taken, by whom and why. */
     move?: MoveRecord;
+    /** ADR-0037 P7: the step's own `state_entered` record (what started it). */
+    record: MoveFields;
   },
 ): void {
   const s = st.s;
@@ -1305,7 +1343,7 @@ function enterStep(
     // ADR-0030: pinned for this step; the next attempt reads the session's again.
     repo_checks: s.repo_checks ?? null,
   };
-  st.emit({ type: 'state_entered', from: p.from, to: label, visit, ...moveFields(p.move) });
+  st.emit({ type: 'state_entered', from: p.from, to: label, visit, ...moveFields(p.record) });
   if (s.machine_id === null) {
     st.setDeadline(label, null);
     requeue(st);
@@ -1398,6 +1436,7 @@ function runPhase(st: Step, assigning: boolean): void {
           'retries_exhausted',
           `Conductor cannot ${actionLabel(action)} yet, so it did not ${spec.goal}. Retry, skip, or abort?`,
           false,
+          'action_failed',
         );
         return;
       }
@@ -1409,6 +1448,7 @@ function runPhase(st: Step, assigning: boolean): void {
           'retries_exhausted',
           `Conductor could not tell which commit the checks for "${spec.title}" ran on, so it did not ${actionLabel(action)}. Retry, skip, or abort?`,
           false,
+          'action_failed',
         );
         return;
       }
@@ -1433,6 +1473,7 @@ function passStep(st: Step): void {
     return;
   }
   const kind = kindForOutcome(r.outcome);
+  const raw = onOf(st.def, r.from)?.[r.outcome];
   enter(st, r.to, {
     ...NO_ROUTE,
     kind,
@@ -1441,8 +1482,14 @@ function passStep(st: Step): void {
     auditFrom: label,
     skipEntry: r.kind === 'entry',
     outcome: r.outcome,
+    record: {
+      cause: 'transition',
+      transition: r.outcome,
+      reason: null,
+      actor: raw !== undefined ? transitionActor(st.def, r.from, r.outcome, raw) : 'system',
+    },
     // An entry step (or ADR-0009 review) ran for the transition `r.outcome` out of `r.from`.
-    ...notifyFor(r.outcome, onOf(st.def, r.from)?.[r.outcome]),
+    ...notifyFor(r.outcome, raw),
   });
 }
 
@@ -1476,7 +1523,7 @@ function passMove(st: Step, r: GateStep, label: string): void {
     continuation: false,
     auditFrom: label,
     outcome: name,
-    move,
+    record: named(move),
     ...notifyFor(name, raw),
   });
 }
@@ -1565,6 +1612,7 @@ function handleStep(
               'retries_exhausted',
               startFailedQuestion(`the reviewer to ${spec.goal}`, e.reason),
               false,
+              'retries_exhausted',
             );
             return null;
           }
@@ -1580,6 +1628,7 @@ function handleStep(
             'retries_exhausted',
             `Could not run the check "${check.name}" (\`${check.cmd}\`) to ${spec.goal}: the daemon refused it (${e.reason}). Retry, skip, or abort?`,
             false,
+            'check_failed',
           );
           return null;
         }
@@ -1599,6 +1648,7 @@ function handleStep(
             'retries_exhausted',
             `Conductor could not ${actionLabel(action)} to ${spec.goal}: the daemon refused it (${e.reason}). Retry, skip, or abort?`,
             false,
+            'action_failed',
           );
           return null;
         }
@@ -1688,7 +1738,7 @@ function handleStep(
           r.kind === 'transition'
             ? `The requirements review for "${r.from}" → "${r.to}" timed out (review timed out after ${REVIEW_TIMEOUT}). Retry, skip, or abort?`
             : `The requirements review to ${spec.goal} timed out (review timed out after ${REVIEW_TIMEOUT}). Retry, skip, or abort?`;
-        stepFail(st, spec, 'timeout', question, true);
+        stepFail(st, spec, 'timeout', question, true, 'timeout');
       } else {
         const action = spec.actions[r.index];
         const what =
@@ -1703,6 +1753,7 @@ function handleStep(
           'timeout',
           `Conductor did not ${what} to ${spec.goal} in time (timed out after ${ENTRY_ACTION_TIMEOUT}). Retry, skip, or abort?`,
           true,
+          'timeout',
         );
       }
       return null;
@@ -1778,7 +1829,7 @@ function startConditions(st: Step, spec: GateSpec): void {
         '',
         'Retry, skip, or abort?',
       ];
-      stepFail(st, spec, 'retries_exhausted', lines.join('\n'), false);
+      stepFail(st, spec, 'retries_exhausted', lines.join('\n'), false, 'condition_unmet');
       return;
     }
   }
@@ -1929,7 +1980,7 @@ function conditionsTimedOut(st: Step, spec: GateSpec, r: GateStep): void {
   ];
   if (r.conditions_note !== null) lines.push('', `Note: ${r.conditions_note}.`);
   lines.push('', 'Retry, skip, or abort?');
-  stepFail(st, spec, 'timeout', lines.join('\n'), false);
+  stepFail(st, spec, 'timeout', lines.join('\n'), false, 'condition_timeout');
 }
 
 /**
@@ -1950,7 +2001,7 @@ function messageDuringConditions(st: Step, r: GateStep, text: string): ApplyIgno
     continuation: true,
     auditFrom: label,
     skipEntry: true,
-    move: { transition: MESSAGE_MOVE, reason: text, actor: 'human' },
+    record: named({ transition: MESSAGE_MOVE, reason: text, actor: 'human' }),
   });
   return null;
 }
@@ -2082,6 +2133,7 @@ function onActionCompleted(
       'retries_exhausted',
       `Conductor could not ${actionLabel(action)} to ${spec.goal}: ${e.error ?? 'no result'}. Retry, skip, or abort?`,
       false,
+      'action_failed',
     );
     return;
   }
@@ -2096,6 +2148,7 @@ function onActionCompleted(
           'retries_exhausted',
           `Conductor could not ${actionLabel(action)} to ${spec.goal}: it reported no valid pull request URL. Retry, skip, or abort?`,
           false,
+          'action_failed',
         );
         return;
       }
@@ -2181,7 +2234,7 @@ function stepUnmet(st: Step, spec: GateSpec, r: GateStep, unmet: ReviewFeedback[
       feedback,
       auditFrom: label,
       skipEntry: true,
-      record: engineMove(ENGINE_MOVE.unmet, unmetReason(unmet)),
+      record: engineMove(unmetCause(r), gateTransition(r), unmetReason(unmet)),
     });
     return;
   }
@@ -2200,7 +2253,11 @@ function stepUnmet(st: Step, spec: GateSpec, r: GateStep, unmet: ReviewFeedback[
     question: lines.join('\n'),
     auditFrom: label,
     skipEntry: true,
-    record: engineMove(ENGINE_MOVE.unmetExhausted, `${unmetReason(unmet)} (retry limit ${cap})`),
+    record: engineMove(
+      'retries_exhausted',
+      gateTransition(r),
+      `${unmetReason(unmet)} (retry limit ${cap})`,
+    ),
   });
 }
 
@@ -2220,7 +2277,7 @@ function reviewNoVerdict(
     r.kind === 'transition'
       ? `The requirements review for "${r.from}" → "${r.to}" produced no verdict (${why}). Retry, skip, or abort?`
       : `The requirements review to ${spec.goal} produced no verdict (${why}). Retry, skip, or abort?`;
-  stepFail(st, spec, 'retries_exhausted', question, true);
+  stepFail(st, spec, 'retries_exhausted', question, true, 'review_unmet');
 }
 
 /** A step that can't finish (timeout, no verdict, a failed or refused action) → `on_unmet.else`. */
@@ -2230,8 +2287,10 @@ function stepFail(
   kind: InputRequestKind,
   question: string,
   kill: boolean,
+  cause: MoveCause,
 ): void {
   const label = st.s.workflow_state!;
+  const transition = gateTransition(st.s.step!);
   leaveStep(st, kill);
   enter(st, spec.on_unmet.else, {
     ...NO_ROUTE,
@@ -2239,8 +2298,27 @@ function stepFail(
     question,
     auditFrom: label,
     skipEntry: true,
-    record: engineMove(ENGINE_MOVE.stepFailed, `${kind}: ${question}`),
+    record: engineMove(cause, transition, `${kind}: ${question}`),
   });
+}
+
+/** ADR-0037 P7: the transition a gate step ran for (a move's name, else the outcome). */
+function gateTransition(r: GateStep): string {
+  return r.kind === 'move' ? moveName(r) : r.outcome;
+}
+
+/** ADR-0037 P7: why a gate step's requirements were unmet, by the phase that found it. */
+function unmetCause(r: GateStep): MoveCause {
+  switch (r.phase) {
+    case 'review':
+      return 'review_unmet';
+    case 'conditions':
+      return 'condition_unmet';
+    case 'actions':
+      return 'action_failed';
+    default:
+      return 'check_failed';
+  }
 }
 
 /**
@@ -2384,10 +2462,11 @@ interface EnterOpts {
   outcome?: string;
   /** What the source state reported (an entry step's reviewer subject). */
   info?: OutcomeInfo;
-  /** ADR-0011: the named transition taken (agent / human / a move step): the `state_entered` record. */
-  move?: MoveRecord;
-  /** Without `move`: what to record instead (an engine route, an answer, an unnamed outcome). */
-  record?: MoveFields;
+  /**
+   * ADR-0011 / ADR-0037 P7: the `state_entered` record: a named transition (`named`), an engine
+   * route (`engineMove`), a start or an answer. Required, so every entry says why.
+   */
+  record: MoveFields;
   /** U-068: no deadline in the target (a lost-machine park: parked time doesn't count). */
   noDeadline?: boolean;
   /**
@@ -2403,18 +2482,27 @@ function notifyFor(name: string, t: Transition | undefined): { notify?: string }
   return t !== undefined && typeof t === 'object' && t.notify === true ? { notify: name } : {};
 }
 
-/** The ADR-0011 fields of a `state_entered` effect (a start or requeue has none). */
-function moveFields(move: MoveFields | undefined) {
-  return move === undefined
-    ? {}
-    : { transition: move.transition, reason: move.reason, actor: move.actor };
+/** The ADR-0011 / ADR-0037 P7 fields of a `state_entered` effect. */
+function moveFields(move: MoveFields) {
+  return {
+    transition: move.transition,
+    reason: move.reason,
+    actor: move.actor,
+    cause: move.cause,
+  };
 }
 
-/** What a `state_entered` records: who moved the session, along what, and why. */
+/** What a `state_entered` records: why the session moved, who moved it, along what, and why. */
 interface MoveFields {
+  cause: MoveCause;
   transition: string | null;
   reason: string | null;
   actor: MoveActor;
+}
+
+/** A named transition someone took (an agent, a human, an event): cause `transition`. */
+function named(m: MoveRecord): MoveFields {
+  return { cause: 'transition', transition: m.transition, reason: m.reason, actor: m.actor };
 }
 
 /** A recorded reason: one line, at most REASON_MAX characters. */
@@ -2424,18 +2512,24 @@ function clipReason(text: string): string {
   return flat.length <= REASON_MAX ? flat : flat.slice(0, REASON_MAX - 1) + '…';
 }
 
-/** A route conductor took on its own (ENGINE_MOVE), with why. */
-function engineMove(transition: string, reason: string): MoveFields {
-  return { transition, reason: clipReason(reason), actor: 'engine' };
+/**
+ * ADR-0037 P7: a route conductor took on its own, with why: actor `system`, `transition` the
+ * gate's (or outcome's) transition name when there is one.
+ */
+function engineMove(cause: MoveCause, transition: string | null, reason: string): MoveFields {
+  return { cause, transition, reason: clipReason(reason), actor: 'system' };
 }
 
 /** Outcomes conductor produces itself (a timer, a failed or killed process), not a transition someone named. */
 const ENGINE_OUTCOMES: ReadonlySet<string> = new Set(['timeout', 'fail', 'error']);
 
-/** An engine outcome's record (the outcome and its detail, actor `engine`); else undefined. */
+/**
+ * An engine outcome's record (cause `timeout`, or `retry` for a failure: the workflow's fail
+ * route), the outcome as its transition and its detail as the reason; else undefined.
+ */
 function outcomeRecord(outcome: string, info: OutcomeInfo): MoveFields | undefined {
   if (!ENGINE_OUTCOMES.has(outcome)) return undefined;
-  return engineMove(outcome, info.detail ?? outcome);
+  return engineMove(outcome === 'timeout' ? 'timeout' : 'retry', outcome, info.detail ?? outcome);
 }
 
 /** The unmet requirements, by name, for a recorded reason. */
@@ -2443,7 +2537,8 @@ function unmetReason(unmet: ReviewFeedback['unmet']): string {
   return unmet.map((u) => u.item).join(', ') || 'requirements not met';
 }
 
-const NO_ROUTE: EnterOpts = {
+/** EnterOpts without its record: every `enter` call adds one (ADR-0037 P7). */
+const NO_ROUTE: Omit<EnterOpts, 'record'> = {
   kind: 'approval',
   question: '',
   attachment: null,
@@ -2475,6 +2570,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
       to: target,
       attachment: opts.attachment,
       info: opts.info ?? {},
+      record: opts.record,
     });
     return;
   }
@@ -2489,7 +2585,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     from: opts.auditFrom ?? from,
     to: target,
     visit,
-    ...moveFields(opts.move ?? opts.record),
+    ...moveFields(opts.record),
     ...(opts.notify !== undefined ? { notify: opts.notify } : {}),
   });
 
@@ -2692,7 +2788,12 @@ function enterQa(st: Step, target: string): boolean {
   if (!plan.ok) {
     // It lands in a human state, so a parked agent is ended as on any such move (BUG-1).
     releaseAgent(st, 'nothing to QA');
-    toFallbackHuman(st, 'agent_question', plan.question);
+    toFallbackHuman(
+      st,
+      'agent_question',
+      plan.question,
+      engineMove('fallback', null, plan.question),
+    );
     return false;
   }
   if (s.machine_id !== null && s.agent_command_id !== null) {
@@ -2719,7 +2820,8 @@ function qaNoVerdict(st: Step, name: string, state: QaState, why: string): void 
     st.emit(qaStartSession(st.def, st.s, name, state, { answer: null, nudge: qaNudge(why) }));
     return;
   }
-  toFallbackHuman(st, 'retries_exhausted', qaNoVerdictQuestion(why));
+  const q = qaNoVerdictQuestion(why);
+  toFallbackHuman(st, 'retries_exhausted', q, engineMove('review_unmet', null, q));
 }
 
 function resetQaRounds(st: Step, goto: string): void {

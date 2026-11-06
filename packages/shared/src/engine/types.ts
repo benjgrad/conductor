@@ -13,8 +13,11 @@ import {
   ApprovalIdSchema,
   ConditionTypeSchema,
   TicketKindSchema,
+  ENGINE_CAUSES,
   MoveActorSchema,
+  MoveCauseSchema,
   TransitionActorSchema,
+  type MoveCause,
   type WorkflowDefinition,
 } from '../workflow/schema.js';
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
@@ -558,8 +561,9 @@ export const FRESH_CONVERSATION_MOVE = 'fresh_conversation';
 export const MESSAGE_MOVE = 'message';
 
 /**
- * The `transition` recorded (actor `engine`) when conductor routes a session on its own, so every
- * re-entry says why (the advisor counts them; the timeline words them).
+ * The `transition` recorded (actor `engine`) when conductor routed a session on its own, on rows
+ * written before ADR-0037 P7 only: read (the timeline words them), no longer written. New rows
+ * carry a `cause` (`causeTitle`), actor `system`, and the gate's transition name.
  */
 export const ENGINE_MOVE = {
   /** A gate's requirements were not met (a check failed, review items unmet): back to `on_unmet.goto`. */
@@ -594,9 +598,63 @@ export function engineMoveTitle(transition: string): string {
   return ENGINE_MOVE_TITLES[transition] ?? transition.replace(/_/g, ' ');
 }
 
+/** A recorded move, as `isEngineMove` / `isNamedMove` read it (old rows have no `cause`). */
+export interface MoveLike {
+  transition: string | null;
+  actor?: string | null | undefined;
+  cause?: string | null | undefined;
+}
+
+/**
+ * ADR-0037 P7: did conductor route the session on its own? With a `cause`, any cause in
+ * `ENGINE_CAUSES`; without one (a row before P7), actor `engine`. Never `actor === 'system'`
+ * alone: an event's or a `system` transition is a named move.
+ */
+export function isEngineMove(m: Pick<MoveLike, 'actor' | 'cause'>): boolean {
+  const cause = m.cause ?? null;
+  if (cause !== null) return (ENGINE_CAUSES as readonly string[]).includes(cause);
+  return m.actor === 'engine';
+}
+
 /** Is `m` a named transition someone took (not an engine route, a start or an answer)? */
-export function isNamedMove(m: { transition: string | null; actor?: string | null }): boolean {
-  return m.transition !== null && m.actor !== 'engine';
+export function isNamedMove(m: MoveLike): boolean {
+  return m.transition !== null && !isEngineMove(m);
+}
+
+const CAUSE_TITLES: Record<MoveCause, string> = {
+  transition: 'Moved',
+  start: 'Started',
+  check_failed: 'Checks failed',
+  review_unmet: 'Review not met',
+  action_failed: 'Step failed',
+  condition_unmet: 'Conditions not met',
+  condition_timeout: 'Conditions timed out',
+  watch_broken: 'Watch broke',
+  concurrency_released: 'Released from the queue',
+  timeout: 'Timed out',
+  retry: 'Failed, retrying',
+  retries_exhausted: 'Retries ran out',
+  budget_exceeded: 'Budget ran out',
+  machine_lost: 'Machine lost',
+  answer_routed: 'Answered',
+  fallback: 'Sent to a human',
+};
+
+/** A cause's words for the timeline, e.g. `check_failed` → "Checks failed". */
+export function causeTitle(cause: MoveCause): string {
+  return CAUSE_TITLES[cause];
+}
+
+/**
+ * An engine move's words for the timeline: its cause's (a P7 row), else its ENGINE_MOVE
+ * transition's (an older row).
+ */
+export function engineMoveLabel(m: {
+  transition: string | null;
+  cause?: MoveCause | null | undefined;
+}): string {
+  if (m.cause != null) return causeTitle(m.cause);
+  return m.transition !== null ? engineMoveTitle(m.transition) : 'Moved';
 }
 
 /**
@@ -744,8 +802,10 @@ export const EffectSchema = z.discriminatedUnion('type', [
     transition: z.string().nullable().optional(),
     /** ADR-0011: the agent's or human's reason, or the system's (e.g. "timed out"). */
     reason: z.string().nullable().optional(),
-    /** `engine`: a route conductor took on its own (ENGINE_MOVE), with its reason. */
+    /** `system` for a route conductor took on its own (`cause` in ENGINE_CAUSES). */
     actor: MoveActorSchema.nullable().optional(),
+    /** ADR-0037 P7: why the session entered `to`. Always set. */
+    cause: MoveCauseSchema,
     /**
      * The transition that led here has `notify: true` (its name): the wrapper writes a
      * `transition.notified` board event and `push_transition` rows. Absent = no notification.
@@ -932,6 +992,8 @@ export const StateEnteredPayloadSchema = z.object({
   transition: z.string().nullable().optional(),
   reason: z.string().nullable().optional(),
   actor: MoveActorSchema.nullable().optional(),
+  /** ADR-0037 P7; absent (null) on rows written before it. */
+  cause: MoveCauseSchema.nullable().optional(),
 });
 export type StateEnteredPayload = z.infer<typeof StateEnteredPayloadSchema>;
 

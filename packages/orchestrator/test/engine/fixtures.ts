@@ -129,7 +129,7 @@ export const assignScript: Script = (snap, event, now) => {
       state_deadline: deadline,
     },
     effects: [
-      { type: 'state_entered', from: null, to: 'implement', visit: 1 },
+      { type: 'state_entered', from: null, to: 'implement', visit: 1, cause: 'start' },
       { type: 'set_deadline', state: 'implement', deadline },
       { type: 'session_status', from: snap.status, to: 'assigned' },
       { type: 'ticket_status', to: 'in_progress' },

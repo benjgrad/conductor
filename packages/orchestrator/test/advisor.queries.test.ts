@@ -263,4 +263,44 @@ describe('loadAdvisorRows (ADR-0033)', () => {
     expect(rows.inputs.find((i) => i.kind === 'handoff')).toMatchObject({ class: 'handoff' });
     expect(processMetrics(rows, 'state').totals).toMatchObject({ questions: 1, handoffs: 1 });
   });
+
+  it('ADR-0037 P7: reads each move’s cause and actor (null on rows before it)', async () => {
+    const d = await account('D');
+    const md = await machine(d);
+    const { sessionId } = await advisorHistory(db.pool, {
+      accountId: d,
+      machineId: md,
+      repo: 'github.com/acme/app',
+      ago: 2,
+      now: NOW,
+    });
+    const gate = moveStateLabel('implementing', 'in_review', 'personal_pr_ready_for_review');
+    await db.pool.query(
+      "INSERT INTO event (session_id, type, payload, ts) VALUES ($1, 'state.entered', $2, $3)",
+      [
+        sessionId,
+        JSON.stringify({
+          from: gate,
+          to: 'implementing',
+          visit: 2,
+          transition: 'personal_pr_ready_for_review',
+          actor: 'system',
+          reason: 'Build passes',
+          cause: 'check_failed',
+        }),
+        daysAgo(2, 70),
+      ],
+    );
+    const rows = await loadAdvisorRows(db.pool, { accountId: d, windowDays: 30, now: NOW });
+    const back = rows.moves.find((m) => m.cause === 'check_failed');
+    expect(back).toMatchObject({ actor: 'system', transition: 'personal_pr_ready_for_review' });
+    // advisorHistory writes rows without a cause, as before P7.
+    expect(rows.moves.filter((m) => m.cause === null).length).toBeGreaterThan(0);
+    expect(processMetrics(rows, 'state').loops).toContainEqual(
+      expect.objectContaining({
+        from: 'implementing.personal_pr_ready_for_review',
+        cause: 'check_failed',
+      }),
+    );
+  });
 });

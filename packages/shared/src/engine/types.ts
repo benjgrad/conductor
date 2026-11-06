@@ -112,7 +112,8 @@ export type RepoChecksMeta = z.infer<typeof RepoChecksMetaSchema>;
  * - `kind: 'entry'`: ADR-0010, the requirements to enter a column (`states.<to>.entry`): checks,
  *   then the review, then conductor's actions, one `phase` at a time (old versions).
  * - `kind: 'move'`: ADR-0011, the `requires` of the transition `transition` out of `from`:
- *   checks → review → actions → conditions. Label `moveStateLabel(from, to, transition)`, counter
+ *   held (ADR-0037 P4, only with `requires.concurrency`) → checks → review → actions →
+ *   conditions. In `held` the session is `waiting_external` too, and `hold` says who it waits on. Label `moveStateLabel(from, to, transition)`, counter
  *   `moveCounterKey(from, transition)`. In `conditions` the session is `waiting_external`
  *   (U-059: worker ended, no wall time) and `conditions` holds the live checklist.
  * While it is set, `workflow_state` is a synthetic label (`reviewStateLabel` / `entryStateLabel` /
@@ -142,7 +143,7 @@ export const GateStepSchema = z.object({
   /** The engine already nudged the reviewer once about a missing or malformed verdict. */
   nudged: z.boolean(),
   /** The phase running now (a transition review is always `review`). */
-  phase: z.enum(['checks', 'review', 'actions', 'conditions']).default('review'),
+  phase: z.enum(['held', 'checks', 'review', 'actions', 'conditions']).default('review'),
   /** ADR-0010: index of the check (phase `checks`) or action (phase `actions`) running now. */
   index: z.number().int().nonnegative().default(0),
   /**
@@ -199,8 +200,32 @@ export const GateStepSchema = z.object({
   repo_checks: RepoChecksSchema.nullable().default(null),
   /** Who saved `repo_checks` and when (the session's `repo_checks_meta` then); null = unknown. */
   repo_checks_meta: RepoChecksMetaSchema.nullable().default(null),
+  /**
+   * ADR-0037 P4: when the step started (a move's place in a concurrency queue: oldest first).
+   * null on rows written before T7.
+   */
+  started_at: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * ADR-0037 P4: while `phase` is `held`, the tickets it waits behind (oldest first; [] until the
+   * first check), since when, and when `hold_timeout` passes (→ `on_unmet.else`). null otherwise.
+   */
+  hold: z
+    .object({
+      behind: z.array(z.string()).max(50),
+      since: IsoDateTimeSchema,
+      deadline: IsoDateTimeSchema,
+    })
+    .nullable()
+    .default(null),
+  /**
+   * ADR-0037 P4: a check found it at `max_in_flight` at least once, so the move was really held:
+   * its landing records `cause: 'concurrency_released'`.
+   */
+  held: z.boolean().default(false),
 });
 export type GateStep = z.infer<typeof GateStepSchema>;
+/** ADR-0037 P4: `GateStep.hold` while held. */
+export type GateHold = NonNullable<GateStep['hold']>;
 /** ADR-0009 name of GateStepSchema. */
 export const ReviewStepSchema = GateStepSchema;
 export type ReviewStep = GateStep;
@@ -488,6 +513,18 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     deadline: IsoDateTimeSchema,
   }),
   /**
+   * O (ADR-0037 P4, T7): the holders of a `held` move step, computed by the EngineService
+   * wrapper in its transaction (it replaces the step's `timer.fired` with this event). Ignored
+   * (`stale_timer`) unless `state` and `deadline` match the snapshot and the step is `held`.
+   * `holders`: the sessions in flight on the same key ahead of this one, oldest first.
+   */
+  z.object({
+    type: z.literal('concurrency.checked'),
+    state: z.string(),
+    deadline: IsoDateTimeSchema,
+    holders: z.array(z.object({ session_id: z.string(), ticket_id: z.string() })).max(50),
+  }),
+  /**
    * O: budget exceeded → `def.on_budget_exceeded`, kind `budget_exceeded`.
    * TD-015: routed by apply (T04) but nothing emits it in M1 (no enforcement trigger; 10-contracts).
    */
@@ -716,6 +753,10 @@ export function engineMoveLabel(m: {
   return m.transition !== null ? engineMoveTitle(m.transition) : 'Moved';
 }
 
+/** ADR-0037 P4: how a hold ended (`hold_changed.cause`, the `concurrency.released` row). */
+export const HoldEndCauseSchema = z.enum(['concurrency_released', 'timeout', 'left']);
+export type HoldEndCause = z.infer<typeof HoldEndCauseSchema>;
+
 /**
  * Effects. The first six map 1:1 to an outbox kind (02) and, except connector_call, to the
  * same-named WS message (03). The rest are orchestrator-internal. Mapping: 10-contracts.
@@ -912,6 +953,23 @@ export const EffectSchema = z.discriminatedUnion('type', [
     visit: z.number().int().positive(),
     reason: z.string(),
     notify_decision: NotifyDecisionSchema,
+  }),
+  /**
+   * Internal (ADR-0037 P4, T7): a move step started or stopped being held by `requires.concurrency`.
+   * Audit only, never a push: event row `concurrency.held` (held) or `concurrency.released`
+   * (`held: false`, with how it ended and `held_ms`), read by Insights' `queued` bucket.
+   */
+  z.object({
+    type: z.literal('hold_changed'),
+    /** The move step's label (the session's `workflow_state`). */
+    state: z.string(),
+    held: z.boolean(),
+    behind: z.array(z.string()),
+    since: IsoDateTimeSchema,
+    /** `held: false` only: released, timed out, or the step ended otherwise (`left`). */
+    cause: HoldEndCauseSchema.optional(),
+    /** `held: false` only: how long it was held. */
+    held_ms: z.number().int().nonnegative().optional(),
   }),
 ]);
 export type Effect = z.infer<typeof EffectSchema>;

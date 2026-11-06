@@ -161,3 +161,67 @@ describe('BoardCard.checking (UX-5)', () => {
     expect(parsed.checking?.checks_source).toBeUndefined();
   });
 });
+
+describe('BoardCard.checking: a held move (ADR-0037 P4, T7)', () => {
+  const A = 'aaaaaaaa-1111-4000-8000-000000000001';
+  const B = 'bbbbbbbb-2222-4000-8000-000000000002';
+  /** CONDUCTOR_V2 has no `requires.concurrency`: add it to the PR-ready transition. */
+  const withConcurrency = (): CardView => {
+    const def = structuredClone(CONDUCTOR_V2_DEF);
+    const s = def.states.implementing!;
+    if (s.type !== 'agent') throw new Error('agent');
+    const t = s.on!.personal_pr_ready_for_review!;
+    if (typeof t === 'string') throw new Error('object');
+    t.requires = {
+      ...t.requires,
+      concurrency: {
+        key: '$repo',
+        max_in_flight: 1,
+        scope: ['in_review'],
+        order: 'oldest_first',
+        overlap: 'planned_files',
+        hold_timeout: '1d',
+      },
+    };
+    return { columns: boardColumns(def), def };
+  };
+  const hold = (behind: string[]) => ({
+    behind,
+    since: '2026-10-27T15:40:00.000Z',
+    deadline: '2026-10-28T15:40:00.000Z',
+  });
+
+  it('"Queued behind #N" with the holders\' short ids, and a held item first', () => {
+    const card = BoardCardSchema.parse(
+      cardIn(step({ phase: 'held', hold: hold([A, B]), held: true }), withConcurrency()),
+    );
+    expect(card.checking).toMatchObject({
+      phase: 'held',
+      label: 'Queued behind #aaaaaaaa, #bbbbbbbb',
+      hold: { behind: ['aaaaaaaa', 'bbbbbbbb'], since: '2026-10-27T15:40:00.000Z' },
+    });
+    expect(card.checking!.items![0]).toMatchObject({
+      kind: 'held',
+      label: 'One at a time',
+      status: 'pending',
+    });
+    expect(card.checking!.items!.slice(1).map((i) => i.status)).toEqual(['todo', 'todo', 'todo']);
+  });
+
+  it('before the first check, a neutral label (nobody named)', () => {
+    const c = cardIn(step({ phase: 'held', hold: hold([]) }), withConcurrency()).checking!;
+    expect(c.label).toBe('Checking what else is in flight');
+    expect(c.items![0]).toMatchObject({ kind: 'held', status: 'running' });
+  });
+
+  it('once released, the held item is passed and the checks run', () => {
+    const c = cardIn(step({ phase: 'checks', held: true }), withConcurrency()).checking!;
+    expect(c.hold).toBeUndefined();
+    expect(c.items!.map((i) => [i.kind, i.status])).toEqual([
+      ['held', 'passed'],
+      ['check', 'running'],
+      ['check', 'todo'],
+      ['action', 'todo'],
+    ]);
+  });
+});

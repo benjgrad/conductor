@@ -72,6 +72,7 @@ import {
   type GateSpec,
 } from './move-step.js';
 import { renderPrompt, type PromptAttachment } from './render.js';
+import { heldVerdict, shortTicketId } from './concurrency.js';
 import { notifyDecision } from './notify.js';
 import { CHECK_CONFIG_KEY, setupFailureMessage, setupSource } from './setup-failure.js';
 import {
@@ -151,6 +152,7 @@ import {
   type Effect,
   type EngineEvent,
   type GateStep,
+  type HoldEndCause,
   type PendingAnswer,
   type SessionSnapshot,
   type WatchRuntime,
@@ -297,6 +299,9 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return onTimer(st, e.state, e.deadline);
     case 'watch.fired':
       return onWatchTimer(st, e.state, e.deadline);
+    case 'concurrency.checked':
+      // ADR-0037 P4: only a held move step waits for one.
+      return 'stale_timer';
     case 'budget.exceeded':
       return onBudget(st, e);
     case 'operator.cancel':
@@ -1398,8 +1403,23 @@ function enterStep(
     // ADR-0030: pinned for this step; the next attempt reads the session's again.
     repo_checks: s.repo_checks ?? null,
     repo_checks_meta: s.repo_checks_meta ?? null,
+    started_at: st.now.toISOString(),
+    hold: null,
+    held: false,
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit, ...moveFields(p.record) });
+  // ADR-0037 P4: `requires.concurrency` first holds the move (no machine needed to wait).
+  const conc = p.kind === 'move' ? gateSpecOf(st.def, s.step)?.concurrency : undefined;
+  if (conc !== undefined) {
+    s.step.phase = 'held';
+    s.step.hold = {
+      behind: [],
+      since: st.now.toISOString(),
+      deadline: deadlineIn(st.now, conc.hold_timeout),
+    };
+    startHeld(st);
+    return;
+  }
   if (s.machine_id === null) {
     st.setDeadline(label, null);
     requeue(st);
@@ -1426,6 +1446,11 @@ function runPhase(st: Step, assigning: boolean): void {
     return;
   }
   const label = s.workflow_state!;
+  if (r.phase === 'held') {
+    // A re-claim while held keeps waiting: the hold needs no machine.
+    startHeld(st);
+    return;
+  }
   for (;;) {
     if (r.phase === 'checks') {
       const check = spec.checks[r.index];
@@ -1579,7 +1604,8 @@ function passMove(st: Step, r: GateStep, label: string): void {
     continuation: false,
     auditFrom: label,
     outcome: name,
-    record: named(move),
+    // ADR-0037 P4: a move that was held lands as released from the queue.
+    record: r.held ? { ...named(move), cause: 'concurrency_released' } : named(move),
     ...notifyFor(name, raw),
   });
 }
@@ -1788,6 +1814,12 @@ function handleStep(
       ) {
         return 'stale_timer';
       }
+      if (r.phase === 'held') {
+        // The wrapper turns this timer into `concurrency.checked`; one it didn't (no holders
+        // known) can only time the hold out, never release it.
+        heldTimer(st, spec, r);
+        return null;
+      }
       if (r.phase === 'conditions') {
         onConditionsTimer(st, spec, r, e.deadline);
         return null;
@@ -1817,6 +1849,8 @@ function handleStep(
       }
       return null;
     }
+    case 'concurrency.checked':
+      return onConcurrencyChecked(st, spec, r, e);
     case 'budget.exceeded': {
       const target = st.def.states[st.def.on_budget_exceeded];
       leaveStep(st, target?.type !== 'agent' && target?.type !== 'command');
@@ -1838,6 +1872,141 @@ function handleStep(
     case 'external.event':
       return conditionsOverride(st, r, e.name, e.data);
   }
+}
+
+// ---------------------------------------------------------------- the held phase (ADR-0037 P4)
+//
+// The first phase of a move whose transition has `requires.concurrency`. Paused like the
+// conditions phase (U-059): status `waiting_external`, no worker, no wall time, no machine needed.
+// apply cannot see other sessions: it arms `state_deadline` ("check me"), and the EngineService
+// wrapper answers that timer with `concurrency.checked {holders}` (the sessions in flight on the
+// same key ahead of this one, `holdersOf`). Below `max_in_flight` → the checks; at or above it →
+// wait, re-checked every `condition_poll` and at once when a same-repo session leaves a state;
+// `hold_timeout` → `on_unmet.else`, kind `timeout`. Silent: a hold opens no request and pushes
+// nothing (`hold_changed` is audit only).
+
+/** Wait in the held phase: paused, and checked at the next sweep tick. */
+function startHeld(st: Step): void {
+  const s = st.s;
+  const r = s.step!;
+  if (r.hold === null) {
+    // A step persisted without its hold record (never written by T7): nothing to wait on.
+    releaseHold(st, r);
+    return;
+  }
+  bankWallTime(st, r.from);
+  st.setStatus('waiting_external');
+  st.setDeadline(s.workflow_state!, st.now.toISOString());
+}
+
+/** The wrapper's answer: release, keep holding, or time out. */
+function onConcurrencyChecked(
+  st: Step,
+  spec: GateSpec,
+  r: GateStep,
+  e: Extract<EngineEvent, { type: 'concurrency.checked' }>,
+): ApplyIgnoreReason | null {
+  const s = st.s;
+  const current = s.state_deadline;
+  if (
+    r.phase !== 'held' ||
+    r.hold === null ||
+    spec.concurrency === undefined ||
+    e.state !== s.workflow_state ||
+    current === null ||
+    Date.parse(e.deadline) !== Date.parse(current) ||
+    s.status !== 'waiting_external'
+  ) {
+    return 'stale_timer';
+  }
+  const verdict = heldVerdict(spec.concurrency, e.holders, st.now, r.hold);
+  if (verdict === 'release') {
+    releaseHold(st, r);
+    return null;
+  }
+  r.hold = { ...r.hold, behind: e.holders.map((h) => h.ticket_id) };
+  if (verdict === 'timeout') {
+    holdTimedOut(st, spec, r);
+    return null;
+  }
+  if (!r.held) {
+    r.held = true;
+    st.emit({
+      type: 'hold_changed',
+      state: s.workflow_state,
+      held: true,
+      behind: r.hold.behind,
+      since: r.hold.since,
+    });
+  }
+  armHoldPoll(st, spec, r);
+  return null;
+}
+
+/** A held step's raw `timer.fired`: past the hold's deadline → the timeout; else wait on. */
+function heldTimer(st: Step, spec: GateSpec, r: GateStep): void {
+  if (r.hold === null || st.now.getTime() >= Date.parse(r.hold.deadline)) {
+    holdTimedOut(st, spec, r);
+    return;
+  }
+  armHoldPoll(st, spec, r);
+}
+
+/** The next check: `now + condition_poll`, never past the hold's deadline. */
+function armHoldPoll(st: Step, spec: GateSpec, r: GateStep): void {
+  const until = r.hold?.deadline ?? st.now.toISOString();
+  st.setDeadline(
+    st.s.workflow_state!,
+    pollDeadline(st.now, basePollMs(spec.condition_poll), until),
+  );
+}
+
+/** Audit the end of a real hold (once): `hold_changed {held: false, cause}`. */
+function endHold(st: Step, r: GateStep, cause: HoldEndCause): void {
+  if (r.hold !== null && r.held) {
+    st.emit({
+      type: 'hold_changed',
+      state: st.s.workflow_state!,
+      held: false,
+      behind: r.hold.behind,
+      since: r.hold.since,
+      cause,
+      held_ms: Math.max(0, st.now.getTime() - Date.parse(r.hold.since)),
+    });
+  }
+  r.hold = null;
+}
+
+/** Below `max_in_flight`: on to the checks (a requeue first when the session has no machine). */
+function releaseHold(st: Step, r: GateStep): void {
+  const s = st.s;
+  endHold(st, r, 'concurrency_released');
+  // The hold was paused time (banked at its start): the checks count from now.
+  s.state_entered_at = st.now.toISOString();
+  r.phase = 'checks';
+  r.index = 0;
+  if (s.machine_id === null) {
+    requeue(st);
+    return;
+  }
+  runPhase(st, false);
+}
+
+/** `hold_timeout` passed while still at `max_in_flight`: `on_unmet.else`, kind `timeout`. */
+function holdTimedOut(st: Step, spec: GateSpec, r: GateStep): void {
+  const behind = r.hold?.behind ?? [];
+  endHold(st, r, 'timeout');
+  const who =
+    behind.length > 0 ? ` behind ${behind.map((id) => `#${shortTicketId(id)}`).join(', ')}` : '';
+  const after = spec.concurrency?.hold_timeout ?? 'the hold timeout';
+  stepFail(
+    st,
+    spec,
+    'timeout',
+    `Waited ${after}${who} to ${spec.goal}: too many tickets on the same repo were in flight. Retry, skip, or abort?`,
+    false,
+    'timeout',
+  );
 }
 
 // ---------------------------------------------------------------- the conditions phase (ADR-0011)
@@ -2051,7 +2220,9 @@ function conditionsTimedOut(st: Step, spec: GateSpec, r: GateStep): void {
  */
 function messageDuringConditions(st: Step, r: GateStep, text: string): ApplyIgnoreReason | null {
   const source = st.def.states[r.from];
-  if (r.phase !== 'conditions' || source?.type !== 'agent') return 'wrong_status';
+  if ((r.phase !== 'conditions' && r.phase !== 'held') || source?.type !== 'agent') {
+    return 'wrong_status';
+  }
   if (st.s.status !== 'waiting_external') return 'wrong_status';
   const label = st.s.workflow_state!;
   leaveStep(st, false);
@@ -2555,6 +2726,11 @@ function leaveStep(st: Step, kill: boolean): void {
   if (r.phase === 'conditions' && r.conditions_deadline !== null) {
     s.state_entered_at = st.now.toISOString();
   }
+  // ADR-0037 P4: so is a hold (banked when it started); a hold that really held ends here.
+  if (r.phase === 'held') {
+    endHold(st, r, 'left');
+    s.state_entered_at = st.now.toISOString();
+  }
   s.workflow_state = r.from;
   s.step = null;
   s.agent_command_id = null;
@@ -3013,6 +3189,8 @@ function failSession(st: Step, ticket: TicketStatus, reason: string, kill = true
   if (s.state_deadline !== null && s.workflow_state !== null)
     st.setDeadline(s.workflow_state, null);
   s.pending_answer = null;
+  // ADR-0037 P4: a hold that really held ends here (audit).
+  if (s.step !== null && s.step.phase === 'held') endHold(st, s.step, 'left');
   s.step = null;
   disarmWatch(st);
   st.setStatus('failed');

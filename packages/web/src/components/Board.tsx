@@ -56,6 +56,7 @@ import {
   agentIdle,
   checkingSummary,
   isConductorStep,
+  queuedSummary,
   waitingForBuildSlot,
 } from './ConductorChecks.js';
 import { routingSentence } from '../machines/format.js';
@@ -871,6 +872,11 @@ function Card({
       )}
       {card.alerts && card.alerts.length > 0 && (
         <AlertBadge files={[...new Set(card.alerts.flatMap((a) => a.files))]} />
+      )}
+      {queuedSummary(card) !== null && (
+        <span className="badge badge-queued" title={queuedSummary(card)!}>
+          {queuedSummary(card)}
+        </span>
       )}
       {conductor ? null : card.pending ? (
         <PendingChecklist

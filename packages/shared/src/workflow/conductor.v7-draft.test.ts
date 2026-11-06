@@ -27,7 +27,7 @@ describe('conductor v7 draft (ADR-0039)', () => {
     ]);
   });
 
-  it('without it, only rule 14 refuses: v6 concurrency plus every base field', () => {
+  it('without it, only rule 14 refuses: every base field (concurrency is available, T7)', () => {
     const res = validateWorkflow(draft);
     expect(res.ok).toBe(false);
     if (res.ok) return;
@@ -37,8 +37,6 @@ describe('conductor v7 draft (ADR-0039)', () => {
     const gates = ['ready_for_testing', 'pr_ready_for_review', 'personal_pr_ready_for_review'];
     expect(res.errors.map((e) => e.path.join('.')).sort()).toEqual(
       [
-        at('pr_ready_for_review', 'requires', 'concurrency'),
-        at('personal_pr_ready_for_review', 'requires', 'concurrency'),
         'bases',
         'base_default',
         'instructions.resync_main',

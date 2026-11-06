@@ -18,16 +18,9 @@ afterEach(cleanup);
 
 const V6 = WorkflowDefinitionSchema.parse(V6_DRAFT);
 
-/** v6 without the T7 concurrency (not available yet), so it validates without allowUnavailable. */
+/** The v6 draft (it validates without allowUnavailable since T7). */
 function v6(): WorkflowDefinition {
-  const d = structuredClone(V6);
-  for (const s of Object.values(d.states)) {
-    if (s.type === 'terminal') continue;
-    for (const t of Object.values(s.on ?? {})) {
-      if (typeof t === 'object' && t.requires?.concurrency) delete t.requires.concurrency;
-    }
-  }
-  return d;
+  return structuredClone(V6);
 }
 
 /** The panel for `state`, editing a live copy; returns a reader for the latest definition. */
@@ -58,7 +51,7 @@ const ok = (d: WorkflowDefinition) => {
 };
 
 describe('WatchFields', () => {
-  it('v6 without concurrency validates (the base for these tests)', () => {
+  it('v6 validates (the base for these tests)', () => {
     expect(ok(v6())).toEqual([]);
   });
 

@@ -327,10 +327,11 @@ describe('rules 24 and 25: condition placement, no-CI policy', () => {
 });
 
 describe('rule 14: not available yet', () => {
-  it('T5, T3, T8, T4 and T6: the new condition types, watch, no_checks, handoff, instructions and the notify policy are available; nothing else yet', () => {
+  it('T5, T3, T7, T8, T4 and T6: every ADR-0037 primitive is available; bases not yet', () => {
     expect(AVAILABLE_WORKFLOW_FEATURES).toEqual([
       'watch',
       'no_checks',
+      'concurrency',
       'instructions',
       'notify_policy',
       'handoff',
@@ -354,7 +355,16 @@ describe('rule 14: not available yet', () => {
 
   it('marking every feature and condition available lifts every refusal in the draft', () => {
     const parsed = WorkflowDefinitionSchema.parse(v6());
-    expect(checkAvailability(parsed)).not.toEqual([]);
+    // T7: the draft needs nothing that is unavailable any more (concurrency was the last).
+    expect(checkAvailability(parsed)).toEqual([]);
+    expect(
+      checkAvailability(parsed, {
+        tools: AVAILABLE_TOOL_ALIASES,
+        resultKinds: AVAILABLE_RESULT_KINDS,
+        conditions: CONDITION_TYPES,
+        features: WORKFLOW_FEATURES.filter((f) => f !== 'concurrency'),
+      }),
+    ).not.toEqual([]);
     expect(
       checkAvailability(parsed, {
         tools: AVAILABLE_TOOL_ALIASES,

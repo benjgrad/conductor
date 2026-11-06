@@ -23,6 +23,7 @@ import {
 import { StructuralChangeSchema } from '../advisor/proposal.js';
 import { machineLostMarkOf } from '../engine/machine-lost.js';
 import { watchRuntime } from '../engine/watch.js';
+import { shortTicketId } from '../engine/concurrency.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import { CHECK_CONFIG_KEY, RETRY_CHECKS } from '../engine/setup-failure.js';
 import {
@@ -491,7 +492,8 @@ export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
  */
 export const BoardCheckingItemSchema = z.object({
   label: z.string(),
-  kind: z.enum(['check', 'review', 'action', 'condition']),
+  /** ADR-0037 P4 adds `held` (the "One at a time" line, first). */
+  kind: z.enum(['held', 'check', 'review', 'action', 'condition']),
   status: z.enum([
     'todo',
     'running',
@@ -517,8 +519,11 @@ export const BoardCheckingSchema = z.object({
   to: StateNameSchema,
   /** The target's column title. */
   title: z.string(),
-  /** ADR-0011 adds `conditions` (a move step waiting on external conditions). */
-  phase: z.enum(['checks', 'review', 'actions', 'conditions']),
+  /**
+   * ADR-0011 adds `conditions` (a move step waiting on external conditions); ADR-0037 P4 adds
+   * `held` (queued behind other tickets in flight on the same repo, `hold`).
+   */
+  phase: z.enum(['held', 'checks', 'review', 'actions', 'conditions']),
   /** UX-5: e.g. "Checks before PR ready for review" ("Review before …" for an ADR-0009 review). */
   label: z.string().optional(),
   /** UX-5: the move's transition name (an entry step or ADR-0009 review: the outcome). */
@@ -533,6 +538,11 @@ export const BoardCheckingSchema = z.object({
    * servers).
    */
   checks_source: z.enum(['workflow', 'repo']).optional(),
+  /**
+   * ADR-0037 P4: while `phase` is `held`, the short ids (`shortTicketId`) of the tickets it waits
+   * behind (oldest first; [] until the first check) and since when. Absent otherwise.
+   */
+  hold: z.object({ behind: z.array(z.string()), since: z.string() }).optional(),
 });
 export type BoardChecking = z.infer<typeof BoardCheckingSchema>;
 
@@ -2139,7 +2149,7 @@ function requiresOfStep(
   return gate === undefined ? null : { review: { items: gate.items } };
 }
 
-const PHASE_ORDER = ['checks', 'review', 'actions', 'conditions'] as const;
+const PHASE_ORDER = ['held', 'checks', 'review', 'actions', 'conditions'] as const;
 
 type StepItemKind = BoardCheckingItem['kind'];
 
@@ -2174,24 +2184,34 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
     if (phase > cur) return 'todo';
     return i < step.index ? 'met' : i === step.index ? 'running' : 'todo';
   };
+  // ADR-0037 P4: the hold comes first.
+  if (req.concurrency !== undefined) {
+    const behind = step.hold?.behind ?? [];
+    items.push({
+      kind: 'held',
+      label: 'One at a time',
+      status: cur > 0 ? 'met' : behind.length > 0 ? 'pending' : 'running',
+      detail: behind.length > 0 ? heldLabel(behind) : null,
+    });
+  }
   const declared = req.checks ?? [];
   const checks = stepChecksSource(declared, step) === 'repo' ? step.repo_checks!.checks : declared;
   checks.forEach((c, i) =>
-    items.push({ kind: 'check', label: c.name, status: indexed(0, i), detail: null }),
+    items.push({ kind: 'check', label: c.name, status: indexed(1, i), detail: null }),
   );
   if (req.review !== undefined) {
     const n = req.review.items.length;
     items.push({
       kind: 'review',
       label: `Review: ${n} requirement${n === 1 ? '' : 's'}`,
-      status: cur > 1 ? 'met' : cur === 1 ? 'running' : 'todo',
+      status: cur > 2 ? 'met' : cur === 2 ? 'running' : 'todo',
       detail: req.review.items.join('\n'),
     });
   }
   (req.actions ?? []).forEach((a, i) =>
-    items.push({ kind: 'action', label: actionLabel(a), status: indexed(2, i), detail: null }),
+    items.push({ kind: 'action', label: actionLabel(a), status: indexed(3, i), detail: null }),
   );
-  if (cur === 3 && step.conditions.length > 0) {
+  if (cur === 4 && step.conditions.length > 0) {
     for (const c of step.conditions) {
       items.push({
         kind: 'condition',
@@ -2272,16 +2292,28 @@ export function checkingOfStep(
         ? 'repo'
         : 'workflow'
       : stepChecksSource(requiresOfStep(def, step)?.checks ?? [], step);
+  const held = step.phase === 'held';
+  const behind = (step.hold?.behind ?? []).map(shortTicketId);
   return {
     to: step.to,
     title: def ? stateTitle(def, step.to) : step.to,
     phase: step.phase,
-    label: `${step.kind === 'transition' ? 'Review' : 'Checks'} before ${stepTitle(def, step)}`,
+    label: held
+      ? behind.length > 0
+        ? heldLabel(step.hold!.behind)
+        : 'Checking what else is in flight'
+      : `${step.kind === 'transition' ? 'Review' : 'Checks'} before ${stepTitle(def, step)}`,
     transition: step.transition ?? step.outcome,
     items,
     current: running === -1 ? null : running,
     checks_source,
+    ...(held && step.hold !== null ? { hold: { behind, since: step.hold.since } } : {}),
   };
+}
+
+/** ADR-0037 P4: "Queued behind #abcd1234, #ef567890" (ticket ids, oldest first). */
+export function heldLabel(behind: readonly string[]): string {
+  return `Queued behind ${behind.map((id) => `#${shortTicketId(id)}`).join(', ')}`;
 }
 
 /**

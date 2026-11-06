@@ -210,6 +210,7 @@ const ticket: ColumnSpec<TicketRow> = {
   priority: col('int4', NN),
   queue_position: col('int4', NULL),
   kind: col('ticket_kind', NULL),
+  size: col(t, NULL),
   session_allow: col('_text', NN),
   agent_id: col('uuid', NULL),
   schedule_id: col('uuid', NULL),

@@ -201,7 +201,7 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 |---|---|---|
 | id | uuid pk | |
 | session_id | fk | |
-| kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` · `machine_lost` (`MACHINE_LOST_KIND`: the session's machine was lost or revoked, [10](10-contracts.md#machines-protocol-v2); added by M2-T03) · `handoff` (a `handoff: true` transition handed finished work over for review; `question` is the agent's summary; [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P8, added by T3) · `check_config` (a gate's setup failed on the branch and on the base branch: conductor's check config; not counted; [05](05-workflow-engine.md#requirements-to-enter-a-column-adr-0010) "Setup failures", migration 1763700000000) |
+| kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` · `machine_lost` (`MACHINE_LOST_KIND`: the session's machine was lost or revoked, [10](10-contracts.md#machines-protocol-v2); added by M2-T03) · `handoff` (a `handoff: true` transition handed finished work over for review; `question` is the agent's summary; [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) P8, added by T3) · `check_config` (a gate's setup failed on the branch and on the base branch: conductor's check config; not counted; [05](05-workflow-engine.md#requirements-to-enter-a-column-adr-0010) "Setup failures", migration 1763800000000) |
 | question | text | shown as the card badge |
 | return_to | text null | copy of `session.return_to` when created |
 | answer | text null | |
@@ -507,7 +507,7 @@ ADR-0033 P3 (MA-T05): a workflow advisor's proposed change. Migration `176260000
 | applied_version | int null | workflow: the version applying it saved |
 | error | text null | why it is `conflict` or `failed` |
 | review, reviewed_at | jsonb null, timestamptz null | the last `ProposalReview` |
-| ticket_id | uuid null fk ticket (ON DELETE SET NULL) | an agent's proposal (ask_user `proposed_checks`, [06](06-human-input.md#check-config-failures-and-agent-proposed-repo-checks)): the ticket it was proposed on; partial index `WHERE ticket_id IS NOT NULL`. Migration `1763700000001_change-proposal-ticket` |
+| ticket_id | uuid null fk ticket (ON DELETE SET NULL) | an agent's proposal (ask_user `proposed_checks`, [06](06-human-input.md#check-config-failures-and-agent-proposed-repo-checks)): the ticket it was proposed on; partial index `WHERE ticket_id IS NOT NULL`. Migration `1763800000001_change-proposal-ticket` |
 | input_request_id | uuid null fk input_request (ON DELETE SET NULL) | the question it came with: applying the proposal answers it |
 
 Down drops the table. An agent's proposal has `created_by` `agent:<ticket id, 8 chars>`.

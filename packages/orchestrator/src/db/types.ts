@@ -15,6 +15,7 @@ import type {
   QuestionOptions,
   SessionStatus,
   TicketKind,
+  TicketSize,
   TicketStatus,
   WorkflowDefinitionInput,
 } from '@conductor/shared';
@@ -188,6 +189,11 @@ export interface TicketRow {
    * NULL for tickets created before M1b, matching both kinds (U-062); the create route requires it.
    */
   kind: TicketKind | null;
+  /**
+   * ADR-0037 §4 (C2, migration 1763700000000): S / M / L, or null when not set. Only the planning
+   * prompt reads it. Optional only so hand-built rows in tests may leave it out.
+   */
+  size?: TicketSize | null;
   /**
    * M2-T29c (ADR-0023 §2): the exact allow rules "Allow always" recorded for this ticket's
    * sessions, until the machine override exists (M2-T28c). Default `{}`.

@@ -31,7 +31,6 @@ describe('conductor v6 draft (ADR-0037)', () => {
     if (res.ok) return;
     expect(res.errors.every((e) => e.rule === 14)).toBe(true);
     const pr = ['pr_ready_for_review', 'personal_pr_ready_for_review'];
-    const gates = [...pr, 'ready_for_testing'];
     const at = (s: string, t: string, ...rest: (string | number)[]) =>
       ['states', s, 'on', t, ...rest].join('.');
     // T8: instructions, their refs and presets are available.

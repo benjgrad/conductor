@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-// UXR-37 (FR-2): the wide panel puts the request and its evidence first, then the conversation,
-// then the follow-ups and the check output in their own disclosures. The default layout (phone,
-// below 900 px) keeps the request at the end of the chat.
+// UXR-37 (FR-2): the wide panel puts the request and its evidence in their own region at the end
+// of the conversation, inside the chat's scroll (it is never pinned), then the follow-ups and the
+// check output in their own disclosures. The default layout (phone, below 900 px) keeps the
+// request at the end of the chat too, without the region.
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockApi } from '../api/mock.js';
@@ -27,14 +28,14 @@ const follows = (a: Node, b: Node) =>
   (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
 describe('wide layout (UXR-37 FR-2)', () => {
-  it('puts the request above the conversation and the check output in a disclosure', async () => {
+  it('puts the request inside the scrolling chat and the check output in a disclosure', async () => {
     // A failure question whose session ran a command: its output is a "Check output" run.
     renderPanel(SEED_IDS.askOlder.session, { layout: 'wide' });
     const request = await screen.findByRole('region', { name: 'Request' });
     const log = screen.getByRole('log');
     expect(within(request).getByRole('region', { name: 'Pending input' })).toBeTruthy();
-    expect(log.contains(request)).toBe(false);
-    expect(follows(request, log)).toBe(true);
+    // Inside the log, so it scrolls away with the messages instead of pinning part of the panel.
+    expect(log.contains(request)).toBe(true);
     // The evidence (the failed run's output) is inline with the request.
     expect(within(request).getByRole('region', { name: 'Failure output' })).toBeTruthy();
 
@@ -57,7 +58,7 @@ describe('wide layout (UXR-37 FR-2)', () => {
     const toggle = await screen.findByRole('button', { name: /Proposed follow-up tickets/ });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(toggle.textContent).toContain('2');
-    expect(follows(request, screen.getByRole('log'))).toBe(true);
+    expect(screen.getByRole('log').contains(request)).toBe(true);
     expect(follows(screen.getByRole('log'), toggle)).toBe(true);
   });
 

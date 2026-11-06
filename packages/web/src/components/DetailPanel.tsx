@@ -72,9 +72,9 @@ interface DetailPanelProps {
   /** ADR-0008: show another session (the new one after a reopen). */
   onSelectSession?: (sessionId: string) => void;
   /**
-   * UXR-37: `wide` (desktop, beside the board or in focus mode) puts the request first, then the
-   * conversation, then the follow-ups and the check output in their own disclosures. `default`
-   * (phone) keeps the request at the end of the chat.
+   * UXR-37: `wide` (desktop, beside the board or in focus mode) puts the request in its own
+   * region at the end of the conversation (it scrolls with the chat), then the follow-ups and the
+   * check output in their own disclosures. `default` (phone) keeps the check runs inline.
    */
   layout?: PanelLayout;
   /** UXR-37: focus mode is on (the board is a ticket list and the panel takes the rest). */
@@ -329,12 +329,6 @@ export function DetailPanel({
               {isConductorStep(detail.card) && (
                 <ConductorCheckBanner card={detail.card} agent={name} />
               )}
-              {/* UXR-37 (FR-2): on desktop the request and its evidence come first. */}
-              {wide && hasRequest && (
-                <section className="request-slot" aria-label="Request">
-                  {request}
-                </section>
-              )}
               <OutputLog
                 output={output}
                 moves={detail.moves ?? []}
@@ -348,7 +342,15 @@ export function DetailPanel({
                 tailKey={detail.pending_input?.id ?? detail.card.permission?.request_id ?? ''}
                 runs={wide ? 'separate' : 'inline'}
               >
-                {!wide && request}
+                {/* The request ends the conversation and scrolls with it, so it never pins
+                    part of the chat. On desktop it is its own region (UXR-37 FR-2). */}
+                {wide && hasRequest ? (
+                  <section className="request-slot" aria-label="Request">
+                    {request}
+                  </section>
+                ) : (
+                  request
+                )}
               </OutputLog>
               {/* 06 §Plan approval: the plan panel carries the buttons (other actions inside). */}
               {detail.card.session_id !== null && !plan && (

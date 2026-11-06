@@ -34,6 +34,8 @@ export function classifyRequest(
   req: Pick<InputRequestDto, 'kind' | 'question' | 'origin_transition' | 'step_failed'>,
   fallbackTransition?: string | null,
 ): RequestClass {
+  // ADR-0037 P8: a hand-off is a review by kind, whatever transition opened it.
+  if (req.kind === 'handoff') return 'review';
   const origin = req.origin_transition !== undefined ? req.origin_transition : fallbackTransition;
   if (isReviewTransition(origin)) return 'review';
   if (origin === PLAN_APPROVAL_TRANSITION) return 'plan_approval';

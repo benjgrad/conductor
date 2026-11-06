@@ -92,6 +92,14 @@ describe('statusLine', () => {
     expect(statusLine({ card: done, waiting: 'you', handoff: true })).toBe(
       'Waiting on you: the agent reports: "I fixed the only failing test."',
     );
+    // ADR-0037 P8: a `handoff` request reads as ready for review, flag or no flag.
+    const handedOff = card({
+      status: 'needs_input',
+      input_request: question('handoff', 'Added /health. Look at the route first.'),
+    });
+    expect(statusLine({ card: handedOff, waiting: 'you' })).toBe(
+      'Ready for review: "Added /health. Look at the route first."',
+    );
     // A cancel ends the session `failed`; the ticket says it was cancelled.
     expect(
       statusLine({

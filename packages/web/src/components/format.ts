@@ -16,6 +16,7 @@ export const KIND_LABELS: Record<InputRequestKind, string> = {
   timeout: 'Timed out',
   approval: 'Approval',
   machine_lost: 'Machine lost',
+  handoff: 'Ready for review',
 };
 
 export const STATUS_LABELS: Record<SessionStatus, string> = {

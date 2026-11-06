@@ -341,7 +341,7 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * - `concurrency` (P4, T7): `requires.concurrency`;
  * - `instructions` (P5, T8): the `instructions` map, `$instructions.<slug>` refs and `presets`;
  * - `notify_policy` (P6, T4): the workflow `notify` block and string transition `notify` values;
- * - `handoff` (P8, T3): `handoff: true`.
+ * - `handoff` (P8, T3, available): `handoff: true`.
  */
 export const WORKFLOW_FEATURES = [
   'watch',
@@ -352,7 +352,7 @@ export const WORKFLOW_FEATURES = [
   'handoff',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
-export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = ['no_checks'];
+export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = ['no_checks', 'handoff'];
 
 /** `enabled` defaults to true. */
 export function conditionEnabled(c: Condition): boolean {

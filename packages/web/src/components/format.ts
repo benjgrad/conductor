@@ -188,3 +188,32 @@ export function panelStatusLabel(
     : (workflow?.states[state]?.title ?? humanize(state));
   return status === 'failed' || status === 'lost' ? `${shown} · ${STATUS_LABELS[status]}` : shown;
 }
+
+const WATCH_MARK: Record<string, string> = {
+  met: '✓',
+  failed: '✗',
+  pending: '…',
+  running: '…',
+  todo: '·',
+  skipped: '–',
+  unsupported: '?',
+  disabled: '–',
+};
+
+/**
+ * ADR-0037 P1: the card's watch line, e.g. `Watching: Merges cleanly ✓ · next check 14:02`. The
+ * conditions in declared order with their last answer; `next check` in local time.
+ */
+export function watchingSummary(w: NonNullable<BoardCard['watching']>): string {
+  const items = w.conditions
+    .filter((c) => c.status !== 'disabled')
+    .map((c) => `${c.label} ${WATCH_MARK[c.status] ?? c.status}`);
+  const next =
+    w.next_check_at === null
+      ? ''
+      : ` · next check ${new Date(w.next_check_at).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })}`;
+  return `Watching: ${items.join(', ')}${next}`;
+}

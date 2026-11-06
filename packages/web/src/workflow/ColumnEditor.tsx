@@ -23,6 +23,7 @@ import {
   type ColumnIssue,
 } from './columns.js';
 import { TransitionList } from './TransitionList.js';
+import { WatchFields } from './WatchFields.js';
 import { transitionNames } from './transitions.js';
 
 // The side panel for one column (ADR-0010, ADR-0011): its title and its work. The rules for
@@ -94,6 +95,11 @@ export function ColumnEditor({
       ));
   };
   const names = transitionNames(definition, state);
+  // ADR-0037 P1: the watch panel shows its own problems (paths relative to `.watch`).
+  const watchBase = `${base}.watch`;
+  const watchIssues = issues
+    .filter((i) => i.path === watchBase || i.path.startsWith(`${watchBase}.`))
+    .map((i) => ({ suffix: i.path.slice(watchBase.length), message: i.message }));
   // The transitions an old `entry` on this column folds onto (fold.ts: every non-fallback one in).
   const foldTargets =
     s.entry === undefined
@@ -234,6 +240,15 @@ export function ColumnEditor({
       )}
       {s.type !== 'agent' && s.type !== 'event' && <p className="wf-note">{TYPE_TEXT[s.type]}</p>}
       {at('.prompt')}
+      {(s.type === 'human' || s.type === 'event') && (
+        <WatchFields
+          uid={uid}
+          definition={definition}
+          state={state}
+          onChange={onChange}
+          issues={watchIssues}
+        />
+      )}
 
       {s.type !== 'terminal' && (
         <>
@@ -356,7 +371,10 @@ export function ColumnEditor({
   );
   // Anything not shown next to a field and not on a transition goes at the end.
   const rest = issues.filter(
-    (i) => !shownPaths.has(i.path) && (i.transition === undefined || i.transition.from !== state),
+    (i) =>
+      !shownPaths.has(i.path) &&
+      !(i.path === watchBase || i.path.startsWith(`${watchBase}.`)) &&
+      (i.transition === undefined || i.transition.from !== state),
   );
   return (
     <aside className={`wf-editor${fullScreen ? ' full-screen' : ''}`} aria-label="Column">

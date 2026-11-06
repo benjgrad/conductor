@@ -284,6 +284,12 @@ export const SessionSnapshotSchema = z.object({
    * Absent ≡ [].
    */
   notified_transitions: z.array(z.string()).optional(),
+  /**
+   * ADR-0037 P1 (T6): when the current human / event state's `watch` checks next
+   * (`session.watch_deadline`); null when the state has no watch or the session left it. The
+   * watch sweep feeds `watch.fired` for it. Absent ≡ null (older snapshots).
+   */
+  watch_deadline: IsoDateTimeSchema.nullable().optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 
@@ -442,6 +448,16 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
   /** O: timeout sweep. Ignored unless `state` and `deadline` match the snapshot. */
   z.object({
     type: z.literal('timer.fired'),
+    state: z.string(),
+    deadline: IsoDateTimeSchema,
+  }),
+  /**
+   * O (ADR-0037 P1, T6): the watch sweep. `watch_deadline` passed (or the orchestrator nudged it:
+   * a merge or push on the same repo). Ignored (`stale_timer`) unless `state` and `deadline` match
+   * the snapshot's `workflow_state` and `watch_deadline` and the session is parked there.
+   */
+  z.object({
+    type: z.literal('watch.fired'),
     state: z.string(),
     deadline: IsoDateTimeSchema,
   }),
@@ -853,6 +869,17 @@ export const EffectSchema = z.discriminatedUnion('type', [
   }),
   /** Internal: UPDATE ticket.status (e.g. done/failed on terminal, ready on a refused start_session). */
   z.object({ type: z.literal('ticket_status'), to: TicketStatusSchema }),
+  /**
+   * Internal (ADR-0037 P1, T6): a watch with `on_broken: {notify: 'escalate'}` broke. Event row
+   * `watch.escalated` and a push (always: the user asked for it), at most one per stay (`visit`).
+   */
+  z.object({
+    type: z.literal('watch_escalated'),
+    state: z.string(),
+    visit: z.number().int().positive(),
+    reason: z.string(),
+    notify_decision: NotifyDecisionSchema,
+  }),
 ]);
 export type Effect = z.infer<typeof EffectSchema>;
 
@@ -1001,6 +1028,49 @@ export type MachineLostMark = z.infer<typeof MachineLostMarkSchema>;
 
 /** `GateStep.conditions_note` while no machine could evaluate the conditions (U-058). */
 export const CONDITIONS_NO_MACHINE_NOTE = 'waiting for a machine to check conditions';
+
+/**
+ * ADR-0037 P1 (T6): `session.context` key of a watch's live state (like STEP_CONTEXT_KEY: no
+ * migration). Set when a watched human / event state is entered, cleared when it is left.
+ */
+export const WATCH_CONTEXT_KEY = '__watch';
+
+export const WatchRuntimeSchema = z.object({
+  /** The watched state. */
+  state: z.string(),
+  /** Its `state_visits` count when armed: the escalation is once per visit (stay). */
+  visit: z.number().int().positive(),
+  /** One status per declared condition (declaration order), as a gate step's checklist. */
+  conditions: z.array(ConditionStatusSchema),
+  /** The current poll interval (ms): `watch.poll`, doubled after an unchanged answer, capped. */
+  poll_ms: z.number().int().positive(),
+  /** A note for the card (no machine, the last check failed); null when there is nothing to say. */
+  note: z.string().nullable(),
+  last_checked_at: IsoDateTimeSchema.nullable(),
+  /** The escalate form already notified during this stay. */
+  escalated: z.boolean(),
+  /**
+   * A check came due (the poll, or a merge's nudge) while an evaluation was still out: the answer
+   * re-arms at once instead of a full poll, so the nudge isn't lost. Absent ≡ false.
+   */
+  recheck: z.boolean().default(false),
+});
+export type WatchRuntime = z.infer<typeof WatchRuntimeSchema>;
+
+/**
+ * ADR-0037 P1 (T6): `session.context` key of a watch's `return_to`: the state the agent's next
+ * hand-off comes back to after a `watch_broken` move. Cleared on any landing in a human or
+ * terminal state, and by a human's move.
+ */
+export const WATCH_RETURN_CONTEXT_KEY = '__watch_return';
+
+export const WatchReturnSchema = z.object({
+  /** Where the next hand-off lands. */
+  state: z.string(),
+  /** The watched state that broke. */
+  from_watch: z.string(),
+});
+export type WatchReturn = z.infer<typeof WatchReturnSchema>;
 
 /**
  * The `event` row payload of a `state.entered` row (written by the wrapper from the

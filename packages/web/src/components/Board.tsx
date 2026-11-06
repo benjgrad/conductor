@@ -36,6 +36,7 @@ import {
   TICKET_KIND_LABELS,
   TICKET_SIZE_LABELS,
   usd,
+  watchingSummary,
 } from './format.js';
 import { usePlanAnswer } from './plan-answer.js';
 import { CardAllowOnce, CardOptionButton } from './CardActions.js';
@@ -883,6 +884,12 @@ function Card({
             checking requirements for {card.checking.title} ({card.checking.phase})
           </span>
         )
+      )}
+      {card.watching && (
+        <span className="card-watching muted" title={card.watching.note ?? undefined}>
+          {watchingSummary(card.watching)}
+          {card.watching.note && <> ({card.watching.note})</>}
+        </span>
       )}
       {(['failed', 'lost', 'cancelled'] as const).map(
         (b) =>

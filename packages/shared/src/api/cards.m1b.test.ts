@@ -251,6 +251,8 @@ describe('BoardCard backward compatibility', () => {
       size: null,
       pending: null,
       human_transitions: [],
+      // ADR-0037 P1: an older card has no watch line.
+      watching: null,
     });
   });
 });

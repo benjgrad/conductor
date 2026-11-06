@@ -180,3 +180,28 @@ export async function enqueueTransitionPush(
     excludeUserId: p.excludeUserId ?? null,
   });
 }
+
+/**
+ * ADR-0037 P1 (T6): a watch's escalation (`watch.escalated`). Same kind and fan-out as a
+ * transition notification; keyed by its per-stay tag, so it is sent once per stay.
+ */
+export async function enqueueWatchEscalatePush(
+  tx: Queryable,
+  p: {
+    accountId: string;
+    sessionId: string;
+    ticketId: string;
+    notification: PushNotification;
+    idempotencyKey: string;
+    now: Date;
+  },
+): Promise<number> {
+  return enqueuePush(tx, {
+    kind: 'push_transition',
+    accountId: p.accountId,
+    sessionId: p.sessionId,
+    payload: { ticket_id: p.ticketId, notification: p.notification, delivered: [] },
+    idempotencyKey: p.idempotencyKey,
+    now: p.now,
+  });
+}

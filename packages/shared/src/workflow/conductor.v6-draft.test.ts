@@ -37,12 +37,10 @@ describe('conductor v6 draft (ADR-0037)', () => {
     expect(res.errors.filter((e) => /instruction|presets/.test(e.path.join('.')))).toEqual([]);
     // T4: the notify block and string notify values are available.
     expect(res.errors.filter((e) => e.path.at(-1) === 'notify')).toEqual([]);
+    // T6: both watches are available.
+    expect(res.errors.filter((e) => e.path.includes('watch'))).toEqual([]);
     expect(res.errors.map((e) => e.path.join('.')).sort()).toEqual(
-      [
-        'states.in_review.watch',
-        'states.needs_input.watch',
-        ...pr.map((t) => at('implementing', t, 'requires', 'concurrency')),
-      ].sort(),
+      pr.map((t) => at('implementing', t, 'requires', 'concurrency')).sort(),
     );
   });
 

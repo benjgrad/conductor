@@ -127,7 +127,8 @@ const SHA_RE = /^[0-9a-f]{40}$/;
  */
 export function evaluateConditionsArgs(
   s: SessionSnapshot,
-  step: GateStep,
+  /** The gate step (its `head_sha` pins the PR head); null for a watch, which never pins it. */
+  step: Pick<GateStep, 'head_sha'> | null,
   conditions: readonly Condition[],
   opts: { setup?: string | null; short_circuit?: boolean } = {},
 ): JsonObject {
@@ -135,7 +136,9 @@ export function evaluateConditionsArgs(
     conditions: daemonIndexes(conditions).map((i) => forDaemon(conditions[i]!)),
     pr_url: conductorPrUrl(s),
     branch: s.branch ?? sessionBranch(s.ticket, s.id),
-    ...(step.head_sha !== null && SHA_RE.test(step.head_sha) ? { head_sha: step.head_sha } : {}),
+    ...(step !== null && step.head_sha !== null && SHA_RE.test(step.head_sha)
+      ? { head_sha: step.head_sha }
+      : {}),
     // Only with a `cmd` that runs the setup: an older daemon never sees the key otherwise.
     ...(opts.setup !== undefined &&
     conditions.some((c) => conditionEnabled(c) && c.type === 'cmd' && c.needs !== 'checkout')

@@ -291,6 +291,8 @@ describe('notification baseline over a seeded history', () => {
     expect(r.coverage).toEqual({
       legacy_pushes_since_first_outbox_push: 8,
       of_them_in_outbox: 8,
+      permissions_since_first_outbox_push: 1,
+      permissions_in_outbox: 1,
     });
   });
 

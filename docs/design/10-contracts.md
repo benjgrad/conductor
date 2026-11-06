@@ -341,7 +341,7 @@ Semantics: [ADR-0011](../adr/0011-transition-rules.md) (accepted, with Ben's ans
 
 ## Workflow primitives (ADR-0037)
 
-**Status: in `packages/shared/src/workflow/schema.ts` (T1); each is refused as "not available yet" (rule 14) until its ticket lands:** watch T6, the new conditions and `no_checks` T5 (available), concurrency T7, instructions and presets T8 (available), the notify policy T4, handoff T3 (available, with the `handoff` input_request kind, migration `1763500000000_input-request-kind-handoff`). P7's `cause` is not in the definition: it is on every `state_entered` since T2 (`MoveCauseSchema`, `workflow/schema.ts`). The full semantics and the migration of each are in the ADR.
+**Status: in `packages/shared/src/workflow/schema.ts` (T1); each is refused as "not available yet" (rule 14) until its ticket lands:** watch T6, the new conditions and `no_checks` T5 (available), concurrency T7, instructions and presets T8 (available), the notify policy T4 (available), handoff T3 (available, with the `handoff` input_request kind, migration `1763500000000_input-request-kind-handoff`). P7's `cause` is not in the definition: it is on every `state_entered` since T2 (`MoveCauseSchema`, `workflow/schema.ts`). The full semantics and the migration of each are in the ADR.
 
 ```ts
 // P2 / P3: ConditionSchema gains
@@ -367,9 +367,10 @@ instructions?: Record<slug /^[a-z][a-z0-9_]*$/ ≤40, string(1..4000)>
 // InstructionText = a literal string or `$instructions.<slug>`; TransitionObject gains presets?: slug[1..10]
 
 // P6: WorkflowDefinitionSchema gains
-notify?: { default: 'never' | 'when_waiting_on_you' | 'always',
+notify?: { default: 'never' | 'once' | 'every',
            engine_moves: 'never' | 'inherit' = 'never', coalesce?: Duration (≤ 1d) }
-// TransitionObject.notify: boolean | 'never' | 'when_waiting_on_you' | 'always' | 'inherit'
+// TransitionObject.notify: boolean | 'never' | 'once' | 'every' | 'inherit' (true ≡ every, false ≡ never)
+// NotifyDecision = {via: transition name | cause, mode, decision: 'push' | 'silent'}
 
 // P7 (T2): state_entered (required) / StateEnteredPayload / MoveDto (nullable) gain
 cause: 'transition' | 'start' | 'check_failed' | 'review_unmet' | 'action_failed' | 'condition_unmet'
@@ -382,8 +383,8 @@ cause: 'transition' | 'start' | 'check_failed' | 'review_unmet' | 'action_failed
 // P8: TransitionObject gains handoff?: boolean (⊕ question, rule 22); InputRequestKind gains 'handoff'
 ```
 
-- **Notifier seam (P6).** With the definition's `notify` block, the engine records `notify: {via, mode}` on the `state_entered` effect and the input_request. `push/enqueue.ts` writes one row per decision, with idempotency key `notify:<ticket>:<state>:<floor(now / coalesce)>` when `coalesce` is set. Without the block, today's `push_needs_input` and `push_transition` rules apply unchanged.
-- **Engine laps (P6).** The snapshot gains `notify_lap?: {origin: State, cause: MoveCause, opened_at}`, written and cleared by `apply()` (`notifyDecision`). See ADR-0037 P6.
+- **Notifier seam (P6, T4).** With the definition's `notify` block, `apply()` records the decision as `notify_decision` on the `state_entered` effect (stored as the `state.entered` payload's `notify`) and on `create_input_request` (stored as `input_request.notify`, migration `1763600000000_notify-policy`). The wrapper writes one push per positive decision: `push_needs_input` when the landing opens a request, else `push_transition` (and its `transition.notified`); a silent decision writes none. With `coalesce` the idempotency key is `notify:<ticket>:<state>:<floor(now / coalesce)>` (`notifyBucketKey`). Without the block, today's `push_needs_input` and `push_transition` rules apply unchanged and nothing is recorded.
+- **`once` memory (P6, T4).** The snapshot gains `notified_transitions?: string[]` (`session.notified_transitions text[]`), the `once` transitions that already pushed; `apply()` appends to it, and a reopen copies it to the new session. See ADR-0037 P6.
 - **Short-circuit (P1).** `EvaluateConditionsArgs` gains `short_circuit?: boolean`. When it is set, the daemon stops at the first non-`met` result and reports the rest as `skipped`, a new `ConditionResult.status` and `ConditionStatus` value (and `BoardCheckingItem.status`).
 - **`cmd` setup (P2).** `EvaluateConditionsArgs` gains `setup?: string | null` (as `requires.setup`: a command, `''` none, null auto-detect), sent only when an enabled `cmd` has `needs: setup`. The daemon takes the worktree and branch from its own session record, never from the message.
 - **Mergeability (P3).** `ConditionResult` gains `mergeable?: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'`, set on a `pr_checks_green` result whose condition has `no_checks.policy: require_mergeable`. Fixtures: `M1B_WS_FIXTURES.run_action_evaluate_conditions_adr0037` / `action_result_evaluate_conditions_adr0037`.
@@ -821,7 +822,7 @@ UX-15 (server); UX-16 builds the service worker and the subscribe toggle on it. 
 
 No response ever carries an endpoint (NFR-2).
 
-**Enqueue** (FR-4, `orchestrator/src/push/enqueue.ts`): in the EngineService wrapper's transaction, right after it inserts an `input_request` (`create_input_request`), one outbox row per user of the ticket's account who has a subscription: `kind = 'push_needs_input'`, `target = 'user:<user_id>'`, `account_id` = the ticket's, `idempotency_key` = the input request id, no fencing token, `INSERT … ON CONFLICT (target, idempotency_key) DO NOTHING` (`outbox_push_idem_idx`). Payload `{ticket_id, input_request_id, notification, delivered: []}`; the notification is rendered here. `push_needs_input` is not an engine Effect (`NON_EFFECT_OUTBOX_KINDS`; `CommandKindSchema` is every other kind, the ones a daemon can ack or refuse) and has no WS message: `commandEnvelopeForOutboxRow` throws for it, and the machine dispatcher only picks `machine:` targets.
+**Enqueue** (FR-4, `orchestrator/src/push/enqueue.ts`): in the EngineService wrapper's transaction, right after it inserts an `input_request` (`create_input_request`; under an ADR-0037 P6 notify policy only when its `notify_decision` is `push`, keyed by the coalesce bucket when the policy has one), one outbox row per user of the ticket's account who has a subscription: `kind = 'push_needs_input'`, `target = 'user:<user_id>'`, `account_id` = the ticket's, `idempotency_key` = the input request id, no fencing token, `INSERT … ON CONFLICT (target, idempotency_key) DO NOTHING` (`outbox_push_idem_idx`). Payload `{ticket_id, input_request_id, notification, delivered: []}`; the notification is rendered here. `push_needs_input` is not an engine Effect (`NON_EFFECT_OUTBOX_KINDS`; `CommandKindSchema` is every other kind, the ones a daemon can ack or refuse) and has no WS message: `commandEnvelopeForOutboxRow` throws for it, and the machine dispatcher only picks `machine:` targets.
 
 **Transitions**: the wrapper's `state_entered` with `notify` ([05 §Notify](05-workflow-engine.md#notify)) enqueues `kind = 'push_transition'` rows the same way (`enqueueTransitionPush`, one per subscribed user of the account), `idempotency_key = 'transition:<state.entered event id>'`, payload `{ticket_id, event_id, notification, delivered: []}`. It can leave out one user (`excludeUserId`) but has none to leave out today: `human.transition` names no user (`actor: 'ui'`), so the person who took a move gets its push too. Their focused tab skips the in-tab one. `push_transition` is in `NON_EFFECT_OUTBOX_KINDS` and `PUSH_OUTBOX_KINDS`, and `commandEnvelopeForOutboxRow` throws for it.
 

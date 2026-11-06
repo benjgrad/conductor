@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import {
   CONDUCTOR_V2_DEF,
+  validateWorkflow,
   type SessionDetail,
   type WorkflowDefinition,
   type WorkflowDetail,
@@ -436,14 +437,15 @@ describe('transition arrows (ADR-0011)', () => {
     });
   });
 
-  it('"Notify me when this is taken" sets `notify: true`; unticking drops it', async () => {
+  it('legacy notify select: "Every time" saves `notify: true`; Inherit drops it', async () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Planning', 'Implementing'));
-    const box = () =>
-      panel().getByRole<HTMLInputElement>('checkbox', { name: 'Notify me when this is taken' });
-    expect(box().checked).toBe(false);
-    fireEvent.click(box());
-    expect(box().checked).toBe(true);
+    const select = () => panel().getByLabelText<HTMLSelectElement>('Notify');
+    expect(select().value).toBe('');
+    // Without a notify policy only the legacy boolean is offered (rule 23).
+    expect([...select().options].map((o) => o.value)).toEqual(['', 'every', 'never']);
+    type(select(), 'every');
+    expect(select().value).toBe('every');
     await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(onOf(saved[0]!, 'planning').plan_ready).toMatchObject({
@@ -452,18 +454,54 @@ describe('transition arrows (ADR-0011)', () => {
     });
   });
 
-  it('ticking and unticking "Notify me" leaves no `notify` key', async () => {
+  it('picking a notify value and Inherit again leaves no `notify` key', async () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Planning', 'Implementing'));
-    const box = () =>
-      panel().getByRole<HTMLInputElement>('checkbox', { name: 'Notify me when this is taken' });
-    fireEvent.click(box());
-    fireEvent.click(box());
-    expect(box().checked).toBe(false);
+    const select = () => panel().getByLabelText<HTMLSelectElement>('Notify');
+    type(select(), 'every');
+    type(select(), '');
     type(panel().getByLabelText('Title'), 'Ready to build');
     await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect('notify' in (onOf(saved[0]!, 'planning').plan_ready as object)).toBe(false);
+  });
+
+  it('with a notify policy: "Once per ticket" round-trips through validateWorkflow (ADR-0037 P6)', async () => {
+    const { saved } = await setup();
+    const policy = within(screen.getByRole('region', { name: 'Notifications' }));
+    fireEvent.click(policy.getByRole('button', { name: /Notifications/ }));
+    fireEvent.click(
+      policy.getByRole('checkbox', { name: 'Decide per transition which moves notify' }),
+    );
+    type(policy.getByLabelText('Transitions that inherit'), 'every');
+    type(policy.getByLabelText(/One notification per ticket and column/), '15m');
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    const select = () => panel().getByLabelText<HTMLSelectElement>('Notify');
+    expect([...select().options].map((o) => o.value)).toEqual(['', 'once', 'every', 'never']);
+    type(select(), 'once');
+    await save();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    const def = saved[0]!;
+    expect(def.notify).toEqual({ default: 'every', engine_moves: 'never', coalesce: '15m' });
+    expect(onOf(def, 'planning').plan_ready).toMatchObject({ notify: 'once' });
+    const res = validateWorkflow(def);
+    expect(res.ok ? [] : res.errors).toEqual([]);
+  });
+
+  it('turning the policy off folds string modes back into the legacy boolean', async () => {
+    const { saved } = await setup();
+    const policy = within(screen.getByRole('region', { name: 'Notifications' }));
+    fireEvent.click(policy.getByRole('button', { name: /Notifications/ }));
+    const toggle = () =>
+      policy.getByRole('checkbox', { name: 'Decide per transition which moves notify' });
+    fireEvent.click(toggle());
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    type(panel().getByLabelText('Notify'), 'every');
+    fireEvent.click(toggle());
+    await save();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]!.notify).toBeUndefined();
+    expect(onOf(saved[0]!, 'planning').plan_ready).toMatchObject({ notify: true });
   });
 
   it('ticking both kinds again drops `kinds`; none is a problem', async () => {

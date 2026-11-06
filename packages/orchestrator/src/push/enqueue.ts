@@ -15,6 +15,9 @@ import {
 // A transition with `notify: true` enqueues `push_transition` rows the same way, keyed by its
 // `state.entered` event id (`transition:<id>`). UXR-32: a pending permission request (the gateway,
 // ADR-0023) enqueues `push_needs_input` rows keyed `permission:<request id>`.
+// ADR-0037 P6: under a workflow `notify` policy the wrapper enqueues one row per positive decision
+// instead (a request's question, else the transition), keyed `notify:<ticket>:<state>:<bucket>`
+// when the policy has a `coalesce` window. Permission prompts are outside the policy.
 
 /**
  * The outbox payload of a push row (`push_needs_input`, `push_transition`). `delivered`:
@@ -78,6 +81,8 @@ export async function enqueueNeedsInputPush(
     inputRequestId: string;
     question: string;
     now: Date;
+    /** ADR-0037 P6 `coalesce`: the bucketed key (`notifyBucketKey`); default the request id. */
+    idempotencyKey?: string | undefined;
   },
 ): Promise<number> {
   return enqueuePush(tx, {
@@ -96,7 +101,7 @@ export async function enqueueNeedsInputPush(
       }),
       delivered: [],
     },
-    idempotencyKey: p.inputRequestId,
+    idempotencyKey: p.idempotencyKey ?? p.inputRequestId,
     now: p.now,
   });
 }
@@ -156,6 +161,8 @@ export async function enqueueTransitionPush(
     notification: PushNotification;
     now: Date;
     excludeUserId?: string | null;
+    /** ADR-0037 P6 `coalesce`: the bucketed key (`notifyBucketKey`); default `transition:<id>`. */
+    idempotencyKey?: string | undefined;
   },
 ): Promise<number> {
   return enqueuePush(tx, {
@@ -168,7 +175,7 @@ export async function enqueueTransitionPush(
       notification: p.notification,
       delivered: [],
     },
-    idempotencyKey: transitionTag(p.eventId),
+    idempotencyKey: p.idempotencyKey ?? transitionTag(p.eventId),
     now: p.now,
     excludeUserId: p.excludeUserId ?? null,
   });

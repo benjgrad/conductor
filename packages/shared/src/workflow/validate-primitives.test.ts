@@ -91,6 +91,11 @@ describe('schema bounds (P1–P8)', () => {
       ),
     ).toBe(false);
     expect(bad((d) => (d.notify.default = 'inherit'))).toBe(false);
+    // T4 replaced the old modes.
+    expect(bad((d) => (d.notify.default = 'when_waiting_on_you'))).toBe(false);
+    expect(bad((d) => (tr(d, 'implementing', 'pr_ready_for_review').notify = 'always'))).toBe(
+      false,
+    );
     // watch only on human and event states
     expect(bad((d) => (d.states.implementing!.watch = d.states.in_review!.watch))).toBe(false);
   });
@@ -277,12 +282,21 @@ describe('rule 22: hand-off', () => {
 });
 
 describe('rule 23: notify', () => {
-  it('modes other than always need the policy block', () => {
+  it('string modes need the policy block; the legacy boolean does not', () => {
     const d = v6();
     delete d.notify;
-    tr(d, 'implementing', 'pr_ready_for_review').notify = 'inherit';
-    expect(found(d)).toEqual([`23 ${PR}.notify`]);
-    tr(d, 'implementing', 'pr_ready_for_review').notify = 'always';
+    // Clear the draft's own string modes, so one transition is under test.
+    for (const state of Object.values(d.states)) {
+      for (const t of Object.values((state.on ?? {}) as Record<string, any>)) {
+        if (typeof t === 'object' && typeof t.notify === 'string') delete t.notify;
+      }
+    }
+    expect(found(d)).toEqual([]);
+    for (const mode of ['inherit', 'once', 'every', 'never']) {
+      tr(d, 'implementing', 'pr_ready_for_review').notify = mode;
+      expect(found(d)).toEqual([`23 ${PR}.notify`]);
+    }
+    tr(d, 'implementing', 'pr_ready_for_review').notify = true;
     expect(found(d)).toEqual([]);
   });
 
@@ -313,8 +327,13 @@ describe('rules 24 and 25: condition placement, no-CI policy', () => {
 });
 
 describe('rule 14: not available yet', () => {
-  it('T5, T3 and T8: the new condition types, no_checks, handoff and instructions are available; nothing else yet', () => {
-    expect(AVAILABLE_WORKFLOW_FEATURES).toEqual(['no_checks', 'instructions', 'handoff']);
+  it('T5, T3, T8 and T4: the new condition types, no_checks, handoff, instructions and the notify policy are available; nothing else yet', () => {
+    expect(AVAILABLE_WORKFLOW_FEATURES).toEqual([
+      'no_checks',
+      'instructions',
+      'notify_policy',
+      'handoff',
+    ]);
     expect(AVAILABLE_CONDITION_TYPES).toEqual(
       expect.arrayContaining(['cmd', 'pr_mergeable', 'age_below']),
     );
@@ -356,6 +375,24 @@ describe('rule 14: not available yet', () => {
       `14 ${PR}.requires.conditions.1`,
     ]);
     expect(validateWorkflow(d, { allowUnavailable: true }).ok).toBe(true);
+  });
+
+  it('a notify policy validates without allowUnavailable; refused while the feature is off', () => {
+    const d = structuredClone(LIVE_V5);
+    d.notify = { default: 'once', engine_moves: 'never', coalesce: '15m' };
+    tr(d, 'implementing', 'pr_ready_for_review').notify = 'once';
+    expect(validateWorkflow(d).ok).toBe(true);
+    const parsed = WorkflowDefinitionSchema.parse(d);
+    expect(
+      checkAvailability(parsed, {
+        tools: AVAILABLE_TOOL_ALIASES,
+        resultKinds: AVAILABLE_RESULT_KINDS,
+        conditions: CONDITION_TYPES,
+        features: [],
+      })
+        .map((e) => `${e.rule} ${e.path.join('.')}`)
+        .sort(),
+    ).toEqual(['14 notify', `14 ${PR}.notify`]);
   });
 
   it('a hand-off validates without allowUnavailable; refused while the feature is off', () => {

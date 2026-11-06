@@ -296,6 +296,41 @@ describe('diffVersions', () => {
     );
   });
 
+  it("the notify policy and a transition's notify mode (ADR-0037 P6)", () => {
+    const before = v2((d) => {
+      t(d, 'planning', 'plan_ready').notify = true;
+    });
+    const after = v2((d) => {
+      d.notify = { default: 'once', engine_moves: 'never' };
+      t(d, 'planning', 'plan_ready').notify = 'once';
+    });
+    expect(diffVersions(before, after).flatMap((c) => c.lines)).toEqual(
+      expect.arrayContaining([
+        'Notifies people: every time → once per ticket',
+        'Notifications: decided per transition',
+      ]),
+    );
+    const later = structuredClone(after);
+    later.notify = { default: 'every', engine_moves: 'inherit', coalesce: '15m' };
+    expect(diffVersions(after, later).flatMap((c) => c.lines)).toEqual([
+      'Transitions that inherit notify: once per ticket → every time',
+      "Conductor's own moves notify: never → inherit",
+      'Notification window: none → 15m',
+    ]);
+    // The legacy boolean and the mode it means: shown as written.
+    const same = v2((d) => {
+      d.notify = { default: 'once', engine_moves: 'never' };
+      t(d, 'planning', 'plan_ready').notify = 'every';
+    });
+    const sameBefore = v2((d) => {
+      d.notify = { default: 'once', engine_moves: 'never' };
+      t(d, 'planning', 'plan_ready').notify = true;
+    });
+    expect(diffVersions(sameBefore, same).flatMap((c) => c.lines)).toEqual([
+      'Notifies people: `true` → `every`',
+    ]);
+  });
+
   it('a version without columns (pre ADR-0010) uses state names', () => {
     const old = v1();
     delete old.columns;

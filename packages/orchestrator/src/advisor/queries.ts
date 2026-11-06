@@ -3,6 +3,7 @@ import {
   defKey,
   inputClass,
   MoveCauseSchema,
+  NotifyDecisionSchema,
   offeredPresets,
   pageLimitsOf,
   pagesOfContext,
@@ -18,6 +19,7 @@ import {
   type JsonObject,
   type MoveCause,
   type MoveRow,
+  type NotifyDecision,
   type PageCountRow,
   type PermissionRow,
   type PresetTextRow,
@@ -159,6 +161,12 @@ export async function loadCheckRuns(
   return { rows, since: since.toISOString(), truncated: checks.rows.length >= limit };
 }
 
+/** ADR-0037 P6: `{notify}` when the payload holds a NotifyDecision, else `{}`. */
+function notifyOf(raw: unknown): { notify?: NotifyDecision } {
+  const parsed = NotifyDecisionSchema.safeParse(raw);
+  return parsed.success ? { notify: parsed.data } : {};
+}
+
 /** A stored ADR-0037 cause; absent (a row before it) or unknown → null. */
 function causeOf(raw: string | null): MoveCause | null {
   const p = MoveCauseSchema.safeParse(raw);
@@ -180,13 +188,14 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     transition: string | null;
     actor: string | null;
     cause: string | null;
+    notify: unknown;
     visit: number;
     ts: Date;
   }>(
     'SELECT e.session_id, s.ticket_id, t.repo, s.workflow_id, s.workflow_version, s.machine_id, ' +
       `e.payload->>'from' AS "from", e.payload->>'to' AS "to", ` +
       "e.payload->>'transition' AS transition, e.payload->>'actor' AS actor, " +
-      "e.payload->>'cause' AS cause, " +
+      "e.payload->>'cause' AS cause, e.payload->'notify' AS notify, " +
       "COALESCE((e.payload->>'visit')::int, 1) AS visit, e.ts " +
       `${SCOPE.replace('FROM session s', 'FROM event e JOIN session s ON s.id = e.session_id')} ` +
       "AND e.type = 'state.entered' AND e.ts >= $2 AND e.payload ? 'to' " +
@@ -285,6 +294,8 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     transition: r.transition,
     actor: r.actor,
     cause: causeOf(r.cause),
+    // ADR-0037 P6: the notify decision, when the move carried a valid one.
+    ...notifyOf(r.notify),
     visit: r.visit,
     at: r.ts.toISOString(),
   }));

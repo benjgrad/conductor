@@ -29,6 +29,14 @@ import { columnStates, columnTitle, humanStates, type ColumnIssue } from './colu
 import { EditorHead, type Crumb } from './EditorHead.js';
 import { InstructionField } from './InstructionField.js';
 import { instructionsOf, setPresets } from './instructions.js';
+import {
+  LEGACY_NOTIFY_CHOICES,
+  NOTIFY_CHOICES,
+  NOTIFY_MODE_TEXT,
+  notifyChoice,
+  notifyValue,
+  type NotifyChoice,
+} from './notify-policy.js';
 import { RepoOverridesHint } from './RepoOverridesHint.js';
 import {
   ACTION_SHORT,
@@ -257,6 +265,8 @@ function TransitionForm({
   const nameInvalid = nameText !== name && nameProblem !== null;
   const advancedShown = advancedOpen || nameInvalid;
   const inferred = transitionActor(definition, from, name, { ...t, actor: undefined });
+  // ADR-0037 P6: string notify modes only under the workflow's notify policy (rule 23).
+  const policy = definition.notify !== undefined;
   const kinds = t.kinds ?? TICKET_KINDS;
   const toggleKind = (k: TicketKind, on: boolean) => {
     const next = TICKET_KINDS.filter((x) => (x === k ? on : kinds.includes(x)));
@@ -426,14 +436,22 @@ function TransitionForm({
         </fieldset>
         {at('.question')}
         {at('.handoff')}
-        <label className="wf-toggle">
-          <input
-            type="checkbox"
-            checked={t.notify === true}
-            onChange={(e) => patch({ notify: e.target.checked ? true : undefined })}
-          />
-          Notify me when this is taken
-        </label>
+        <div className="wf-unmet">
+          <label htmlFor={`${uid}-notify`}>Notify</label>
+          <select
+            id={`${uid}-notify`}
+            value={notifyChoice(t.notify)}
+            onChange={(e) => patch({ notify: notifyValue(e.target.value as NotifyChoice, policy) })}
+          >
+            {(policy ? NOTIFY_CHOICES : LEGACY_NOTIFY_CHOICES).map(({ value, text }) => (
+              <option key={value} value={value}>
+                {value === '' && definition.notify !== undefined
+                  ? `${text} (${NOTIFY_MODE_TEXT[definition.notify.default].toLowerCase()})`
+                  : text}
+              </option>
+            ))}
+          </select>
+        </div>
         {at('.notify')}
         {/* ADR-0037 P5: shown while set, so a refused one (rule 21) can be unticked. */}
         {(t.presets !== undefined ||

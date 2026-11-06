@@ -50,6 +50,7 @@ import { SaveReviewDialog } from './SaveReviewDialog.js';
 import { affectedOf, diffVersions, type ReadableChange } from './version-diff.js';
 import { VersionDiff } from './VersionDiff.js';
 import { InstructionsEditor } from './InstructionsEditor.js';
+import { NotifyPolicyEditor } from './NotifyPolicyEditor.js';
 import { TransitionEditor } from './TransitionEditor.js';
 import { ArrowEditor } from './ArrowEditor.js';
 import { addTransition, arrowTransitions, getTransitionObject, parentOf } from './transitions.js';
@@ -679,6 +680,9 @@ export function WorkflowsView({
         )}
         {shown && asColumns && (
           <InstructionsEditor definition={shown} issues={allIssues} onChange={edit} />
+        )}
+        {shown && asColumns && (
+          <NotifyPolicyEditor definition={shown} issues={allIssues} onChange={edit} />
         )}
         {shown && asColumns && (
           <ColumnsDiagram

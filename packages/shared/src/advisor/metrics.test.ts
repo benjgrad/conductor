@@ -12,6 +12,7 @@ import {
   permissionStats,
   presetUses,
   processMetrics,
+  pushCounts,
   ProcessMetricsSchema,
   rankFindings,
   stateDurations,
@@ -670,5 +671,42 @@ describe('classOf (ADR-0037 P8)', () => {
     expect(classOf({ kind: 'agent_question' })).toBe('question');
     expect(classOf({ kind: 'timeout' })).toBe('stop');
     expect(classOf({ kind: 'handoff', class: 'question' })).toBe('question');
+  });
+});
+
+describe('pushCounts (ADR-0037 P6)', () => {
+  const push = (via: string, mode: 'once' | 'every' | 'never' = 'once') =>
+    ({ notify: { via, mode, decision: 'push' } }) as const;
+  const silent = (via: string, mode: 'once' | 'every' | 'never' = 'once') =>
+    ({ notify: { via, mode, decision: 'silent' } }) as const;
+
+  it('nothing in legacy mode (no move carries a decision)', () => {
+    expect(
+      pushCounts(
+        walk('t1', [
+          ['planning', 0],
+          ['implementing', 5, 'plan_ready'],
+        ]),
+      ),
+    ).toEqual({});
+  });
+
+  it('counts pushes and silent decisions per ticket and per via', () => {
+    const moves: MoveRow[] = [
+      { ...walk('t1', [['in_review', 0, 'pr_ready']])[0]!, ...push('pr_ready') },
+      { ...walk('t1', [['in_review', 9, 'pr_ready']])[0]!, ...silent('pr_ready') },
+      { ...walk('t1', [['needs_input', 10, 'ask_user']])[0]!, ...push('ask_user', 'every') },
+      { ...walk('t2', [['in_review', 3, 'pr_ready']])[0]!, ...silent('pr_ready') },
+      ...walk('t3', [['planning', 0]]),
+    ];
+    const r = pushCounts(moves).pushes!;
+    expect(r).toMatchObject({ total: 2, silent: 2, per_ticket: { max: 2 } });
+    expect(r.by_via).toEqual([
+      { via: 'pr_ready', mode: 'once', decision: 'silent', count: 2 },
+      { via: 'ask_user', mode: 'every', decision: 'push', count: 1 },
+      { via: 'pr_ready', mode: 'once', decision: 'push', count: 1 },
+    ]);
+    const all = processMetrics({ moves, checks: [], inputs: [], permissions: [] }, 'state');
+    expect(ProcessMetricsSchema.parse(all).pushes).toEqual(r);
   });
 });

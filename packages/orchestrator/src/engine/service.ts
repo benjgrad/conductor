@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   apply as sharedApply,
   commandPayloadForEffect,
+  notifyBucketKey,
+  parseDuration,
   sessionBranch,
   stateTitle,
   toBoardCard,
@@ -253,6 +255,16 @@ export class EngineServiceImpl implements EngineService {
     const notices: BoardSseEventDraft[] = [];
     let wrotePush = false;
     const commands: { effect: MachineCommandEffect; commandId: string }[] = [];
+    // ADR-0037 P6: under a workflow `notify` policy, one push per positive decision. A landing
+    // that opens an input request pushes the question; otherwise the transition pushes.
+    const opensRequest = res.effects.some(
+      (e) => e.type === 'create_input_request' && e.notify_decision !== undefined,
+    );
+    const coalesce = def.notify?.coalesce;
+    const pushKey = (state: string): string | undefined =>
+      coalesce === undefined
+        ? undefined
+        : notifyBucketKey(ticket.id, state, now, parseDuration(coalesce) / 1000);
     for (const effect of res.effects) {
       switch (effect.type) {
         case 'start_session': {
@@ -286,8 +298,8 @@ export class EngineServiceImpl implements EngineService {
           break;
         case 'create_input_request': {
           const r = await tx.query<InputRequestRow>(
-            'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at, options) ' +
-              'VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+            'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at, options, notify) ' +
+              'VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
             [
               randomUUID(),
               sessionId,
@@ -297,11 +309,16 @@ export class EngineServiceImpl implements EngineService {
               now,
               // Questions UX: an agent question's clickable options (jsonb), else NULL.
               effect.options === undefined ? null : JSON.stringify(effect.options),
+              // ADR-0037 P6: the decision of the move that opened it (null in legacy mode).
+              effect.notify_decision === undefined ? null : JSON.stringify(effect.notify_decision),
             ],
           );
           const row = r.rows[0]!;
-          // UX-15: "needs input" pushes to the account's subscribed users, in this transaction.
-          if (this.deps.pushEnabled) {
+          // UX-15: "needs input" pushes to the account's subscribed users, in this transaction:
+          // every request in legacy mode, under a P6 policy only when it decided to push.
+          const pushes =
+            effect.notify_decision === undefined || effect.notify_decision.decision === 'push';
+          if (this.deps.pushEnabled && pushes) {
             const n = await enqueueNeedsInputPush(tx, {
               accountId: ticket.account_id,
               sessionId,
@@ -312,6 +329,9 @@ export class EngineServiceImpl implements EngineService {
               inputRequestId: row.id,
               question: row.question,
               now,
+              ...(effect.notify_decision !== undefined
+                ? { idempotencyKey: pushKey(s1.workflow_state ?? 'needs_input') }
+                : {}),
             });
             if (n > 0) wrotePush = true;
           }
@@ -345,11 +365,19 @@ export class EngineServiceImpl implements EngineService {
                 ...(effect.reason !== undefined ? { reason: effect.reason } : {}),
                 ...(effect.actor !== undefined ? { actor: effect.actor } : {}),
                 cause: effect.cause,
+                // ADR-0037 P6: the notify policy's decision (absent in legacy mode).
+                ...(effect.notify_decision !== undefined ? { notify: effect.notify_decision } : {}),
               }),
             ],
           );
-          // A transition with `notify: true` (05 §Transitions): in-tab and Web Push.
-          if (effect.notify !== undefined && effect.from !== null) {
+          // A transition with `notify: true` (05 §Transitions; legacy mode), or a positive P6
+          // decision on a landing that opens no request: in-tab and Web Push.
+          const notifyName =
+            effect.notify ??
+            (effect.notify_decision?.decision === 'push' && !opensRequest
+              ? effect.notify_decision.via
+              : undefined);
+          if (notifyName !== undefined && effect.from !== null) {
             const enteredId = Number(entered.rows[0]!.id);
             // A gate step's label isn't a state: name the column the transition left.
             const fromName =
@@ -360,9 +388,9 @@ export class EngineServiceImpl implements EngineService {
               ticketId: ticket.id,
               ticketTitle: ticket.title,
               transitionTitle: transitionTitle(
-                effect.notify,
+                notifyName,
                 def.states[fromName] !== undefined && def.states[fromName].type !== 'terminal'
-                  ? def.states[fromName].on?.[effect.notify]
+                  ? def.states[fromName].on?.[notifyName]
                   : undefined,
               ),
               fromTitle: stateTitle(def, fromName),
@@ -379,6 +407,9 @@ export class EngineServiceImpl implements EngineService {
                 eventId: enteredId,
                 notification,
                 now,
+                ...(effect.notify_decision !== undefined
+                  ? { idempotencyKey: pushKey(effect.to) }
+                  : {}),
               });
               if (n > 0) wrotePush = true;
             }
@@ -388,7 +419,7 @@ export class EngineServiceImpl implements EngineService {
               ticket_id: ticket.id,
               from: fromName,
               to: effect.to,
-              transition: effect.notify,
+              transition: notifyName,
               title: notification.title,
               body: notification.body,
               tag: notification.tag,

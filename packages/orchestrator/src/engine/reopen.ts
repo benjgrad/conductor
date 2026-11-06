@@ -72,15 +72,16 @@ export async function reopenSession(
     const pending: PendingAnswer = { input_request_id: null, answer: text };
     // Carried: the branch (same worktree contents on the same machine), the context (earlier
     // state results), the Claude session id (resume the same conversation) and the per-Claude-
-    // session spend totals (Claude's cost is cumulative across --resume, so only new spend counts).
+    // session spend totals (Claude's cost is cumulative across --resume, so only new spend counts)
+    // and the ADR-0037 P6 `once` transitions that already pushed.
     // Fresh: status, state, retry counters, visits, spend, wall time, deadline.
     await tx.query(
       `INSERT INTO session (id, ticket_id, workflow_id, workflow_version, status, workflow_state,
                             machine_id, agent_command_id, agent_process_live, lease_expires_at,
                             branch, claude_session_id, pending_answer, context,
-                            claude_spend_totals)
+                            claude_spend_totals, notified_transitions)
        VALUES ($1, $2, $3, $4, 'queued', NULL, NULL, NULL, false, now() + ${LEASE_INTERVAL},
-               $5, $6, $7, $8, $9)`,
+               $5, $6, $7, $8, $9, $10)`,
       [
         sessionId,
         ticket.id,
@@ -93,6 +94,8 @@ export async function reopenSession(
         // session starts at def.start and resumes the worker's Claude session, never a reviewer's.
         JSON.stringify(splitStep(old.context).context),
         JSON.stringify(old.claude_spend_totals),
+        // ADR-0037 P6: `once` is per ticket, so a reopen keeps what already pushed.
+        old.notified_transitions ?? [],
       ],
     );
     await tx.query(

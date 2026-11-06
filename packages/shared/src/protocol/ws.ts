@@ -73,12 +73,18 @@ export const DAEMON_FEATURE_AGENT_ATTACHMENTS = 'agent_attachments';
  * `pages` and a note in the prompt instead.
  */
 export const DAEMON_FEATURE_PAGES = 'pages';
+/**
+ * ADR-0039: the daemon honours `start_session.permission_mode` (a working agent runs with
+ * `--permission-mode bypassPermissions`). A machine without it never gets the field.
+ */
+export const DAEMON_FEATURE_PERMISSION_MODE = 'permission_mode';
 /** The `register.features` names conductor knows. */
 export const DAEMON_FEATURES = [
   DAEMON_FEATURE_ASSISTANT_JOB,
   DAEMON_FEATURE_TICKET_ATTACHMENTS,
   DAEMON_FEATURE_AGENT_ATTACHMENTS,
   DAEMON_FEATURE_PAGES,
+  DAEMON_FEATURE_PERMISSION_MODE,
 ] as const;
 
 /** M1-T11: a newer connection for the same machine id replaced this one. */
@@ -848,6 +854,13 @@ export const StartSessionPayloadSchema = z.object({
    * DAEMON_FEATURE_TICKET_ATTACHMENTS. Absent = none (or an older orchestrator).
    */
   attachments: z.array(AttachmentRefSchema).max(START_SESSION_ATTACHMENTS_MAX).optional(),
+  /**
+   * ADR-0039: "skip permissions" is on for this ticket (or by the machine's default), so the
+   * working agent runs with `--permission-mode bypassPermissions` instead of auto (ADR-0023).
+   * Working agents only (never with `review`), and only to a daemon with
+   * DAEMON_FEATURE_PERMISSION_MODE. Absent = auto. A literal, so nothing else can be pushed.
+   */
+  permission_mode: z.literal('bypassPermissions').optional(),
 });
 export const StartSessionMessageSchema = msg(
   'start_session',

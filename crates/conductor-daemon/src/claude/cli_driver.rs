@@ -37,6 +37,7 @@ use crate::attachments::upload::{self, AttachTarget};
 use crate::claude::driver::{
     ClaudeDriver, DriverError, DriverEvent, DriverListener, DriverSession, DriverStartOptions,
     ListenerId, Listeners, OutputStream, PermissionDecision, PermissionResolution,
+    SKIP_PERMISSION_MODE,
 };
 use crate::claude::edit_guard::write_edit_guard;
 use crate::claude::outcome_server::{
@@ -520,8 +521,12 @@ pub fn build_claude_args(
     // ADR-0009: a reviewer is forced into dontAsk and never prompts. ADR-0023: a worker runs in
     // auto mode and its prompts go to conductor; on an old CLI it keeps the user's mode, capped.
     let host = *permission == PermissionArgs::Host && !opts.review;
+    // ADR-0039: a worker with skip permissions runs in bypassPermissions (deny rules and the
+    // edit-guard hook still apply); a reviewer never does.
     let mode: Option<&str> = if opts.review {
         Some(REVIEWER_PERMISSION_MODE)
+    } else if opts.skip_permissions {
+        Some(SKIP_PERMISSION_MODE)
     } else {
         match permission {
             PermissionArgs::Host => Some(WORKER_PERMISSION_MODE),
@@ -587,6 +592,10 @@ pub fn user_message_line(text: &str) -> String {
          \"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":{text}}}]}}}}\n"
     )
 }
+
+/// ADR-0039: the mode note of a working agent with skip permissions on.
+pub const SKIP_PERMISSIONS_NOTE: &str = "running in bypassPermissions mode (skip permissions); deny \
+     rules and the edit guard still apply";
 
 /// The `conductor: …` debug lines a session starts with (without the prefix).
 pub fn start_notes(
@@ -1201,13 +1210,17 @@ impl CliDriver {
         };
         let mcp = agent_mcp(opts.mcp.as_ref(), opts.review);
         let (env, dropped) = agent_env(&opts.env, self.extra_state_env.as_ref(), mcp.strict);
-        let notes = start_notes(
+        let mut notes = start_notes(
             opts.review,
             self.permission_prompts,
             legacy_mode,
             &mcp,
             &dropped,
         );
+        // ADR-0039: the first note is the permission mode's.
+        if opts.skip_permissions && !opts.review {
+            notes[0] = SKIP_PERMISSIONS_NOTE.into();
+        }
         let mut args = self.prefix_args.clone();
         args.extend(build_claude_args(
             &opts,

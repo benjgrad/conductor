@@ -1,5 +1,6 @@
 import type {
   AdminUserRow,
+  SetSkipPermissionsRequest,
   AttachmentDto,
   ApproveProposalRequest,
   ApproveProposalResponse,
@@ -144,6 +145,11 @@ export interface ApiClient {
    * 409 conflict when the ticket changed since `expected_updated_at`.
    */
   updateTicket(ticketId: string, req: UpdateTicketRequest): Promise<TicketDetail>;
+  /**
+   * PUT /api/tickets/:id/skip-permissions (ADR-0039): on / off / null = the machine's default, in
+   * any column. Turning it on also allows the session's pending permission prompts. 404.
+   */
+  setSkipPermissions(ticketId: string, req: SetSkipPermissionsRequest): Promise<TicketDetail>;
   /**
    * PUT /api/queue/order (06 §Queue order): these queued tickets first, in this order; the rest
    * keep their order after them. 404 when none of them is queued any more.

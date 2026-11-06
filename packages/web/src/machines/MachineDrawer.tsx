@@ -8,6 +8,7 @@ import { useState, type FormEvent } from 'react';
 import { errorMessage } from '../api/client.js';
 import { ago } from '../components/format.js';
 import { Sheet } from '../components/Sheet.js';
+import { SkipPermissionsConfirm } from '../components/SkipPermissions.js';
 import { useToast } from '../components/Toast.js';
 import { cannotTakeReasons, machineProblems, shortRepo } from './format.js';
 import { RenameForm } from './RenameForm.js';
@@ -154,6 +155,9 @@ export function MachineDrawer({
       </section>
 
       <RepoRules key={machine.id} machine={machine} onSave={onSaveRules} />
+      {machine.revoked_at === null && (
+        <SkipPermissionsDefault key={`skip-${machine.id}`} machine={machine} onSave={onSaveRules} />
+      )}
 
       <section aria-label="Capabilities">
         <h3>Capabilities</h3>
@@ -284,6 +288,77 @@ function RepoRules({
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+/**
+ * ADR-0039: the machine's default for "skip permissions" (a ticket's own setting wins). Turning it
+ * on asks first; it applies to each session's next process start.
+ */
+function SkipPermissionsDefault({
+  machine,
+  onSave,
+}: {
+  machine: MachineDetail;
+  onSave: (req: UpdateMachineRequest) => Promise<unknown>;
+}) {
+  const [on, setOn] = useState(machine.skip_permissions_default);
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+
+  async function save(value: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({ skip_permissions_default: value });
+      setOn(value);
+      toast(value ? 'Agents here skip permissions by default' : 'Agents here ask for permissions');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section aria-label="Agent permissions">
+      <h3>Agent permissions</h3>
+      <label>
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={saving}
+          onChange={(e) => {
+            if (e.target.checked) setConfirming(true);
+            else void save(false);
+          }}
+        />{' '}
+        Skip permissions by default{' '}
+        <span className="muted">(a ticket's own setting wins; reviewers and QA never skip)</span>
+      </label>
+      {!machine.skip_permissions_supported && (
+        <p className="machine-warning">
+          ⚠ This machine's daemon is too old to skip permissions: update it for this to apply.
+        </p>
+      )}
+      {error !== null && (
+        <p className="machine-warning" role="alert">
+          {error}
+        </p>
+      )}
+      {confirming && (
+        <SkipPermissionsConfirm
+          scope="machine"
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            void save(true);
+          }}
+        />
+      )}
     </section>
   );
 }

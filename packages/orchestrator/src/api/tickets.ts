@@ -98,7 +98,20 @@ async function toDetail(
     proposals: await loadProposals(q, ticket.id, session),
     ...(await pagesField(q, session)),
     attachments: (await loadTicketAttachments(q, ticket.id)).map(toAttachmentDto),
+    // ADR-0039: the ticket's own setting, and the default of the machine its session runs on.
+    skip_permissions: ticket.skip_permissions ?? null,
+    machine_skip_permissions_default: await machineSkipDefault(q, session),
   };
+}
+
+/** ADR-0039: the session's machine's `skip_permissions_default`; null = no machine yet. */
+async function machineSkipDefault(q: Queryable, session: SessionRow | null) {
+  if (session?.machine_id == null) return null;
+  const r = await q.query<{ d: boolean }>(
+    'SELECT skip_permissions_default AS d FROM machine WHERE id = $1',
+    [session.machine_id],
+  );
+  return r.rows[0]?.d ?? null;
 }
 
 /** ADR-0038: `{pages}` when the session's agent states attached any, else nothing. */

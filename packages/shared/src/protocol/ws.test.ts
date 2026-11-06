@@ -80,6 +80,16 @@ describe('ADR-0011 WS shapes (M1b-T01)', () => {
     );
   });
 
+  it('ADR-0039: start_session.permission_mode is optional and only bypassPermissions', () => {
+    const base = ORCHESTRATOR_FIXTURES.start_session;
+    const skip = { ...base, payload: { ...base.payload, permission_mode: 'bypassPermissions' } };
+    expect(parseOrchestratorMessage(wire(skip))).toEqual(skip);
+    for (const mode of ['auto', 'default', 'dontAsk', '']) {
+      const bad = { ...base, payload: { ...base.payload, permission_mode: mode } };
+      expect(OrchestratorToDaemonSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
   it('run_action evaluate_conditions round-trips and its args parse', () => {
     const fx = M1B_WS_FIXTURES.run_action_evaluate_conditions;
     expect(parseOrchestratorMessage(wire(fx))).toEqual(fx);

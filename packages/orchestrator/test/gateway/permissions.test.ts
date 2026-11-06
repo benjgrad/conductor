@@ -15,6 +15,7 @@ import {
   PermissionRequestDtoSchema,
   PermissionRequestListResponseSchema,
   SessionDetailSchema,
+  TicketDetailSchema,
   type BoardCard,
   type BoardSseEvent,
   type JsonObject,
@@ -30,7 +31,11 @@ import type { OutboxRow, PermissionRequestRow, SessionRow, TicketRow } from '../
 import { createEngineService } from '../../src/engine/index.js';
 import { DECISION_REFUSED_LINE, createGateway } from '../../src/gateway/index.js';
 import type { ApiHandle, GatewayHandle } from '../../src/main.js';
-import { NOT_RUNNING_MESSAGE, sweepPermissionTimeouts } from '../../src/permissions/store.js';
+import {
+  NOT_RUNNING_MESSAGE,
+  SKIP_PERMISSIONS_MESSAGE,
+  sweepPermissionTimeouts,
+} from '../../src/permissions/store.js';
 import { useTestDatabase } from '../db.js';
 import { FakeDaemon } from './fake-daemon.js';
 import { RecordingEngine } from './recording-engine.js';
@@ -575,6 +580,121 @@ describe('POST /api/permission-requests/:id/decision', () => {
     const res = await decide(requestId, { behavior: 'allow', scope: 'once' });
     expect(res.status).toBe(200);
     expect((await requestRow(requestId)).status).toBe('allowed');
+  });
+});
+
+describe('skip permissions (ADR-0039)', () => {
+  async function put(ticketId: string, body: unknown) {
+    const res = await fetch(base + API_PATHS.ticketSkipPermissions(ticketId), {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it('on for the ticket: a prompt is allowed at once, never reaching the board', async () => {
+    const d = await registered();
+    const { sid, token, ticketId } = await live(d);
+    await db.pool.query('UPDATE ticket SET skip_permissions = true WHERE id = $1', [ticketId]);
+    const { requestId } = permissionRequest(d, 2, sid, token);
+    const frame = await d.next('permission_decision');
+    expect(frame.payload).toMatchObject({
+      request_id: requestId,
+      behavior: 'allow',
+      scope: 'once',
+      message: SKIP_PERMISSIONS_MESSAGE,
+    });
+    expect(await requestRow(requestId)).toMatchObject({
+      status: 'allowed',
+      behavior: 'allow',
+      scope: 'once',
+      decided_by: null,
+      decision_command_id: frame.payload.command_id,
+    });
+    expect(board).toEqual([]);
+  });
+
+  it("the machine's default applies when the ticket says nothing; the ticket's off wins", async () => {
+    const d = await registered();
+    await db.pool.query('UPDATE machine SET skip_permissions_default = true WHERE id = $1', [
+      machineId,
+    ]);
+    const { sid, token, ticketId } = await live(d);
+    const first = permissionRequest(d, 2, sid, token);
+    expect((await d.next('permission_decision')).payload).toMatchObject({
+      request_id: first.requestId,
+      behavior: 'allow',
+    });
+    await db.pool.query('UPDATE ticket SET skip_permissions = false WHERE id = $1', [ticketId]);
+    const second = permissionRequest(d, 3, sid, token);
+    await d.settle();
+    expect((await requestRow(second.requestId)).status).toBe('pending');
+    expect((await boardCard(sid)).sub_status).toBe('needs_permission');
+  });
+
+  it('PUT on: stores it, allows the pending prompts once, clears the card; off and null do not', async () => {
+    const d = await registered();
+    const { sid, token, ticketId } = await live(d);
+    const { requestId } = permissionRequest(d, 2, sid, token);
+    await d.settle();
+    expect((await boardCard(sid)).sub_status).toBe('needs_permission');
+
+    const off = await put(ticketId, { skip_permissions: false });
+    expect(off.status).toBe(200);
+    expect(TicketDetailSchema.parse(off.body)).toMatchObject({
+      skip_permissions: false,
+      machine_skip_permissions_default: false,
+    });
+    // (Not noFrame: its timed-out waiter would swallow the next frame.)
+    await d.settle();
+    expect((await requestRow(requestId)).status).toBe('pending');
+
+    const on = await put(ticketId, { skip_permissions: true });
+    expect(on.status).toBe(200);
+    expect(TicketDetailSchema.parse(on.body).skip_permissions).toBe(true);
+    const frame = await d.next('permission_decision');
+    expect(frame.fencing_token).toBe(token);
+    expect(frame.payload).toMatchObject({
+      request_id: requestId,
+      behavior: 'allow',
+      scope: 'once',
+      message: SKIP_PERMISSIONS_MESSAGE,
+    });
+    expect(await requestRow(requestId)).toMatchObject({
+      status: 'allowed',
+      decided_by: LOCAL_USER_ID,
+      decision_command_id: frame.payload.command_id,
+    });
+    expect(lastCard(sid)?.sub_status).toBeUndefined();
+    expect((await boardCard(sid)).sub_status).toBeUndefined();
+
+    const back = await put(ticketId, { skip_permissions: null });
+    expect(TicketDetailSchema.parse(back.body).skip_permissions).toBeNull();
+    expect(
+      (await one<TicketRow>('SELECT * FROM ticket WHERE id = $1', [ticketId])).skip_permissions,
+    ).toBeNull();
+  });
+
+  it('PUT: 404 for an unknown ticket or a non-uuid; 400 for a bad body', async () => {
+    expect((await put(randomUUID(), { skip_permissions: true })).status).toBe(404);
+    expect((await put('nope', { skip_permissions: true })).status).toBe(404);
+    const d = await registered();
+    const { ticketId } = await live(d);
+    expect((await put(ticketId, { skip_permissions: 'yes' })).status).toBe(400);
+    expect((await put(ticketId, {})).status).toBe(400);
+  });
+
+  it('the start_session of a ticket with skip permissions on carries permission_mode', async () => {
+    const d = await registered();
+    await db.pool.query(
+      "UPDATE machine SET features = '{permission_mode}', skip_permissions_default = true " +
+        'WHERE id = $1',
+      [machineId],
+    );
+    const { startId } = await live(d);
+    const row = await one<OutboxRow>('SELECT * FROM outbox WHERE command_id = $1', [startId]);
+    expect(row.payload.permission_mode).toBe('bypassPermissions');
   });
 });
 

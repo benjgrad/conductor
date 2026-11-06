@@ -65,7 +65,8 @@ async fn register_advertises_the_assistant_job_feature() {
             "assistant_job",
             "ticket_attachments",
             "agent_attachments",
-            "pages"
+            "pages",
+            "permission_mode"
         ])
     );
     c.done().await;

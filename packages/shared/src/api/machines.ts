@@ -89,6 +89,16 @@ export const MachineRowSchema = MachineDtoSchema.extend({
    * inventory yet); absent from older servers ≡ null.
    */
   git_identity_missing: z.boolean().nullable().default(null),
+  /**
+   * ADR-0039: the machine's default for "skip permissions" (a ticket's own setting wins). Absent
+   * from older servers ≡ false.
+   */
+  skip_permissions_default: z.boolean().default(false),
+  /**
+   * ADR-0039: the machine's daemon advertises DAEMON_FEATURE_PERMISSION_MODE, so skip permissions
+   * takes effect there. Absent from older servers ≡ false.
+   */
+  skip_permissions_supported: z.boolean().default(false),
 });
 export type MachineRow = z.infer<typeof MachineRowSchema>;
 export const MachineListResponseSchema = z.array(MachineRowSchema);
@@ -170,8 +180,8 @@ export const MachineDetailSchema = MachineRowSchema.extend({
 export type MachineDetail = z.infer<typeof MachineDetailSchema>;
 
 /**
- * PATCH /api/machines/:id → 200 MachineRow. Every field optional, at least one: `name`, and the repo
- * rules (`RepoPatternSchema` each, at most REPO_RULE_MAX; `repo_allow: null` = any repo). 400 for
+ * PATCH /api/machines/:id → 200 MachineRow. Every field optional, at least one: `name`,
+ * `skip_permissions_default` (ADR-0039), and the repo rules (`RepoPatternSchema` each, at most REPO_RULE_MAX; `repo_allow: null` = any repo). 400 for
  * a bad pattern; 409 `conflict` when a `repo_exclusive` pattern equals (case-insensitively) one on
  * another unrevoked machine of the account.
  */
@@ -180,10 +190,16 @@ export const UpdateMachineRequestSchema = z
     name: z.string().trim().min(1).max(64).optional(),
     repo_allow: RepoRuleListSchema.nullable().optional(),
     repo_exclusive: RepoRuleListSchema.optional(),
+    /** ADR-0039: the machine's default for "skip permissions". */
+    skip_permissions_default: z.boolean().optional(),
   })
   .refine(
-    (r) => r.name !== undefined || r.repo_allow !== undefined || r.repo_exclusive !== undefined,
-    'expected name, repo_allow or repo_exclusive',
+    (r) =>
+      r.name !== undefined ||
+      r.repo_allow !== undefined ||
+      r.repo_exclusive !== undefined ||
+      r.skip_permissions_default !== undefined,
+    'expected name, repo_allow, repo_exclusive or skip_permissions_default',
   );
 export type UpdateMachineRequest = z.input<typeof UpdateMachineRequestSchema>;
 

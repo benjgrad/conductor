@@ -275,14 +275,18 @@ describe('open state (FR-6)', () => {
 describe('accessibility (NFR-3)', () => {
   it('one h3 per section, disclosure buttons with aria-expanded', async () => {
     await open(SEED_IDS.running.session);
+    // ADR-0039: loaded from GET /api/tickets/:id after the session detail.
+    await screen.findByRole('heading', { level: 3, name: 'Agent permissions' });
     const h3 = screen.getAllByRole('heading', { level: 3 });
-    expect(h3.map((h) => h.querySelector('.star-title')?.textContent)).toEqual([
+    expect(h3.map((h) => h.querySelector('.star-title')?.textContent ?? h.textContent)).toEqual([
       'Situation',
       'Task',
       'Action',
       'Steps',
       'Result',
       'Technical details',
+      // ADR-0039: the ticket's skip-permissions setting, while the session isn't finished.
+      'Agent permissions',
     ]);
     for (const name of ['Situation', 'Task', 'Action', 'Steps', 'Technical details']) {
       const b = toggle(name);

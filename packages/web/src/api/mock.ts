@@ -18,6 +18,8 @@ import {
   CreateInviteRequestSchema,
   CreateTicketRequestSchema,
   UpdateTicketRequestSchema,
+  SetSkipPermissionsRequestSchema,
+  effectiveSkipPermissions,
   ReorderQueueRequestSchema,
   compareQueued,
   isReorderable,
@@ -227,6 +229,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const answered = new Set<string>();
   /** ADR-0023: permission requests by session, oldest first. */
   const permissions = new Map<string, PermissionRequestDto[]>();
+  // ADR-0039: each ticket's skip-permissions setting (absent ≡ null, the machine's default).
+  const skipPermissions = new Map<string, boolean | null>();
   const log: BoardSseEvent[] = [];
   const boardSubs = new Set<StreamHandlers<BoardSseEvent>>();
   const outputSubs = new Map<string, Set<StreamHandlers<OutputChunk>>>();
@@ -869,7 +873,15 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       editable: ticketEditable(def, card.workflow_state),
       proposals: proposalsOf(card),
       attachments: attachmentsOf(ticketId),
+      skip_permissions: skipPermissions.get(ticketId) ?? null,
+      machine_skip_permissions_default: machineSkipDefault(card.machine_id),
     });
+  }
+
+  /** ADR-0039: the default of the card's machine; null = no machine. */
+  function machineSkipDefault(machineId: string | null): boolean | null {
+    if (machineId === null) return null;
+    return machines.get(machineId)?.skip_permissions_default ?? null;
   }
 
   /** A session-less ticket's status and its card: Queued, or the terminal column cancelled. */
@@ -1205,6 +1217,40 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           const updated: BoardCard = { ...card, ...next, updated_at: at };
           cards.set(ticketId, updated);
           emit([{ type: 'card.upserted', session_id: null, ticket_id: ticketId, card: updated }]);
+        }
+        return ticketDetail(ticketId);
+      }),
+
+    // ADR-0039: like the route, any column; turning it on allows the pending prompts.
+    setSkipPermissions: (ticketId, raw) =>
+      reply((): TicketDetail => {
+        const parsed = SetSkipPermissionsRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        ticketOf(ticketId);
+        skipPermissions.set(ticketId, parsed.data.skip_permissions);
+        const card = cards.get(ticketId)!;
+        const on = effectiveSkipPermissions(
+          parsed.data.skip_permissions,
+          machineSkipDefault(card.machine_id),
+        );
+        const list = card.session_id ? permissions.get(card.session_id) : undefined;
+        if (on && list && card.session_id) {
+          list.forEach((r, i) => {
+            if (r.status !== 'pending') return;
+            list[i] = {
+              ...r,
+              status: 'allowed',
+              decision: {
+                behavior: 'allow',
+                scope: 'once',
+                message: 'skip permissions is on for this ticket',
+                rule: null,
+                decided_by: 'ben',
+              },
+              resolved_at: now().toISOString(),
+            };
+          });
+          syncPermissionCard(card.session_id);
         }
         return ticketDetail(ticketId);
       }),
@@ -2138,7 +2184,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         if (!m) throw new ApiRequestError(404, 'not_found', `machine ${machineId} not found`);
         const parsed = UpdateMachineRequestSchema.safeParse(raw);
         if (!parsed.success) throw badRequest(parsed.error.message);
-        const { name, repo_allow, repo_exclusive } = parsed.data;
+        const { name, repo_allow, repo_exclusive, skip_permissions_default } = parsed.data;
         if (repo_exclusive !== undefined) {
           for (const o of machines.values()) {
             if (o.id === machineId || o.revoked_at !== null) continue;
@@ -2156,6 +2202,9 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         }
         if (name !== undefined) m.name = name;
         if (repo_allow !== undefined) m.repo_allow = repo_allow;
+        if (skip_permissions_default !== undefined) {
+          m.skip_permissions_default = skip_permissions_default;
+        }
         return machineRow(machineId);
       }),
 

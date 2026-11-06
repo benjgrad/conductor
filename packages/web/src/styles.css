@@ -212,6 +212,12 @@ dialog.modal h2 {
   font-size: var(--text-lg);
   margin: 0 0 var(--space-3);
 }
+/* ADR-0039: a confirmation's buttons (Cancel, then the action). */
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
 a {
   color: var(--accent);
 }

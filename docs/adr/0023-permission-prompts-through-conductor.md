@@ -7,6 +7,8 @@
   - §Decision "`--permission-mode auto` only when the user's defaultMode is bypassPermissions";
   - "`--permission-prompts none`" in the unchanged list.
 
+- **Amended by**: [ADR-0039](0039-skip-permissions-per-ticket-and-machine.md) (§3: skip permissions per ticket, and a machine default stored as a column until ADR-0022's override exists).
+
   The rest of ADR-0006 stands: user settings only, the edit-guard hook, the pinned off-switches, conductor's MCP server only, and `git push` denied.
 
 ## Context

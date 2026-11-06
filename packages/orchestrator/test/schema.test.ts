@@ -139,6 +139,7 @@ const machine: ColumnSpec<MachineRow> = {
   repo_exclusive: col('_text', NN),
   features: col('_text', NN),
   git_identity_missing: col('bool', NULL),
+  skip_permissions_default: col('bool', NN),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -213,6 +214,7 @@ const ticket: ColumnSpec<TicketRow> = {
   size: col(t, NULL),
   base: col('jsonb', NULL),
   session_allow: col('_text', NN),
+  skip_permissions: col('bool', NULL),
   agent_id: col('uuid', NULL),
   schedule_id: col('uuid', NULL),
   scheduled_for: col('timestamptz', NULL),

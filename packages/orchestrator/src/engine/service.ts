@@ -50,6 +50,7 @@ import {
 import { repinParked } from './repin.js';
 import { storeProposedChecks } from './check-proposals.js';
 import { withStartAttachments } from './attachments.js';
+import { withSkipPermissions } from './skip-permissions.js';
 import { withPagesFeature } from './pages.js';
 
 /** Session statuses after which apply ignores every event. */
@@ -627,11 +628,17 @@ export class EngineServiceImpl implements EngineService {
       const idem = effect.type === 'run_action' ? effect.idempotency_key : null;
       // 06 §Attachments: the ticket's files (or a note, for a daemon that can't fetch them).
       // ADR-0038: no `pages` tool for a daemon without publish_page (a note instead).
+      // ADR-0039: skip permissions (a working agent on a daemon that honours it).
       const payload =
         cmd.kind === 'start_session'
-          ? await withPagesFeature(
+          ? await withSkipPermissions(
               tx,
-              await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+              await withPagesFeature(
+                tx,
+                await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+                cmd.target,
+              ),
+              ticket.id,
               cmd.target,
             )
           : cmd.payload;

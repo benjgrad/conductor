@@ -36,6 +36,10 @@ pub type QuestionOptions = conductor_protocol::AskUserEventDataOptions;
 /// `--tools` / `--allowedTools` / `--disallowedTools` (the TS `ToolPolicy`).
 pub use conductor_protocol::tool_policy::ToolPolicy;
 
+/// ADR-0039: the permission mode of a working agent with "skip permissions" on (the only value
+/// `start_session.permission_mode` takes).
+pub const SKIP_PERMISSION_MODE: &str = "bypassPermissions";
+
 /// `DriverStartOptions`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DriverStartOptions {
@@ -75,6 +79,10 @@ pub struct DriverStartOptions {
     /// ADR-0038: the state has the `pages` tool alias, so the agent gets `publish_page` (posting
     /// to `attach`'s orchestrator; never for a reviewer, never without `attach`).
     pub publish_pages: bool,
+    /// ADR-0039: `start_session.permission_mode` is `bypassPermissions` ("skip permissions"), so
+    /// a working agent runs with `--permission-mode bypassPermissions` instead of auto. Ignored for
+    /// a reviewer (it keeps dontAsk).
+    pub skip_permissions: bool,
 }
 
 impl DriverStartOptions {
@@ -104,6 +112,7 @@ impl DriverStartOptions {
             add_dirs: Vec::new(),
             attach: None,
             publish_pages: false,
+            skip_permissions: false,
         }
     }
 }

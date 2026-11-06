@@ -377,6 +377,35 @@ describe('list, detail, rename, revoke', () => {
     expect((await patch({ repo_exclusive: ['github.com/x/*'] }, b)).status).toBe(404);
   });
 
+  it('ADR-0039: PATCH sets the skip-permissions default alone; supported follows the features', async () => {
+    const id = await enrollFor(a);
+    const patch = (body: unknown, who = a) =>
+      api.send('PATCH', API_PATHS.machine(id), { ...as(who), body });
+    const before = MachineDetailSchema.parse(
+      (await api.send('GET', API_PATHS.machine(id), as(a))).json,
+    );
+    expect(before).toMatchObject({
+      skip_permissions_default: false,
+      skip_permissions_supported: false,
+    });
+    const on = await patch({ skip_permissions_default: true });
+    expect(on.status).toBe(200);
+    expect(MachineRowSchema.parse(on.json).skip_permissions_default).toBe(true);
+    // A rename alone keeps it.
+    expect(MachineRowSchema.parse((await patch({ name: 'box' })).json)).toMatchObject({
+      name: 'box',
+      skip_permissions_default: true,
+    });
+    await db.pool.query("UPDATE machine SET features = '{permission_mode}' WHERE id = $1", [id]);
+    const off = MachineRowSchema.parse((await patch({ skip_permissions_default: false })).json);
+    expect(off).toMatchObject({
+      skip_permissions_default: false,
+      skip_permissions_supported: true,
+    });
+    expect((await patch({ skip_permissions_default: 'yes' })).status).toBe(400);
+    expect((await patch({ skip_permissions_default: true }, b)).status).toBe(404);
+  });
+
   it('PATCH: an exclusive pattern another machine holds is 409; a revoked one’s is free', async () => {
     const laptop = await enrollFor(a);
     const mac = await enrollFor(a);

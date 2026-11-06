@@ -32,6 +32,8 @@ import { lockSession, readOpenInput } from '../engine/rows.js';
 
 /** The deny message when a request arrives for a session that isn't running an agent. */
 export const NOT_RUNNING_MESSAGE = 'the session is not running an agent';
+/** ADR-0039: the message on a request allowed because skip permissions is on for the ticket. */
+export const SKIP_PERMISSIONS_MESSAGE = 'skip permissions is on for this ticket';
 
 /** The card's "Needs permission" fields; null = no pending request. */
 export interface CardPermission {

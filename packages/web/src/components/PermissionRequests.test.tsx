@@ -65,6 +65,33 @@ describe('PermissionRequests (ADR-0023)', () => {
     );
   });
 
+  it('ADR-0039: "Skip permissions for this ticket" asks, then allows what is pending', async () => {
+    const { api, box, panel } = await open();
+    const skip = vi.spyOn(api, 'setSkipPermissions');
+    fireEvent.click(box.getByRole('button', { name: 'Skip permissions for this ticket…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Skip permissions for this ticket?' });
+    expect(within(dialog).getByText(/git push stays denied/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Skip permissions' }));
+    await waitFor(() =>
+      expect(skip).toHaveBeenCalledWith(SEED_IDS.running.ticket, { skip_permissions: true }),
+    );
+    await waitFor(() =>
+      expect(panel.queryByRole('region', { name: NEEDS_PERMISSION_LABEL })).toBeNull(),
+    );
+    const { requests } = await api.listPermissionRequests(SID);
+    expect(requests.map((r) => r.status)).toEqual(['allowed']);
+  });
+
+  it('ADR-0039: cancelling the confirmation changes nothing', async () => {
+    const { api, box } = await open();
+    const skip = vi.spyOn(api, 'setSkipPermissions');
+    fireEvent.click(box.getByRole('button', { name: 'Skip permissions for this ticket…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Skip permissions for this ticket?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(skip).not.toHaveBeenCalled();
+    expect(box.getByRole('group', { name: 'Bash request' })).toBeTruthy();
+  });
+
   it('hides Allow always when the request has no exact rule', async () => {
     const { box } = await open((api) =>
       api.requestPermission(SID, 'Bash', { command: 'rm -rf build/*' }, null),

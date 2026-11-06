@@ -438,6 +438,8 @@ export const MACHINE_ROW_FIXTURES: Record<'online' | 'revoked', MachineRow> = {
     upgrade_command: null,
     upgrade_command_windows: null,
     git_identity_missing: false,
+    skip_permissions_default: false,
+    skip_permissions_supported: true,
   },
   revoked: {
     id: 'b1c2d3e4-f5a6-4b7c-9d8e-0f1a2b3c4d5e',
@@ -461,6 +463,8 @@ export const MACHINE_ROW_FIXTURES: Record<'online' | 'revoked', MachineRow> = {
     upgrade_command: null,
     upgrade_command_windows: null,
     git_identity_missing: null,
+    skip_permissions_default: true,
+    skip_permissions_supported: false,
   },
 };
 

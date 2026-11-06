@@ -4,3 +4,4 @@ export * from './capabilities.js';
 export * from './required.js';
 export * from './repo-rules.js';
 export * from './update.js';
+export * from './skip-permissions.js';

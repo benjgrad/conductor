@@ -92,6 +92,7 @@ export function freshWatch(
     note: null,
     last_checked_at: null,
     escalated: false,
+    recheck: false,
   };
 }
 

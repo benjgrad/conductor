@@ -2969,8 +2969,13 @@ function onWatchTimer(st: Step, state: string, deadline: string): ApplyIgnoreRea
   }
   if (s.machine_id === null || live.conditions.some((c) => c.status === 'running')) {
     // TD-105 applies: an evaluation the daemon never answers stays `running`, and no second one is
-    // sent while it is in flight. Without a machine nothing can be checked (TD-104).
-    rearmWatch(st, { ...checked, note: CONDITIONS_NO_MACHINE_NOTE });
+    // sent while it is in flight. Without a machine nothing can be checked (TD-104). A check that
+    // came due meanwhile (e.g. a merge's nudge) is remembered: the answer re-arms at once.
+    rearmWatch(st, {
+      ...checked,
+      note: CONDITIONS_NO_MACHINE_NOTE,
+      recheck: s.machine_id !== null,
+    });
     return null;
   }
   st.emit({
@@ -2987,7 +2992,7 @@ function onWatchTimer(st: Step, state: string, deadline: string): ApplyIgnoreRea
     }),
     expected_sha: null,
   });
-  rearmWatch(st, { ...checked, conditions: markRunning(checked.conditions) });
+  rearmWatch(st, { ...checked, conditions: markRunning(checked.conditions), recheck: false });
   return null;
 }
 
@@ -3036,7 +3041,16 @@ function onWatchResult(
   }
   checked.poll_ms = nextWatchPoll(w, rt, v.unchanged);
   rearmWatch(st, checked);
+  if (rt.recheck) recheckNow(st);
   return null;
+}
+
+/** A check came due while the last evaluation was out: check again on the next sweep. */
+function recheckNow(st: Step): void {
+  const rt = watchRuntime(st.s.context);
+  if (rt === null) return;
+  st.s.context = withWatch(st.s.context, { ...rt, recheck: false });
+  st.setWatchDeadline(st.now.toISOString());
 }
 
 /**
@@ -3053,6 +3067,7 @@ function watchNoAnswer(st: Step, note: string): ApplyIgnoreReason | null {
     return 'unexpected_event';
   }
   rearmWatch(st, { ...rt, conditions: unmarkRunning(rt.conditions), note });
+  if (rt.recheck) recheckNow(st);
   return null;
 }
 

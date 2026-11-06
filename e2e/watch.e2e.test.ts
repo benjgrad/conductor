@@ -174,9 +174,11 @@ describe.skipIf(REAL)('ADR-0037 P1: watch on In review (fake Claude, fake gh)', 
     const titleB = 'Merged B';
     stack.setFakePr(titleA, { mergeable: 'MERGEABLE' });
     stack.setFakePr(titleB, { mergeable: 'MERGEABLE' });
+    // One at a time: the fake gh numbers PRs by counting them, so two `pr create`s at once would
+    // both get #42 and A's watch would read B's PR.
     const a = await ticket(titleA, 'resync');
-    const b = await ticket(titleB, 'merged');
     const cardA = await inReview(a, 'A in review');
+    const b = await ticket(titleB, 'merged');
     const cardB = await inReview(b, 'B in review');
     const sidA = cardA.session_id!;
     const sidB = cardB.session_id!;

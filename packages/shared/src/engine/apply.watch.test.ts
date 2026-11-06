@@ -307,6 +307,24 @@ describe('watch: evaluation', () => {
     expect(g.snap.workflow_state).toBe('in_review');
   });
 
+  it('a check due while an evaluation is out (a nudge) is not lost: the answer re-arms at once', () => {
+    const h = inReview();
+    tick(h);
+    // The nudge: the next check comes due before the daemon answered.
+    h.advance(1);
+    h.snap = { ...h.snap, watch_deadline: h.now.toISOString() };
+    tick(h);
+    expect(watchRuntime(h.snap.context)!.recheck).toBe(true);
+    h.advance(1);
+    answer(h, 'met', 'MERGEABLE');
+    expect(h.snap.watch_deadline).toBe(h.now.toISOString());
+    expect(watchRuntime(h.snap.context)!.recheck).toBe(false);
+    // That check goes out, and an answer to it re-arms at the poll again.
+    expect(one(tick(h).effects, 'run_action')).toBeDefined();
+    answer(h, 'failed', 'CONFLICTING');
+    expect(h.snap.workflow_state).toBe('implementing');
+  });
+
   it('an answer with no evaluation in flight is unexpected', () => {
     const h = inReview();
     expect(answer(h, 'failed').ignored).toBe('unexpected_event');

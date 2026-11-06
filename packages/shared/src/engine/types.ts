@@ -1049,6 +1049,11 @@ export const WatchRuntimeSchema = z.object({
   last_checked_at: IsoDateTimeSchema.nullable(),
   /** The escalate form already notified during this stay. */
   escalated: z.boolean(),
+  /**
+   * A check came due (the poll, or a merge's nudge) while an evaluation was still out: the answer
+   * re-arms at once instead of a full poll, so the nudge isn't lost. Absent ≡ false.
+   */
+  recheck: z.boolean().default(false),
 });
 export type WatchRuntime = z.infer<typeof WatchRuntimeSchema>;
 

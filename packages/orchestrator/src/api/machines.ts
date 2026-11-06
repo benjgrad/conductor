@@ -1,5 +1,6 @@
 import {
   API_PATHS,
+  DAEMON_FEATURE_PERMISSION_MODE,
   EnrollRequestSchema,
   MACHINE_CANNOT_TAKE_MAX,
   UpdateMachineRequestSchema,
@@ -135,6 +136,9 @@ function toMachineRow(
     upgrade_command: upgradable ? upgradeCommand(installUrl) : null,
     upgrade_command_windows: upgradable ? upgradeCommandWindows(installUrl) : null,
     git_identity_missing: m.git_identity_missing,
+    // ADR-0039.
+    skip_permissions_default: m.skip_permissions_default ?? false,
+    skip_permissions_supported: m.features.includes(DAEMON_FEATURE_PERMISSION_MODE),
   };
 }
 
@@ -335,7 +339,8 @@ export const registerMachineRoutes: FastifyPluginAsync<MachineRoutesOptions> = (
     return loadMachineDetail(db, m, servedVersion, installUrl(req));
   });
 
-  // Rename and repo rules (ADR-0013 amendment 2026-10-30). The machines of the account are locked
+  // Rename, repo rules (ADR-0013 amendment 2026-10-30) and the skip-permissions default (ADR-0039;
+  // any member of the account, U-### in the ADR: no role check yet). The machines of the account are locked
   // for the exclusive-conflict check, so two PATCHes can't both claim the same pattern.
   // TD-199: only identical exclusive patterns conflict; overlapping ones (`org/*` and `org/app` on
   // two machines) are accepted and leave those tickets to nobody.
@@ -365,6 +370,7 @@ export const registerMachineRoutes: FastifyPluginAsync<MachineRoutesOptions> = (
         `UPDATE machine SET name = CASE WHEN $3 THEN $4 ELSE name END,
                 repo_allow = CASE WHEN $5 THEN $6::text[] ELSE repo_allow END,
                 repo_exclusive = CASE WHEN $7 THEN $8::text[] ELSE repo_exclusive END,
+                skip_permissions_default = COALESCE($9::boolean, skip_permissions_default),
                 updated_at = now()
           WHERE id = $1 AND account_id = $2`,
         [
@@ -376,6 +382,7 @@ export const registerMachineRoutes: FastifyPluginAsync<MachineRoutesOptions> = (
           body.repo_allow ?? null,
           body.repo_exclusive !== undefined,
           body.repo_exclusive ?? [],
+          body.skip_permissions_default ?? null,
         ],
       );
       return { updated: res.rowCount !== 0 };

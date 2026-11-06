@@ -1333,6 +1333,8 @@ export function mockMachines(now: Date): MachineDetail[] {
       upgrade_command: null,
       upgrade_command_windows: null,
       git_identity_missing: false,
+      skip_permissions_default: false,
+      skip_permissions_supported: true,
       os: 'darwin',
       arch: 'arm64',
       repos: [
@@ -1403,6 +1405,8 @@ export function mockMachines(now: Date): MachineDetail[] {
       upgrade_command_windows: 'irm http://localhost/install.ps1 | iex',
       // WF-T02: shows the Machines page's git identity warning.
       git_identity_missing: true,
+      skip_permissions_default: false,
+      skip_permissions_supported: false,
       os: 'linux',
       arch: 'x64',
       repos: [{ remote: null, path: '/home/ben/scratch', mode: 'reference', default_branch: null }],

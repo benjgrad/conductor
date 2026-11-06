@@ -5602,6 +5602,8 @@ pub struct StartSessionPayload {
     pub mcp: ::std::option::Option<StartSessionPayloadMcp>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub model: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub permission_mode: ::std::option::Option<::std::string::String>,
     pub prompt: ::std::string::String,
     pub repo: ::std::string::String,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
@@ -6437,6 +6439,7 @@ pub const DAEMON_AUTH_HEADER: &str = "authorization";
 pub const DAEMON_FEATURE_AGENT_ATTACHMENTS: &str = "agent_attachments";
 pub const DAEMON_FEATURE_ASSISTANT_JOB: &str = "assistant_job";
 pub const DAEMON_FEATURE_PAGES: &str = "pages";
+pub const DAEMON_FEATURE_PERMISSION_MODE: &str = "permission_mode";
 pub const DAEMON_FEATURE_TICKET_ATTACHMENTS: &str = "ticket_attachments";
 pub const DAEMON_TARBALL_MAX_BYTES: usize = 104857600;
 pub const DAEMON_TARBALL_RE: &str = "^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$";

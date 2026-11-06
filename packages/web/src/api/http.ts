@@ -45,6 +45,7 @@ import {
   SessionDetailSchema,
   TranscriptResponseSchema,
   TicketDetailSchema,
+  type SetSkipPermissionsRequest,
   QueueOrderResponseSchema,
   TicketDtoSchema,
   TicketSearchResponseSchema,
@@ -343,6 +344,14 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
+
+    setSkipPermissions: (ticketId: string, req: SetSkipPermissionsRequest) =>
+      request(
+        TicketDetailSchema,
+        'PUT',
+        API_PATHS.ticketSkipPermissions(encodeURIComponent(ticketId)),
+        req,
+      ),
 
     reorderQueue: (ticketIds: readonly string[]) =>
       request(QueueOrderResponseSchema, 'PUT', API_PATHS.queueOrder, { ticket_ids: ticketIds }),

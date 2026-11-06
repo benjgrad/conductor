@@ -137,6 +137,41 @@ async fn persists_the_pre_assigned_claude_session_id_before_spawning() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn adr_0039_permission_mode_bypass_sets_skip_permissions_for_a_worker_only() {
+    let c = Ctx::new().await;
+    let drv = driver(complete(json!({})));
+    c.make(drv.clone(), Make::default());
+    c.registered_and_asked().await;
+    let sid = Uuid::new_v4();
+    c.send(
+        &c.start(sid, json!({ "permission_mode": "bypassPermissions" }), 1)
+            .msg,
+    );
+    c.first_event("exit").await;
+    assert!(drv.starts()[0].skip_permissions);
+    c.send(
+        &c.start(
+            sid,
+            json!({
+                "workflow_state": "implement → build (review)",
+                "prompt": "# Requirements review",
+                "tools": ["review"],
+                "review": true,
+                "permission_mode": "bypassPermissions",
+            }),
+            1,
+        )
+        .msg,
+    );
+    c.until_true(|| c.events(Some("exit")).len() >= 2).await;
+    assert!(!drv.starts()[1].skip_permissions);
+    let other = Uuid::new_v4();
+    c.send(&c.start(other, json!({}), 1).msg);
+    c.until_true(|| c.events(Some("exit")).len() >= 3).await;
+    assert!(!drv.starts()[2].skip_permissions);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn adr_0009_a_reviewer_start_is_fresh_read_only_and_never_replaces_the_worker_s_stored_id() {
     let c = Ctx::new().await;
     let drv = driver(complete(json!({})));

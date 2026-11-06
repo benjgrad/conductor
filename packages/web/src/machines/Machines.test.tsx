@@ -431,4 +431,36 @@ describe('machines page (M2-T11)', () => {
     );
     expect((await api.getMachine('linux-box')).repo_exclusive).toEqual([]);
   });
+
+  it('ADR-0039: the drawer sets the skip-permissions default, asking before turning it on', async () => {
+    const api = await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: "Details of Ben's MacBook" }));
+    const section = within(screen.getByRole('region', { name: 'Agent permissions' }));
+    const box = section.getByRole('checkbox', { name: /Skip permissions by default/ });
+    expect((box as HTMLInputElement).checked).toBe(false);
+    expect(section.queryByText(/daemon is too old/)).toBeNull();
+    fireEvent.click(box);
+    let dialog = await screen.findByRole('dialog', { name: 'Skip permissions by default?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect((await api.getMachine('mbp-ben')).skip_permissions_default).toBe(false);
+    fireEvent.click(box);
+    dialog = await screen.findByRole('dialog', { name: 'Skip permissions by default?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Skip permissions' }));
+    await waitFor(async () =>
+      expect((await api.getMachine('mbp-ben')).skip_permissions_default).toBe(true),
+    );
+    await waitFor(() => expect((box as HTMLInputElement).checked).toBe(true));
+    // Turning it off needs no confirmation.
+    fireEvent.click(box);
+    await waitFor(async () =>
+      expect((await api.getMachine('mbp-ben')).skip_permissions_default).toBe(false),
+    );
+  });
+
+  it("ADR-0039: an older daemon's drawer says skip permissions won't apply", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Details of old-linux-box' }));
+    const section = within(screen.getByRole('region', { name: 'Agent permissions' }));
+    expect(section.getByText(/daemon is too old to skip permissions/)).toBeTruthy();
+  });
 });

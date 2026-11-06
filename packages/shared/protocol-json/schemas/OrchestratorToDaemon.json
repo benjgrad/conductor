@@ -785,6 +785,10 @@
               "sha256"
             ]
           }
+        },
+        "permission_mode": {
+          "type": "string",
+          "const": "bypassPermissions"
         }
       },
       "required": [

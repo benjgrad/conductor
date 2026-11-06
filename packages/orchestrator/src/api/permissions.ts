@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   API_PATHS,
   PermissionDecisionRequestSchema,
+  SetSkipPermissionsRequestSchema,
   UuidSchema,
   type BoardSseEvent,
   type OrchestratorToDaemon,
@@ -12,13 +13,16 @@ import type { BoardBus, OutboxTransport } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { PermissionRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
+import { skipPermissionsOn } from '../engine/skip-permissions.js';
 import {
   cardUpserted,
   decisionFrame,
   listSessionPermissionRequests,
   sendDecision,
+  SKIP_PERMISSIONS_MESSAGE,
   toPermissionRequestDto,
 } from '../permissions/store.js';
+import { latestSession, loadTicketDetail } from './tickets.js';
 import { parseBody, sendError } from './errors.js';
 
 // M2-T29c: the permission-prompt routes (ADR-0023; 10-contracts §Permission prompts). Both are
@@ -174,6 +178,62 @@ export const registerPermissionRoutes: FastifyPluginAsync<PermissionRoutesOption
         await sendDecision(transport, out.row.machine_id, out.frame, log);
         return toPermissionRequestDto(out.row);
     }
+  });
+
+  /**
+   * ADR-0039: set the ticket's "skip permissions" (true / false / null = the machine's default),
+   * in any column, at any time. It applies from the session's next process start. Turning it on
+   * also allows (once) the latest session's pending permission prompts, so a card waiting on one
+   * unblocks now; the decisions go out on the machine's live socket after COMMIT, as above.
+   */
+  app.put<IdParams>(API_PATHS.ticketSkipPermissions(':id'), async (req, reply) => {
+    const id = req.params.id;
+    const notFound = () => sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+    if (!UuidSchema.safeParse(id).success) return notFound();
+    const body = parseBody(SetSkipPermissionsRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const auth = req.auth!;
+    const accountId = auth.scope.account_id;
+
+    const out = await withTransaction(db, async (tx) => {
+      const own = await tx.query('SELECT 1 FROM ticket WHERE id = $1 AND account_id = $2', [
+        id,
+        accountId,
+      ]);
+      if (own.rowCount === 0) return null;
+      // The lock order of the engine: session, then ticket. `updated_at` stays: this is not a
+      // content edit, so an open edit form doesn't conflict.
+      const session = await latestSession(tx, id, true);
+      await tx.query('UPDATE ticket SET skip_permissions = $2 WHERE id = $1', [
+        id,
+        body.skip_permissions,
+      ]);
+      const decided: { row: PermissionRequestRow; frame: OrchestratorToDaemon }[] = [];
+      let events: BoardSseEvent[] = [];
+      if (session !== null && (await skipPermissionsOn(tx, id, session.machine_id))) {
+        const token = Number(session.fencing_token);
+        const pending = await tx.query<PermissionRequestRow>(
+          `UPDATE permission_request
+              SET status = 'allowed', behavior = 'allow', scope = 'once', message = $2,
+                  decided_by = $3, resolved_at = $4, decision_command_id = gen_random_uuid()
+            WHERE session_id = $1 AND status = 'pending' RETURNING *`,
+          [session.id, SKIP_PERMISSIONS_MESSAGE, auth.user.id, now()],
+        );
+        for (const row of pending.rows) {
+          decided.push({ row, frame: decisionFrame(row, row.decision_command_id!, token) });
+        }
+      }
+      if (session !== null) events = await cardUpserted(tx, session.id);
+      return { decided, events };
+    });
+    if (out === null) return notFound();
+    for (const e of out.events) boardBus.publish(e);
+    for (const d of out.decided) await sendDecision(transport, d.row.machine_id, d.frame, log);
+    log(
+      `ticket ${id}: skip permissions set to ${String(body.skip_permissions)} by ${auth.user.id}` +
+        (out.decided.length > 0 ? ` (allowed ${out.decided.length} pending prompt(s))` : ''),
+    );
+    return (await loadTicketDetail(db, id, accountId)) ?? notFound();
   });
   return Promise.resolve();
 };

@@ -7,6 +7,7 @@ import type { BoardCard, PermissionDecisionRequest, PermissionRequestDto } from 
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { RequestCard } from './RequestCard.js';
+import { SkipPermissionsButton } from './SkipPermissions.js';
 import './PermissionRequests.css';
 
 export const NEEDS_PERMISSION_LABEL = 'Needs permission';
@@ -17,6 +18,8 @@ const LONG_INPUT_LINES = 20;
 
 interface PermissionRequestsProps {
   api: ApiClient;
+  /** ADR-0039: the ticket, for "Skip permissions for this ticket…"; absent = no such action. */
+  ticketId?: string;
   sessionId: string;
   /** The card's `permission` (the oldest pending request); refetches when it changes. */
   permission: NonNullable<BoardCard['permission']>;
@@ -26,6 +29,7 @@ interface PermissionRequestsProps {
 
 export function PermissionRequests({
   api,
+  ticketId,
   sessionId,
   permission,
   agent,
@@ -80,6 +84,16 @@ export function PermissionRequests({
           }}
         />
       ))}
+      {ticketId !== undefined && (
+        <SkipPermissionsButton
+          api={api}
+          ticketId={ticketId}
+          onDone={() => {
+            setTick((t) => t + 1);
+            onDone();
+          }}
+        />
+      )}
     </RequestCard>
   );
 }

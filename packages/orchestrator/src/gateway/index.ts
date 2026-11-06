@@ -39,6 +39,7 @@ import {
 import { HttpGuard, httpSecurityFromEnv, type HttpSecurityOptions } from '../api/security.js';
 import { withTransaction } from '../db/index.js';
 import { SCRUBBED_PAYLOAD_SQL } from '../engine/outbox.js';
+import { skipPermissionsOn } from '../engine/skip-permissions.js';
 import { DefinitionCache, splitStep } from '../engine/rows.js';
 import type { PermissionRequestRow, SessionRow } from '../db/types.js';
 import type { CreateGateway, Db, GatewayHandle } from '../main.js';
@@ -48,6 +49,7 @@ import {
   cardUpserted,
   decisionFrame,
   NOT_RUNNING_MESSAGE,
+  SKIP_PERMISSIONS_MESSAGE,
   sendDecision,
 } from '../permissions/store.js';
 import { claimWork, LEASE_INTERVAL } from './claim.js';
@@ -1140,18 +1142,22 @@ class Gateway implements DaemonGateway {
       if (token !== Number(row.fencing_token)) return { kind: 'stale' };
 
       const running = await this.runsAgent(tx, row);
+      // ADR-0039: while skip permissions is on for the ticket, a prompt is allowed at once (a
+      // delegated human decision, recorded with its reason) and never reaches the board.
+      const skip = running && (await skipPermissionsOn(tx, row.ticket_id, machineId));
+      const status = !running ? 'denied' : skip ? 'allowed' : 'pending';
+      const decided = status !== 'pending';
       const ins = await tx.query<PermissionRequestRow>(
         `INSERT INTO permission_request
            (id, account_id, session_id, machine_id, fencing_token, tool, input, suggestions,
             tool_use_id, always_rule, expires_at, status, behavior, scope, message, resolved_at,
             decision_command_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                 CASE WHEN $12::boolean THEN 'pending' ELSE 'denied' END,
-                 CASE WHEN $12::boolean THEN NULL ELSE 'deny' END,
-                 CASE WHEN $12::boolean THEN NULL ELSE 'once' END,
-                 CASE WHEN $12::boolean THEN NULL ELSE $13::text END,
-                 CASE WHEN $12::boolean THEN NULL ELSE now() END,
-                 CASE WHEN $12::boolean THEN NULL ELSE $14::uuid END)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                 $13::text,
+                 CASE WHEN $14::boolean THEN 'once' ELSE NULL END,
+                 $15::text,
+                 CASE WHEN $14::boolean THEN now() ELSE NULL END,
+                 $16::uuid)
          ON CONFLICT (id) DO NOTHING
          RETURNING *`,
         [
@@ -1166,15 +1172,21 @@ class Gateway implements DaemonGateway {
           p.tool_use_id ?? null,
           alwaysRuleFor(p.tool, p.input),
           p.expires_at,
-          running,
-          NOT_RUNNING_MESSAGE,
-          randomUUID(),
+          status,
+          status === 'denied' ? 'deny' : status === 'allowed' ? 'allow' : null,
+          decided,
+          status === 'denied'
+            ? NOT_RUNNING_MESSAGE
+            : status === 'allowed'
+              ? SKIP_PERMISSIONS_MESSAGE
+              : null,
+          decided ? randomUUID() : null,
         ],
       );
       const stored = ins.rows[0];
       // A request_id seen before (under another seq) changes nothing.
       if (!stored) return { kind: 'stored', events: [] };
-      if (!running) return { kind: 'denied', row: stored };
+      if (decided) return { kind: 'denied', row: stored };
       // UXR-32: the agent now waits on a person; push it like a question (10 §Web Push).
       let wrotePush = false;
       if (this.engine.pushEnabled) {
@@ -1217,6 +1229,7 @@ class Gateway implements DaemonGateway {
         this.publish(outcome.events);
         if (outcome.wrotePush) this.engine.pushWritten?.();
         return;
+      // Decided at once: not running (deny) or skip permissions (allow, ADR-0039).
       case 'denied': {
         conn.owned.set(sessionId, token);
         const frame = decisionFrame(outcome.row, outcome.row.decision_command_id!, token);

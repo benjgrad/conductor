@@ -756,6 +756,20 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 - **T29c** (orchestrator): storage keyed by `request_id` (plus `ticket.session_allow`; not yet fed into the next `start_session`, which would need daemon changes); the gateway's `permission_request` handler (dedupe, running check, card); the two routes; `always_rule`; the direct send on the live socket (no outbox, U-099); the expiry paths; `unknown_permission_request` acks.
 - **T29d** (web): the card badge from `sub_status` / `permission`; the drawer list from the GET route; the three buttons (Allow always hidden when `always_rule` is null), the deny note box.
 
+### Skip permissions (ADR-0039)
+
+[ADR-0039](../adr/0039-skip-permissions-per-ticket-and-machine.md). Additive: every field is optional, and an older daemon is never sent `permission_mode`.
+
+| Seam | File | Producer → consumers |
+|---|---|---|
+| `start_session.permission_mode?: 'bypassPermissions'` (a literal); `DAEMON_FEATURE_PERMISSION_MODE` (`permission_mode`) in `register.features` | `shared/src/protocol/ws.ts` | `withSkipPermissions` (orchestrator) → Rust daemon `--permission-mode bypassPermissions` |
+| `effectiveSkipPermissions(ticket, machineDefault, review)` = `!review && (ticket ?? machineDefault ?? false)` | `shared/src/machines/skip-permissions.ts` | orchestrator, web |
+| `PUT /api/tickets/:id/skip-permissions` `SetSkipPermissionsRequest {skip_permissions: boolean \| null}` → `TicketDetail` (any column; 404 for another account's or an unknown id); `TicketDetail.skip_permissions?`, `.machine_skip_permissions_default?` | `shared/src/api/rest.ts` | orchestrator → web |
+| `PATCH /api/machines/:id` `skip_permissions_default?`; `MachineRow.skip_permissions_default` (absent ≡ false), `.skip_permissions_supported` (the daemon advertises the feature; absent ≡ false) | `shared/src/api/machines.ts` | orchestrator → web |
+
+- The start carries the field only for a working agent (never with `review`), only when the effective value is on, and only to a daemon with the feature. Both values are read at every start, so a change applies from the next process start.
+- **Prompts while it is on**: the gateway stores a `permission_request` already `allowed` (`scope: once`, `decided_by: null`, message `skip permissions is on for this ticket`) and sends the allow on the same socket, like the "not running" deny below. The card does not change. The PUT that turns it on allows the latest session's `pending` requests once (`decided_by` = the user), updates the card in the same transaction, and sends the decisions after COMMIT on the live socket (no outbox, U-099).
+
 ## Assistant jobs (ADR-0033 P2)
 
 [ADR-0033](../adr/0033-workflow-advisor.md) §Amendment (P2); tasks MA-T02 (these contracts), MA-T03 (Rust runner), MA-T04 (orchestrator). Additive: an older daemon sends no `features`, so it is never sent an `assistant_job`. Wire shapes are in [03](03-protocols.md#daemon--orchestrator-websocket).

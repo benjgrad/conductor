@@ -444,6 +444,10 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     setup_on_base: z.enum(['pass', 'fail', 'unknown']).optional(),
     /** The base branch that probe used. */
     base_ref: z.string().optional(),
+    /** The check did not run, and why; `exit_code` is null but nothing was killed. */
+    not_run: z.string().optional(),
+    /** The session branch has no commits ahead of origin's default branch (the check did not run). */
+    no_commits: z.boolean().optional(),
   }),
   /**
    * D `spend`: cumulative per claude_session_id (ADR-0005). apply adds only

@@ -56,6 +56,8 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         ...(p.data.setup_cmd !== undefined ? { setup_cmd: p.data.setup_cmd } : {}),
         ...(p.data.setup_on_base !== undefined ? { setup_on_base: p.data.setup_on_base } : {}),
         ...(p.data.base_ref !== undefined ? { base_ref: p.data.base_ref } : {}),
+        ...(p.data.not_run !== undefined ? { not_run: p.data.not_run } : {}),
+        ...(p.data.no_commits !== undefined ? { no_commits: p.data.no_commits } : {}),
       };
     case 'spend':
       return {

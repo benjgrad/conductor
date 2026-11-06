@@ -488,6 +488,13 @@
         },
         "base_ref": {
           "type": "string"
+        },
+        "not_run": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "no_commits": {
+          "type": "boolean"
         }
       },
       "required": [

@@ -9,7 +9,7 @@
 //! the runner is dropped, so a killed evaluation (TD-205: the future is dropped) leaves nothing.
 
 use super::checkout::{
-    FreshCheckout, FreshCheckoutInput, detect_setup, fresh_checkout, managed_command,
+    FreshCheckout, FreshCheckoutInput, detect_setup, fetch_budget, fresh_checkout, managed_command,
     missing_manager, remove_checkout,
 };
 use super::open_pr::resolve_head;
@@ -134,7 +134,9 @@ impl CmdConditionRunner {
         timeout: Option<&str>,
         sha: Option<String>,
     ) -> ConditionResult {
-        let Some(dir) = self.prepare(sha).await else {
+        let timeout = timeout.unwrap_or(DEFAULT_CHECK_TIMEOUT);
+        let limit = parse_duration(timeout).unwrap_or(Duration::from_secs(15 * 60));
+        let Some(dir) = self.prepare(sha, limit).await else {
             return pending(self.broken.as_deref().unwrap_or("no checkout"));
         };
         if needs != ConditionNeeds::Checkout {
@@ -154,8 +156,6 @@ impl CmdConditionRunner {
         if let Some(m) = missing_manager(&cmd, self.ctx.path.as_deref()) {
             return pending(&m);
         }
-        let timeout = timeout.unwrap_or(DEFAULT_CHECK_TIMEOUT);
-        let limit = parse_duration(timeout).unwrap_or(Duration::from_secs(15 * 60));
         let r = (self.ctx.exec)(cmd, dir, limit).await;
         if r.timed_out {
             return res(
@@ -179,7 +179,7 @@ impl CmdConditionRunner {
         res(ConditionResultStatus::Failed, Some(value), Some(detail))
     }
 
-    async fn prepare(&mut self, sha: Option<String>) -> Option<PathBuf> {
+    async fn prepare(&mut self, sha: Option<String>, limit: Duration) -> Option<PathBuf> {
         if let Some(d) = &self.dir {
             return Some(d.clone());
         }
@@ -210,6 +210,7 @@ impl CmdConditionRunner {
             branch,
             sha: want,
             env: self.ctx.env.clone(),
+            timeout: Some(fetch_budget(Some(limit))),
         };
         let co = match &self.ctx.checkout {
             Some(f) => f(input).await,

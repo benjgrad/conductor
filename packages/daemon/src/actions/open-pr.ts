@@ -158,7 +158,7 @@ export function run(
   cmd: string,
   args: string[],
   cwd: string,
-  i: Pick<OpenPrInput, 'env' | 'signal'>,
+  i: Pick<OpenPrInput, 'env' | 'signal'> & { timeoutMs?: number },
 ): Promise<Run> {
   return new Promise((resolve) => {
     execFileCli(
@@ -168,7 +168,7 @@ export function run(
         cwd,
         env: cleanEnv(i.env ?? process.env),
         maxBuffer: 4 * 1024 * 1024,
-        timeout: 5 * 60_000,
+        timeout: i.timeoutMs ?? 5 * 60_000,
         ...(i.signal ? { signal: i.signal } : {}),
       },
       (err, stdout, stderr) => {

@@ -459,6 +459,16 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       setup_on_base: SetupOnBaseSchema.optional(),
       /** The base branch the probe used (e.g. `main`). */
       base_ref: z.string().optional(),
+      /**
+       * The command did not run, and why (the fresh checkout could not be made, the branch moved, a
+       * package manager is missing, …). `exit_code` is null, but nothing was killed.
+       */
+      not_run: z.string().max(STDERR_TAIL_CHARS).optional(),
+      /**
+       * The session branch has no commits ahead of origin's default branch, so there is nothing to
+       * check (`not_run` says so). Not run.
+       */
+      no_commits: z.boolean().optional(),
     }),
   }),
   z.object({

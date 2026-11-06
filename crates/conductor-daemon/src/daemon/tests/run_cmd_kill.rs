@@ -52,6 +52,25 @@ async fn started_session(c: &Ctx, runner: FakeCommandRunner, token: i64) -> (Uui
     (sid, wt)
 }
 
+/// One commit on the session branch: a branch with none ahead of origin's default has nothing
+/// to check, and its entry checks are not run.
+fn commit_ahead(wt: &Path) {
+    std::fs::write(wt.join("work.txt"), "work\n").unwrap();
+    git(wt, &["add", "."]);
+    git(
+        wt,
+        &[
+            "-c",
+            "user.email=t@x",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "work",
+        ],
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runs_a_command_through_the_injected_command_runner_and_reports_build_slot_cmd_exit() {
     let c = Ctx::new().await;
@@ -112,6 +131,7 @@ async fn adr_0010_ben_2026_10_26_entry_checks_run_in_a_fresh_checkout_of_the_com
     let runner =
         FakeCommandRunner::new(1, true).script("npm run build", FakeCommandScript::exit(0));
     let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    commit_ahead(&wt);
     let head = git(&wt, &["rev-parse", "HEAD"]);
     c.send(&check(sid, "npm run build", None, "make deps", false));
     c.until_for(10_000, || c.data("cmd_exit").into_iter().next())
@@ -152,7 +172,8 @@ async fn adr_0010_ben_2026_10_26_entry_checks_run_in_a_fresh_checkout_of_the_com
 async fn adr_0010_a_session_kill_between_checks_removes_the_kept_checkout() {
     let c = Ctx::new().await;
     let runner = FakeCommandRunner::new(1, true);
-    let (sid, _) = started_session(&c, runner.clone(), 3).await;
+    let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    commit_ahead(&wt);
     c.send(&check(sid, "npm run build", None, "", false));
     c.until_for(10_000, || c.data("cmd_exit").into_iter().next())
         .await;
@@ -172,6 +193,7 @@ async fn adr_0010_an_older_run_cleanup_never_removes_a_newer_checkout_of_the_sam
     let runner =
         FakeCommandRunner::new(2, false).script("npm run build", FakeCommandScript::exit(1));
     let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    commit_ahead(&wt);
     let send = |command: &str, sha: Option<&str>| {
         c.send(
             &run_cmd(
@@ -233,7 +255,8 @@ async fn adr_0010_a_failed_setup_is_reported_setup_failed_the_check_does_not_run
         "make deps",
         FakeCommandScript::exit(2).output("deps: no such target\n"),
     );
-    let (sid, _) = started_session(&c, runner.clone(), 3).await;
+    let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    commit_ahead(&wt);
     c.send(&check(sid, "npm run build", None, "make deps", false));
     let exit = c
         .until_for(10_000, || c.data("cmd_exit").into_iter().next())
@@ -242,12 +265,15 @@ async fn adr_0010_a_failed_setup_is_reported_setup_failed_the_check_does_not_run
     assert_eq!(exit["setup_failed"], true);
     assert_eq!(exit["output_tail"], "deps: no such target\n");
     assert_eq!(exit["setup_cmd"], "make deps");
-    // The branch is the base's tip (no commit yet): the same commit fails the same way.
+    // The setup fails everywhere here, so it fails on the base's tip too: conductor's config.
     assert_eq!(exit["setup_on_base"], "fail");
     assert!(exit["base_ref"].is_string());
+    // The branch's setup, then the base probe's; the check never ran and both checkouts are gone.
     let cmds: Vec<String> = runner.calls().iter().map(|x| x.cmd.clone()).collect();
-    assert_eq!(cmds, ["make deps"]);
-    assert!(!runner.calls()[0].cwd.exists());
+    assert_eq!(cmds, ["make deps", "make deps"]);
+    for x in runner.calls() {
+        assert!(!x.cwd.exists());
+    }
     c.done().await;
 }
 
@@ -326,6 +352,36 @@ async fn without_origin_head_the_probe_cannot_run_setup_on_base_unknown() {
     assert_eq!(exit["setup_on_base"], "unknown");
     let cmds: Vec<String> = runner.calls().iter().map(|x| x.cmd.clone()).collect();
     assert_eq!(cmds, ["make deps"]);
+    c.done().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_branch_with_no_commits_ahead_of_the_default_branch_is_not_checked_and_says_so() {
+    // 2026-11-06: a no-code spike's gate reported "killed by a signal" 5 min in. Now it is told
+    // up front: no fresh checkout, no setup, no command.
+    let c = Ctx::new().await;
+    let runner = FakeCommandRunner::new(1, true);
+    let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    c.send(&check(sid, "sleep 600", None, "make deps", false));
+    let exit = c
+        .until_for(10_000, || c.data("cmd_exit").into_iter().next())
+        .await;
+    assert_eq!(exit["exit_code"], Value::Null);
+    assert_eq!(exit["no_commits"], true, "{exit}");
+    assert_eq!(exit["head_sha"], json!(head));
+    let why = exit["not_run"].as_str().unwrap();
+    assert!(why.contains("has no commits ahead of origin/"), "{why}");
+    assert!(
+        exit["output_tail"]
+            .as_str()
+            .unwrap()
+            .contains("nothing to check")
+    );
+    assert!(runner.calls().is_empty());
+    let private = c.root().join("private");
+    let left = std::fs::read_dir(&private).map_or(0, |d| d.count());
+    assert_eq!(left, 0);
     c.done().await;
 }
 

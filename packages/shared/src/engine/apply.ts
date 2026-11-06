@@ -2163,6 +2163,29 @@ function onCheckExited(
     ]);
     return;
   }
+  // No commits ahead of the default branch: nothing to check or to open a PR for. The agent
+  // can't fix that by retrying (a no-code spike), so a human decides, up front.
+  if (e.no_commits === true) {
+    if (r.index === 0) r.head_sha = e.head_sha ?? null;
+    stepFail(
+      st,
+      spec,
+      'retries_exhausted',
+      `${e.not_run ?? 'The session branch has no commits ahead of the default branch'}. There is nothing to check or to open a pull request for. If this ticket changes no code (a spike or grooming), skip or abort this move; otherwise commit the work and retry. Retry, skip, or abort?`,
+      false,
+      'check_failed',
+    );
+    return;
+  }
+  // The check did not run (no fresh checkout, a missing package manager, …): unmet with the
+  // reason, never "killed by a signal" for a command that never started.
+  if (e.not_run !== undefined) {
+    if (r.index === 0) r.head_sha = e.head_sha ?? null;
+    stepUnmet(st, spec, r, [
+      { item: check.name, reason: `\`${check.cmd}\` did not run: ${e.not_run}` },
+    ]);
+    return;
+  }
   // The first check records the commit the checks run on; later checks must see the same one.
   const head = e.head_sha ?? null;
   if (r.index === 0) {

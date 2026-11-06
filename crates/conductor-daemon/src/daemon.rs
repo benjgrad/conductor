@@ -46,8 +46,8 @@ use uuid::Uuid;
 
 use crate::actions::checkout::{
     BaseCheckoutInput, BaseProbeNext, FreshCheckout, FreshCheckoutInput, ProbeSetupInput,
-    SetupOnBase, detect_setup, fresh_checkout, managed_command, missing_manager,
-    prepare_base_probe, remove_checkout, sweep_private,
+    SetupOnBase, detect_setup, fetch_budget, fresh_checkout, managed_command, missing_manager,
+    no_commits_ahead, prepare_base_probe, remove_checkout, sweep_private,
 };
 use crate::actions::condition_cmd::{CmdContext, CmdExec, CmdExecResult};
 use crate::actions::conditions::{EvaluateConditionsInput, evaluate_conditions};
@@ -2056,6 +2056,12 @@ impl Core {
             if let Some(b) = &out.base_ref {
                 data["base_ref"] = json!(b);
             }
+            if let Some(why) = &out.not_run {
+                data["not_run"] = json!(why);
+            }
+            if out.no_commits {
+                data["no_commits"] = json!(true);
+            }
             let mut st = core.lock();
             if let Some(l) = st.live.get_mut(&sid) {
                 l.cmds.remove(&p.command_id);
@@ -2170,18 +2176,36 @@ impl Core {
             return exec(p.cmd.clone(), cwd.to_path_buf()).await;
         };
         let Some(want) = co.sha.clone().or_else(|| out.head_sha.clone()) else {
-            return Ok(self.not_run(sid, token, "could not resolve the commit to check"));
+            let why = "could not resolve the commit to check";
+            out.not_run = Some(why.into());
+            return Ok(self.not_run(sid, token, why));
         };
         if let Some(head) = &out.head_sha
             && *head != want
         {
-            return Ok(self.not_run(
-                sid,
-                token,
-                &format!("the branch moved: the checks are for {want}, the worktree is at {head}"),
-            ));
+            let why =
+                format!("the branch moved: the checks are for {want}, the worktree is at {head}");
+            out.not_run = Some(why.clone());
+            return Ok(self.not_run(sid, token, &why));
         }
         out.head_sha = Some(want.clone());
+        // Nothing to check when the branch adds no commits to origin's default branch (a no-code
+        // spike): say so up front, before a fresh checkout and setup. Once per gate: a held
+        // checkout means an earlier check of this gate already got past it.
+        let holding = self
+            .lock()
+            .checkouts
+            .get(&sid)
+            .is_some_and(|h| h.sha == want);
+        if !holding && let Some(base) = no_commits_ahead(&wt, &want, None).await {
+            let why = format!(
+                "the session branch `{}` has no commits ahead of {base} (it is at {want})",
+                s.branch
+            );
+            out.no_commits = true;
+            out.not_run = Some(why.clone());
+            return Ok(self.not_run(sid, token, &format!("{why}, so there is nothing to check")));
+        }
         let mut ok = false;
         // The checkout this run uses: its cleanup only ever removes this one.
         let mut mine: Option<Checkout> = None;
@@ -2203,6 +2227,10 @@ impl Core {
                     branch: s.branch.clone(),
                     sha: want.clone(),
                     env: None,
+                    // The fetch of a large repo takes minutes: the check's own budget.
+                    timeout: Some(fetch_budget(
+                        p.timeout_ms.map(|ms| Duration::from_millis(ms.get())),
+                    )),
                 })
                 .await;
                 let dir = match fresh {
@@ -2210,6 +2238,7 @@ impl Core {
                         if head.is_some() {
                             out.head_sha = head;
                         }
+                        out.not_run = Some(error.clone());
                         return Ok(self.not_run(sid, token, &error));
                     }
                     FreshCheckout::Ok { dir, .. } => dir,
@@ -2301,11 +2330,13 @@ impl Core {
             mine = Some(held.clone());
             let (at, inside) = resolve_inside(&held.dir, p.cwd.as_deref());
             if !inside {
+                out.not_run = Some("invalid cwd".into());
                 return Ok(self.not_run(sid, token, "invalid cwd"));
             }
             // M2-T30: `npm run build` runs as `pnpm run build` in a pnpm repo.
             let cmd = managed_command(&held.dir, &p.cmd);
             if let Some(missing) = missing_manager(&cmd, None) {
+                out.not_run = Some(missing.clone());
                 return Ok(self.not_run(sid, token, &missing));
             }
             self.debug_line(
@@ -2928,6 +2959,10 @@ struct RunOutcome {
     setup_cmd: Option<String>,
     setup_on_base: Option<SetupOnBase>,
     base_ref: Option<String>,
+    /// The command did not run, and why (`cmd_exit.not_run`).
+    not_run: Option<String>,
+    /// No commits ahead of origin's default branch (`cmd_exit.no_commits`).
+    no_commits: bool,
 }
 
 impl Daemon {

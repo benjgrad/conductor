@@ -64,6 +64,32 @@ describe('InsightsPage', () => {
     expect(screen.getByText(/1 reply was typed by hand/)).toBeTruthy();
   });
 
+  it('shows the notify policy’s pushes and silent moves (ADR-0037 P6)', async () => {
+    setup();
+    const table = await screen.findByRole('table', { name: 'Notifications' }, { timeout: 5_000 });
+    const fail = within(within(table).getByRole('rowheader', { name: 'qa_fail' }).closest('tr')!);
+    expect(fail.getByText('Never')).toBeTruthy();
+    expect(fail.getByText('Silent')).toBeTruthy();
+    // A `once` hand-off pushes the first time and is silent after a QA loop.
+    const handoffs = within(table).getAllByRole('rowheader', { name: 'ready_for_testing' });
+    expect(
+      handoffs.map((h) => within(h.closest('tr')!).getByText(/^(Pushed|Silent)$/).textContent),
+    ).toEqual(['Pushed', 'Silent']);
+    expect(within(handoffs[0]!.closest('tr')!).getByText('Once per ticket')).toBeTruthy();
+    expect(
+      screen.getByText(/^\d+ pushes sent · \d+ kept silent · per ticket: median [\d.]+, p90/),
+    ).toBeTruthy();
+  });
+
+  it('shows no notifications in legacy mode (no decisions recorded)', async () => {
+    const api = createMockApi();
+    const real = await api.getProcessMetrics({ windowDays: 30, groupBy: 'state' });
+    vi.spyOn(api, 'getProcessMetrics').mockResolvedValue({ ...real, pushes: undefined });
+    setup(api);
+    await screen.findByRole('table', { name: 'Saved replies' }, { timeout: 5_000 });
+    expect(screen.queryByRole('table', { name: 'Notifications' })).toBeNull();
+  });
+
   it('labels gate keys in words', () => {
     expect(groupKeyLabel('implementing.personal_pr_ready_for_review')).toBe(
       'Implementing → personal PR ready for review (gate)',

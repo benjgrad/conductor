@@ -87,6 +87,8 @@ A request waiting on a human sits at the end of the chat in one frame, `RequestC
 
 While the phone layout is on, `useVisualViewportHeight` sets `--vvh` and `--vvt` on `<html>` from `visualViewport.height` and `offsetTop`, rounded to whole pixels (`floor` and `round`: iOS reports fractions, and a fixed layer at a sub-pixel offset draws its text blurry). Full-screen surfaces use `top: var(--vvt, 0); height: var(--vvh, 100dvh)`, so they end above the on-screen keyboard and stay in view when iOS pans the layout viewport to a focused field. `100vh` is always paired with a `100dvh` override.
 
+**The status bar is opaque.** iOS 26 (Safari and standalone PWAs) draws a progressive blur under the status bar and about 45 pt below it, unless a `position: fixed` opaque element touches the top edge, whose colour it extends instead; `apple-mobile-web-app-status-bar-style` no longer prevents it. So `index.html` has a static `#status-bar-backdrop`: fixed at the top, `env(safe-area-inset-top)` tall, `--panel`, `pointer-events: none`, above every overlay (`--z-status-bar`). The inset is 0 on desktop, in landscape and without a notch, so there it has no height. Nothing is device-specific: the insets are each device's own.
+
 **The document never scrolls on a phone.** While the signed-in shell renders at phone width, `useDocumentClass('app-shell', mobile)` puts `app-shell` on `<html>`. Then `html` and `body` are `overflow: hidden; overscroll-behavior: none`, and `.app.mobile` is a fixed box the size of the visual viewport that does the scrolling (the sticky top bar sticks inside it). Inner scrollers (chat, Details tab, the sheet's form, menus) have `overscroll-behavior: contain`, so a fling never chains out to the page. While the create sheet is open, `.app` also has `creating` and stops scrolling. The auth pages and the help page render outside the shell and scroll the document as before.
 
 ## Navigation
@@ -278,5 +280,5 @@ It is for success only. A failure stays inline next to what failed (`role="alert
 ## Not covered
 
 - Browser Back doesn't close the panel or the sheet.
-- The iOS keyboard, `dvh`, `visualViewport.offsetTop`, standalone mode and the status-bar blur can't be verified in Chromium emulation; they need a real phone. The opaque status bar and the whole-pixel `--vvh`/`--vvt` (the fixes for the blurry top bar) still need checking on a real iPhone.
+- The iOS keyboard, `dvh`, `visualViewport.offsetTop`, standalone mode and the status-bar blur can't be verified in Chromium emulation; they need a real phone. The `#status-bar-backdrop` (the iOS 26 top-edge blur) and the whole-pixel `--vvh`/`--vvt` (the fixes for the blurry top bar) still need checking on a real iPhone. `statusBarBackdrop.test.ts` only checks the source.
 - BlockNote on touch is unverified. The Plain markdown toggle is the fallback.

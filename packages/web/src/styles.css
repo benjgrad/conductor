@@ -26,6 +26,8 @@
   --z-sticky: 5;
   --z-menu: 20;
   --z-sheet: 40;
+  /* Above every overlay: each one starts under the status bar. */
+  --z-status-bar: 60;
   /* WCAG 2.5.5: the touch target on phones and coarse pointers. */
   --tap: 44px;
 
@@ -1882,6 +1884,21 @@ button.link {
   }
 }
 
+/* 11-web-ui §Phone layout: iOS 26 (Safari and standalone PWAs) draws a progressive blur under the
+   status bar and below it unless a position:fixed opaque element touches the top edge; it then
+   extends that element's colour instead. This is that element (index.html). The inset is 0 on
+   desktop, in landscape and without a notch, so there it has no height. */
+#status-bar-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--panel);
+  z-index: var(--z-status-bar);
+  pointer-events: none;
+}
+
 /* 11-web-ui §Phone layout (MOBILE_QUERY in components/useMediaQuery.ts). Desktop is unchanged. */
 @media (max-width: 899.98px) {
   /* UXR-02: iOS Safari zooms into any field under 16 px. */
@@ -1939,8 +1956,8 @@ button.link {
     grid-template-columns: 1fr;
   }
   /* The document never scrolls on a phone; the shell does. So the panel and the sheet can't be
-     scrolled away. (The iOS status bar is opaque, `default` in index.html: iOS blurred the top bar
-     under `black-translucent` even with this lock.) */
+     scrolled away. (The status bar is made opaque by #status-bar-backdrop: iOS blurred the top bar
+     under `black-translucent`, and iOS 26 blurs it under `default` too.) */
   html.app-shell,
   html.app-shell body {
     height: 100%;

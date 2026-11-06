@@ -16,6 +16,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Conductor" />
+    <!-- iOS 26 draws a progressive blur under the status bar, even here, unless a fixed opaque
+         element touches the top edge: #status-bar-backdrop below is that element (11-web-ui). -->
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <!-- UX-14: notify/favicon.ts swaps this for the same mark with a dot (FAVICON_PLAIN). -->
     <link
@@ -26,6 +28,7 @@
     />
   </head>
   <body>
+    <div id="status-bar-backdrop" aria-hidden="true"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

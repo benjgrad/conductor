@@ -1,20 +1,12 @@
-# Native Windows gate for the daemon (ADR-0024, milestone MW). Linux/macOS keep scripts/ci.sh
-# (the `ci` workflow). Tests that can't pass on win32 yet skip behind
-# `skipIf(process.platform === 'win32')` with a `// MW-Tnn` marker. The Windows e2e runs in daemon-rust.yml
-# (`e2e-windows`, MR-T16b).
+# Native Windows gate for the installer (MW-T11): install.ps1 under Windows PowerShell 5.1 against a
+# fake tarball server. The Rust daemon's own Windows build, tests and e2e run in daemon-rust.yml
+# (ADR-0026); the TS daemon tests this job used to run were deleted with it (MR-T18b). The workflow
+# and job names stay, so the PR check it reports keeps its name.
 #
 # Diff-aware: `changes` (cheap, on Linux) asks scripts/test-affected.js whether the diff reaches
-# what can behave differently on Windows, and `test` (TD-194) runs only then. A PR runs it for
-# packages/daemon, the installer and the toolchain, so no daemon change reaches main without
-# passing here; platform/seam.test.ts keeps every OS branch inside src/platform/, where the win32
-# twin is tested. packages/shared (pure TypeScript, already run through the daemon tests on
-# Linux) only runs it on a push to main, which nobody waits on. The Windows installer (install.ps1
-# and the tarball's .cmd entry, MW-T11) is tested here too. A pnpm-lock.yaml change counts only if
-# it changed what the daemon resolves (a web dependency doesn't). A skipped `test` reports
-# SKIPPED, which the PR-CI gate passes.
-#
-# Only what differs on Windows runs here: typecheck and the shared tests are OS-independent and
-# already run in the `ci` workflow's gates.
+# the installer, what renders it, or the toolchain its test runs on, and `test` (TD-194) runs only
+# then. A pnpm-lock.yaml change counts only if it changed what the root toolchain resolves. A
+# skipped `test` reports SKIPPED, which the PR-CI gate passes.
 name: daemon-windows
 
 on:
@@ -36,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      daemon: ${{ steps.affected.outputs.daemon }}
+      installer: ${{ steps.affected.outputs.installer }}
     steps:
       # Full history: the base commit has to be here to diff against.
       - uses: actions/checkout@v4
@@ -58,20 +50,20 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           case "$EVENT" in
-            pull_request) daemon="$(node scripts/test-affected.js daemon --base "$(git rev-parse HEAD^1)")" ;;
-            push) daemon="$(node scripts/test-affected.js daemon-main --base "$BEFORE")" ;;
-            *) daemon=true ;;
+            pull_request) installer="$(node scripts/test-affected.js installer --base "$(git rev-parse HEAD^1)")" ;;
+            push) installer="$(node scripts/test-affected.js installer-main --base "$BEFORE")" ;;
+            *) installer=true ;;
           esac
-          echo "daemon=$daemon" >>"$GITHUB_OUTPUT"
-          if [[ "$daemon" != true ]]; then
-            echo "::notice::nothing the daemon is built or tested from changed; skipping the Windows tests"
+          echo "installer=$installer" >>"$GITHUB_OUTPUT"
+          if [[ "$installer" != true ]]; then
+            echo "::notice::nothing the Windows installer is built or tested from changed; skipping the Windows tests"
           fi
 
   test:
     needs: changes
-    if: needs.changes.outputs.daemon == 'true'
+    if: needs.changes.outputs.installer == 'true'
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     # A dedicated runner: no machine-wide test slots, so vitest uses every CPU (M2-T31).
     env:
       CONDUCTOR_TEST_SLOTS: '0'
@@ -86,6 +78,5 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm vitest run --project daemon
       # MW-T11: install.ps1 under Windows PowerShell 5.1 against a fake tarball server (no DB).
       - run: pnpm vitest run --project orchestrator test/install-ps1.test.ts

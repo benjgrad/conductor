@@ -1,5 +1,5 @@
 //! Ports of `cli-driver.test.ts` and `cli-driver.real.test.ts`. The real driver and the real
-//! outcome server run against the process-boundary fake (`packages/daemon/test/fixtures/
+//! outcome server run against the process-boundary fake (`e2e/fixtures/
 //! fake-claude.mjs`, under node): the process boundary (spawn, stdio, kill, MCP over HTTP) is what
 //! these tests are about, so they spawn processes. The pure cases (argv, env, notes) don't.
 
@@ -32,7 +32,7 @@ fn repo_root() -> PathBuf {
 /// The fake, run by node (a real .exe on Windows, where claude must be native, U-110).
 fn fake_claude() -> String {
     repo_root()
-        .join("packages/daemon/test/fixtures/fake-claude.mjs")
+        .join("e2e/fixtures/fake-claude.mjs")
         .to_string_lossy()
         .into_owned()
 }

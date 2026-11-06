@@ -28,7 +28,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile --offline
 RUN pnpm build
 # `pnpm deploy --legacy` (pnpm 10 without inject-workspace-packages) copies the orchestrator with
-# production deps only: no @conductor/daemon, no @types. Its own dist/ and migrations/ and the
+# production deps only: no @types. Its own dist/ and migrations/ and the
 # workspace dep @conductor/shared (with dist/) come along; the checks below fail the build if
 # that ever stops being true.
 RUN pnpm --filter @conductor/orchestrator --prod deploy --legacy /out/app \
@@ -37,7 +37,6 @@ RUN pnpm --filter @conductor/orchestrator --prod deploy --legacy /out/app \
  && test -d /out/app/migrations \
  && test -f /out/app/node_modules/@conductor/shared/dist/index.js \
  && test -f /out/app/node_modules/node-pg-migrate/bin/node-pg-migrate.js \
- && test ! -e /out/app/node_modules/@conductor/daemon \
  && test -f /out/app/assets/install.sh.tmpl \
  && test -f /out/app/assets/install.ps1.tmpl \
  && cp -r packages/web/dist /out/app/web \

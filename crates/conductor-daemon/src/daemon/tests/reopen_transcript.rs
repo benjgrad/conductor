@@ -6,8 +6,7 @@ use super::*;
 use crate::claude::transcript::transcript_path_for;
 
 fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../packages/daemon/test/fixtures/transcript.jsonl")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/transcript.jsonl")
 }
 
 fn complete_twice() -> FakeClaudeScript {

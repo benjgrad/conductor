@@ -1565,7 +1565,7 @@ export type RepoListResponse = z.infer<typeof RepoListResponseSchema>;
 
 // ---------------------------------------------------------------- repo grammar (U-048)
 // The M1-T14 grammar (daemon `cloneSource`). TD-107: duplicated in the daemon's `cloneSource`
-// (packages/daemon/src/workspace.ts), canonicalRepo and `isCanonicalRemote` until they share one.
+// (crates/conductor-daemon/src/workspace.rs), canonicalRepo and `isCanonicalRemote` until they share one.
 const LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?';
 const HOST = `${LABEL}(?:\\.${LABEL})*`;
 const SEGMENT = '[A-Za-z0-9_][A-Za-z0-9._-]*';

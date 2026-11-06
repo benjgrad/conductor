@@ -6,15 +6,15 @@
 // The fake planner calls `publish_page` (the daemon posts it with its credential), then asks for
 // approval with `plan_needs_approval` and the returned URL in `pages`. Plan review (the session
 // detail behind it) lists the page as hosted; GET /p/:id serves it with the sandbox CSP; once
-// expired it answers 410. Rust daemon only: the frozen TS daemon has no publish_page (TD-216).
+// expired it answers 410.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Api, BoardWatcher } from './harness/api.js';
 import { createFixtureRepo } from './harness/fixture-repo.js';
-import { DAEMON_KIND, REPO_ROOT, SETUP_TIMEOUT_MS, Stack } from './harness/stack.js';
+import { REPO_ROOT, SETUP_TIMEOUT_MS, Stack } from './harness/stack.js';
 
-const SKIP = process.env.E2E_REAL_CLAUDE === '1' || DAEMON_KIND !== 'rust';
+const SKIP = process.env.E2E_REAL_CLAUDE === '1';
 
 interface Def {
   id: string;

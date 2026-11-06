@@ -14,10 +14,10 @@ const plan = (/** @type {string[] | null} */ changed, over = {}) =>
 const tierNames = SLOW_TIERS.map((t) => t.name);
 
 describe('planTiers (M2-T33)', () => {
-  it('a daemon-only change skips every other slow tier and runs the daemon one', () => {
-    const p = plan(['packages/daemon/src/actions/open-pr.ts']);
-    expect(p.skipped).toEqual(['web jsdom', 'orchestrator database', 'engine properties']);
-    expect(p.exclude.daemon).toBeUndefined();
+  it('an orchestrator-only change skips every other slow tier and runs its own', () => {
+    const p = plan(['packages/orchestrator/src/api/machines.ts']);
+    expect(p.skipped).toEqual(['web jsdom', 'engine properties']);
+    expect(p.exclude.orchestrator).toBeUndefined();
     expect(p.exclude.web).toContain('src/**/*.test.tsx');
   });
 
@@ -36,7 +36,7 @@ describe('planTiers (M2-T33)', () => {
 
   it('a workflow JSON change runs the web and engine tiers', () => {
     const p = plan(['docs/design/workflows/conductor.v2.json']);
-    expect(p.skipped).toEqual(['daemon processes', 'orchestrator database']);
+    expect(p.skipped).toEqual(['orchestrator database']);
   });
 
   it('editing a slow test file runs its own tier, and only that one', () => {
@@ -57,7 +57,6 @@ describe('planTiers (M2-T33)', () => {
   it("a package.json runs its own package's tier; shared's runs every tier", () => {
     // changedFiles turns a lockfile change into these (scripts/test-lockfile.js)
     expect(plan(['packages/web/package.json']).skipped).toEqual([
-      'daemon processes',
       'orchestrator database',
       'engine properties',
     ]);
@@ -97,9 +96,9 @@ describe('command line', () => {
 
   it('file filters disable tiering; flags and their values do not', () => {
     expect(namesTestFiles(vitest('run'))).toBe(false);
-    expect(namesTestFiles(vitest('run', '--project', 'daemon'))).toBe(false);
+    expect(namesTestFiles(vitest('run', '--project', 'orchestrator'))).toBe(false);
     expect(namesTestFiles(vitest('run', '--reporter=json', '-t', 'name'))).toBe(false);
-    expect(namesTestFiles(vitest('run', '--project', 'daemon', 'src/a.test.ts'))).toBe(true);
+    expect(namesTestFiles(vitest('run', '--project', 'orchestrator', 'src/a.test.ts'))).toBe(true);
     expect(namesTestFiles(vitest('open-pr'))).toBe(true);
   });
 

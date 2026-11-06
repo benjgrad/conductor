@@ -12,10 +12,11 @@ An autonomous orchestrator for Claude Code. Machine daemons on developer laptops
 
 ## Run it locally
 
-Needs Node 22, pnpm 10, Postgres 16 (Docker, or Homebrew `postgresql@16`), and a logged-in `claude` CLI.
+Needs Node 22, pnpm 10, a Rust toolchain (`rustup`; the version is pinned in `rust-toolchain.toml`), Postgres 16 (Docker, or Homebrew `postgresql@16`), and a logged-in `claude` CLI.
 
 ```bash
 pnpm i && pnpm build                 # builds the packages and the web app
+cargo build --release -p conductor-daemon   # the daemon (Rust, ADR-0026)
 pnpm db:up && pnpm db:migrate        # local Postgres on :54329, database `conductor`
 
 # 1. Orchestrator: API + kanban on http://127.0.0.1:7400
@@ -23,7 +24,7 @@ DATABASE_URL=postgres://conductor:conductor@localhost:54329/conductor \
   node packages/orchestrator/dist/bin.js
 
 # 2. Daemon (another terminal): dials the orchestrator and runs `claude` in git worktrees
-CONDUCTOR_ALLOW_LOCAL_REPOS=1 node packages/daemon/dist/main.js
+CONDUCTOR_ALLOW_LOCAL_REPOS=1 target/release/conductor-daemon
 ```
 
 Then save a workflow once:
@@ -49,5 +50,5 @@ Notes:
 - **Keep `ANTHROPIC_API_KEY` out of the daemon's environment.** If it's set, `claude` bills the API instead of your subscription.
 - Keep `CONDUCTOR_ROOT` (default `~/.conductor`) **outside any `.claude` directory**; Claude Code treats files there as protected config.
 - Run one daemon per `CONDUCTOR_MACHINE_ID` (default: the hostname).
-- Daemon env vars are listed in `packages/daemon/src/config.ts`; the orchestrator takes `DATABASE_URL`, `CONDUCTOR_PORT` (7400) and `CONDUCTOR_WEB_DIR`.
+- Daemon env vars are listed in `crates/conductor-daemon/src/config.rs`; the orchestrator takes `DATABASE_URL`, `CONDUCTOR_PORT` (7400) and `CONDUCTOR_WEB_DIR`.
 - `pnpm test:e2e` runs the whole loop against a fake `claude`; `E2E_REAL_CLAUDE=1 pnpm test:e2e` uses the real one on haiku (on a subscription it uses quota, not money).

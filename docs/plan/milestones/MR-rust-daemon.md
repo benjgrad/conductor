@@ -79,7 +79,7 @@
 | MR-T16c | TS → Rust upgrade e2e through the rendered `install.sh` (old FR-4) | T16, T15 | G | — | done (this branch: `e2e/upgrade.e2e.test.ts`, password mode) |
 | MR-T17 | Moved daemon features in Rust: T17a = M2-T27 daemon part, T17b = M2-T28d; ticket blocks written when their M2 contract tasks merge (T17b block written 2026-11-04; posted after M2-T28b merges) | T12 + each M2 contract task | G | — | todo |
 | MR-T18a | Cutover docs, PARITY at 100% | T14, T15, T16, T16b, T16c | H | — | todo |
-| MR-T18b | Delete `packages/daemon` after Ben's dogfood day on each OS (absorbs MW-T13) and his OK | T18a | H | — | todo |
+| MR-T18b | Delete `packages/daemon` after Ben's dogfood day on each OS (absorbs MW-T13) and his OK | T18a | H | — | done (this branch, on Ben's ticket "TS Daemon Deprecation", ahead of T18a; parity at 100%: 502 mapped, 10 dropped; the T16c TS → Rust upgrade e2e and `scripts/test-parity.js` were removed with it; `daemon-windows.yml` is now the Windows installer gate) |
 
 Groups run in order A → H, and tasks within a group own disjoint files. In C, T04, T05 and T06 run in parallel once their deps are done; in D, T07 and T08; in E, T09 and T10, then T11. Branches are `mr-tNN-<slug>`. Tickets are posted in the waves below. Every task must be green on the cargo matrix **and** `scripts/ci.sh` before merge.
 

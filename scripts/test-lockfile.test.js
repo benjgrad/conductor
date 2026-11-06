@@ -1,9 +1,9 @@
 // @ts-check
 import { describe, expect, it } from 'vitest';
-import { daemonAffected } from './test-affected.js';
+import { installerAffected } from './test-affected.js';
 import { lockfileImporters, translateLockfile } from './test-lockfile.js';
 
-/** A pnpm v9 lockfile shaped like ours: root toolchain, shared linked into daemon and web. */
+/** A pnpm v9 lockfile shaped like ours: root toolchain, shared linked into orchestrator and web. */
 const lock = ({
   zod = '4.6.7',
   ws = '8.22.0',
@@ -24,7 +24,7 @@ importers:
         specifier: ^${vitest}
         version: ${vitest}
 
-  packages/daemon:
+  packages/orchestrator:
     dependencies:
       '@conductor/shared':
         specifier: workspace:*
@@ -78,20 +78,20 @@ describe('lockfileImporters', () => {
 
   it('a shared dependency reaches every package that links shared', () => {
     expect(lockfileImporters(lock(), lock({ zod: '4.7.0' }))).toEqual([
-      'packages/daemon',
+      'packages/orchestrator',
       'packages/shared',
       'packages/web',
     ]);
   });
 
-  it('a daemon dependency reaches only the daemon', () => {
-    expect(lockfileImporters(lock(), lock({ ws: '8.23.0' }))).toEqual(['packages/daemon']);
+  it('an orchestrator dependency reaches only the orchestrator', () => {
+    expect(lockfileImporters(lock(), lock({ ws: '8.23.0' }))).toEqual(['packages/orchestrator']);
   });
 
   it('the root toolchain reaches everything, the root included', () => {
     expect(lockfileImporters(lock(), lock({ vitest: '5.1.0' }))).toEqual([
       '.',
-      'packages/daemon',
+      'packages/orchestrator',
       'packages/shared',
       'packages/web',
     ]);
@@ -117,7 +117,7 @@ describe('translateLockfile', () => {
   it('replaces the lockfile with the package.json of each package it reaches', () => {
     expect(
       translateLockfile(['docs/x.md', 'pnpm-lock.yaml'], read(lock({ ws: '8.23.0' }))),
-    ).toEqual(['docs/x.md', 'packages/daemon/package.json']);
+    ).toEqual(['docs/x.md', 'packages/orchestrator/package.json']);
   });
 
   it('keeps it (a global change) when it reaches the root or can not be read', () => {
@@ -131,14 +131,12 @@ describe('translateLockfile', () => {
   });
 });
 
-describe('daemonAffected (the daemon-windows job)', () => {
+describe('installerAffected (the daemon-windows job)', () => {
   it.each([
-    [['packages/daemon/src/daemon.ts'], true],
     [['packages/shared/src/api/rest.ts'], false],
-    [['packages/shared/package.json'], true],
-    [['packages/daemon/package.json'], true],
+    [['packages/shared/package.json'], false],
+    [['crates/conductor-daemon/src/daemon.rs'], false], // daemon-rust.yml's Windows legs
     [['scripts/test-slot.js'], true],
-    [['scripts/test-parity.js', 'scripts/test-parity.test.js'], false],
     [['pnpm-lock.yaml'], true],
     [['.github/workflows/daemon-windows.yml'], true],
     [['tsconfig.base.json'], true],
@@ -147,15 +145,10 @@ describe('daemonAffected (the daemon-windows job)', () => {
     [['packages/web/src/App.tsx', 'packages/web/package.json'], false],
     [['packages/orchestrator/src/server.ts', 'deploy/gradyserver/compose.yml'], false],
   ])('%j → %s', (changed, want) => {
-    expect(daemonAffected(changed)).toBe(want);
+    expect(installerAffected(changed)).toBe(want);
   });
 
   it('runs when the diff is unknown', () => {
-    expect(daemonAffected(null)).toBe(true);
-  });
-
-  it('a push to main also runs on a shared change', () => {
-    expect(daemonAffected(['packages/shared/src/api/rest.ts'], { main: true })).toBe(true);
-    expect(daemonAffected(['packages/web/src/App.tsx'], { main: true })).toBe(false);
+    expect(installerAffected(null)).toBe(true);
   });
 });

@@ -126,14 +126,9 @@ export default defineConfig({
       ...pkg('shared', ['src/**/*.test.ts']),
       // test/** holds DB integration tests and the per-run test database helper (test/db.ts).
       ...pkg('orchestrator', ['src/**/*.test.ts', 'test/**/*.test.ts']),
-      // Daemon tests spawn node children (fake claude, edit guard) that can stall for seconds on a
-      // loaded macOS: a longer per-test timeout (U-046-style flake). Hooks get the same: a
-      // beforeEach that builds a git repo and private dirs (PowerShell ACLs, TD-194) takes ~10 s on
-      // a busy Windows runner. Prefer building such fixtures once per file (TEST_STRATEGY).
-      ...pkg('daemon', ['src/**/*.test.ts'], { testTimeout: 30_000, hookTimeout: 30_000 }),
       // jsdom renders of the whole App take 2–5 s each when a full run loads the CPUs, so the 5 s
       // default fails whichever one lands last (quick-actions, HelpPage, App.mobile): a longer
-      // per-test timeout, as for the daemon.
+      // per-test timeout.
       ...pkg('web', ['src/**/*.test.{ts,tsx}'], { testTimeout: 15_000 }),
       {
         extends: true,

@@ -34,11 +34,11 @@ const M3_CONTRACTS =
 const M3_DESIGN =
   'Start at 10-contracts §Tool layer and MCP and `docs/adr/0014-tool-layer-and-oauth-mcp-server.md`. The full plan is `docs/plan/milestones/M3-mcp.md`.';
 
-// MR (Rust daemon, ADR-0026): the TS daemon is frozen and is the behaviour reference.
+// MR (Rust daemon, ADR-0026): the TS daemon, deleted in MR-T18b, stays the behaviour reference in git history.
 const MR_RULES =
   "- If `docs/adr/0026-rust-daemon.md` or `docs/plan/milestones/MR-rust-daemon.md` is missing on `origin/main`, the plan isn't merged yet (PR #69): read them with `git fetch origin mr-t00-rust-daemon-plan && git show origin/mr-t00-rust-daemon-plan:<path>`. Don't merge that branch into yours.\n" +
-  '- The TypeScript daemon (`packages/daemon`) is frozen and is the behaviour reference: read it, never change it, except where this ticket\'s "Files owned" says so. A behaviour difference you intend needs a design-doc edit in this PR.\n' +
-  '- Every TS test case your ticket ports gets its row in `crates/conductor-daemon/PARITY.md` (Rust test path, or `dropped: <reason>` listed in the PR for Ben), and its file globs go in the ported list; `node scripts/test-parity.js` must pass.\n' +
+  '- The TypeScript daemon was deleted (MR-T18b); it stays the behaviour reference in history: `git show "$(git log -1 --diff-filter=D --format=%H -- packages/daemon/package.json)^:packages/daemon/src/<file>"`. A behaviour difference you intend needs a design-doc edit in this PR.\n' +
+  '- `crates/conductor-daemon/PARITY.md` is a frozen record: if you rename a Rust test it names, update its row.\n' +
   '- OS-specific code (`cfg(windows)`, `cfg(unix)`, `cfg(target_os …)`) only under `crates/conductor-daemon/src/platform/`. Protocol frames only through `conductor-protocol` types. On-disk files stay byte-compatible with the TS daemon.\n' +
   '- If `cargo` is not on PATH, stop and ask (B-005). Never install a toolchain on the machine yourself.\n' +
   '- Windows is proven by the `daemon-rust` GitHub Actions matrix on your PR; wait for it to be green before finishing.\n';

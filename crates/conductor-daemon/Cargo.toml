@@ -1,6 +1,6 @@
 [package]
 name = "conductor-daemon"
-description = "The conductor daemon, in Rust (ADR-0026). The TS daemon in packages/daemon is the behaviour reference."
+description = "The conductor daemon, in Rust (ADR-0026)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -32,7 +32,7 @@ export const RUST_TRIGGERS = [
   'Cargo.lock',
   'rust-toolchain.toml',
   'packages/shared/**', // the zod schemas the Rust protocol types are generated from
-  'scripts/test-parity.js',
+  'e2e/fixtures/**', // fake-claude.mjs and transcript.jsonl, which the Rust tests run too
   ...CI_TRIGGERS,
 ];
 
@@ -49,7 +49,6 @@ export const E2E_TRIGGERS = [
   'Cargo.lock',
   'rust-toolchain.toml',
   'packages/orchestrator/**',
-  'packages/daemon/**', // the fake claude fixture, and the TS daemon
   'packages/shared/**',
   'docs/design/workflows/*.json',
   'package.json',

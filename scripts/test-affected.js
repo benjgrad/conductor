@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // @ts-check
-// Does a change need the Windows daemon tests? The daemon-windows workflow asks before it spends
-// ~15 min on windows-latest (ADR-0024 §9, TD-194):
+// Does a change need the Windows installer tests? The daemon-windows workflow asks before it spends
+// a windows-latest runner (ADR-0024 §9, TD-194). The Rust daemon's own Windows tests run in
+// daemon-rust.yml; the TS daemon this job used to test was deleted in MR-T18b.
 //
-//   node scripts/test-affected.js daemon --base <sha>        → a PR: prints `true` or `false`
-//   node scripts/test-affected.js daemon-main --base <sha>   → a push to main: the same, plus shared
+//   node scripts/test-affected.js installer --base <sha>        → a PR: prints `true` or `false`
+//   node scripts/test-affected.js installer-main --base <sha>   → a push to main: the same
 //
 // Changed is `git diff <base>` plus untracked files, with a pnpm-lock.yaml change counted only
 // against the packages it actually reaches (scripts/test-lockfile.js). Anything uncertain prints
@@ -13,15 +14,11 @@ import { fileURLToPath } from 'node:url';
 import { changedFiles, matchGlob } from './test-tiers.js';
 
 /**
- * A change to any of these runs the job on a PR. Paths are relative to the repo root. Only what
- * can behave differently on Windows: shared is pure TypeScript with no OS branches, and its code
- * already runs through the daemon tests on Linux, so a shared change waits for main (below).
+ * A change to any of these runs the job. Paths are relative to the repo root. Only what can
+ * behave differently on Windows: install.ps1 (MW-T11) and what renders or runs its test.
  */
-export const DAEMON_TRIGGERS = [
-  'packages/daemon/**',
-  'packages/shared/package.json', // a dependency the daemon resolves
+export const INSTALLER_TRIGGERS = [
   '.github/workflows/daemon-windows.yml',
-  // the Windows installer (MW-T11), also tested by the job
   'packages/orchestrator/assets/**',
   'packages/orchestrator/src/distribution.ts',
   'packages/orchestrator/test/install-ps1.test.ts',
@@ -39,23 +36,19 @@ export const DAEMON_TRIGGERS = [
   '.npmrc',
 ];
 
-/** A push to main also runs on a shared change: a safety net nobody waits on (deploy needs only `gates`). */
-export const DAEMON_MAIN_TRIGGERS = [...DAEMON_TRIGGERS, 'packages/shared/**'];
-
-/** @param {string[] | null} changed @param {{ main?: boolean }} [opts] @returns {boolean} */
-export function daemonAffected(changed, { main = false } = {}) {
+/** @param {string[] | null} changed @returns {boolean} */
+export function installerAffected(changed) {
   if (changed === null) return true;
-  const triggers = main ? DAEMON_MAIN_TRIGGERS : DAEMON_TRIGGERS;
-  return changed.some((f) => triggers.some((g) => matchGlob(g, f)));
+  return changed.some((f) => INSTALLER_TRIGGERS.some((g) => matchGlob(g, f)));
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [target, flag, base] = process.argv.slice(2);
   if (
-    (target !== 'daemon' && target !== 'daemon-main') ||
+    (target !== 'installer' && target !== 'installer-main') ||
     (flag !== undefined && flag !== '--base')
   ) {
-    process.stderr.write('usage: test-affected.js daemon|daemon-main [--base <sha>]\n');
+    process.stderr.write('usage: test-affected.js installer|installer-main [--base <sha>]\n');
     process.exit(2);
   }
   const root = fileURLToPath(new URL('..', import.meta.url));
@@ -67,5 +60,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       : `test-affected: ${changed.length} changed path(s) since ${base}\n` +
           changed.map((f) => `  ${f}\n`).join(''),
   );
-  process.stdout.write(`${daemonAffected(changed, { main: target === 'daemon-main' })}\n`);
+  process.stdout.write(`${installerAffected(changed)}\n`);
 }

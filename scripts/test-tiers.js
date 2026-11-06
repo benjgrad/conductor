@@ -52,28 +52,6 @@ export const SLOW_TIERS = [
     triggers: ['packages/web/**', ...SHARED, 'docs/design/workflows/*.json'],
   },
   {
-    // Real git repos, real node children (fake claude, edit guard), real `gh` shims.
-    name: 'daemon processes',
-    project: 'daemon',
-    files: [
-      'src/actions/checkout.test.ts',
-      'src/actions/open-pr.test.ts',
-      'src/actions/open-pr.gh-version.test.ts',
-      'src/claude/cli-driver.test.ts',
-      'src/claude/cli-driver.real.test.ts',
-      'src/claude/edit-guard.test.ts',
-      'src/commands/config.test.ts',
-      'src/commands/process-runner.test.ts',
-      'src/daemon.test.ts',
-      'src/daemon.kill.test.ts',
-      'src/inventory/capabilities.test.ts',
-      'src/inventory/repos.test.ts',
-      'src/reopen-transcript.test.ts',
-      'src/workspace.fresh-base.test.ts',
-    ],
-    triggers: ['packages/daemon/**', ...SHARED],
-  },
-  {
     // One migrated Postgres database per file (test/db.ts).
     name: 'orchestrator database',
     project: 'orchestrator',

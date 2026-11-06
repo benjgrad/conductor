@@ -68,7 +68,7 @@ export interface MachineRow {
    */
   git_identity_missing: boolean | null;
   /**
-   * ADR-0039 (migration 1763900000000): the machine's default for "skip permissions" (a ticket's
+   * ADR-0039 (migration 1764000000000): the machine's default for "skip permissions" (a ticket's
    * own setting wins). Optional only so hand-built rows in tests may leave it out (≡ false).
    */
   skip_permissions_default?: boolean;
@@ -205,7 +205,7 @@ export interface TicketRow {
    */
   session_allow: string[];
   /**
-   * ADR-0039 (migration 1763900000000): "skip permissions" for this ticket's working agents; true
+   * ADR-0039 (migration 1764000000000): "skip permissions" for this ticket's working agents; true
    * = on, false = off, null = the machine's default. Optional only so hand-built rows in tests may
    * leave it out (≡ null).
    */

@@ -6,7 +6,8 @@ import { validateWorkflow } from './validate.js';
 
 // ADR-0037 T1: docs/design/workflows/conductor.v6.draft.json is the definition the builder would
 // save once P1–P8 land. Each primitive's ticket lifted its rule-14 "not available yet" refusal; T7
-// lifted the last, so it now validates as is (T9 saves the draft).
+// lifted the last, so it now validates as is. T9 saved it as v6 without
+// `requires.concurrency` until U-120 decides (conductor.v6.json, conductor.v6.test.ts).
 
 const read = (name: string): unknown =>
   JSON.parse(

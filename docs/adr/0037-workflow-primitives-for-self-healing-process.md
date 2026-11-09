@@ -328,6 +328,8 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
 - `in_review.request_changes` gets `presets: [resync_main]`.
 - `needs_input.watch`: an `age_below 2h` condition with `on_broken: {notify: escalate}` (the question SLA).
 
+**Saved (T9).** The live `conductor` v6 is this draft without `requires.concurrency`: [`conductor.v6.json`](../design/workflows/conductor.v6.json), checked by `conductor.v6.test.ts`. U-120 (are planning `files` reliable?) is undecided, so concurrency comes in a v7 edit once it passes.
+
 [`conductor.repo-checks.draft.json`](../design/workflows/conductor.repo-checks.draft.json) is the `set_repo_checks` payload for `github.com/benjgrad/conductor`:
 - setup: `pnpm install --frozen-lockfile && git fetch -q origin && git branch -f main origin/main`, which fixes 2.3's stale local `main`;
 - checks: typecheck, lint, test, build, and "Merges cleanly with main". The ticket template's promise that this check runs becomes true.

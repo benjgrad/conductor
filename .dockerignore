@@ -10,6 +10,8 @@ coverage
 .pgdata
 .DS_Store
 docs
+# Workflow JSON stays in: shared and web tests import it, and the image's `tsc -b` builds them.
+!docs/design/workflows
 # Local secrets. deploy/gradyserver/env.example has no leading dot, so it stays in.
 .env*
 # `use-node-version` would make pnpm download its own Node; the base image is already pinned

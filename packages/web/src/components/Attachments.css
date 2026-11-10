@@ -145,11 +145,72 @@
   min-width: var(--tap);
   min-height: var(--tap);
 }
+.attachment-lightbox-body header .attachment-lightbox-close {
+  flex: none;
+}
+.attachment-lightbox-counter {
+  flex: none;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.attachment-lightbox-reset {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
 .attachment-lightbox-media {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+/* 06 §Attachments: zoom is a transform on the image; a tap toggles it, a drag pans it. */
+.attachment-lightbox-media img {
+  transform-origin: center;
+  transition: transform 120ms ease-out;
+  cursor: zoom-in;
+  touch-action: pan-y pinch-zoom;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+.attachment-lightbox-media img.zoomed {
+  cursor: grab;
+  touch-action: none;
+}
+.attachment-lightbox-media img.dragging {
+  transition: none;
+}
+.attachment-lightbox-media img.zoomed.dragging {
+  cursor: grabbing;
+}
+.attachment-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: var(--tap);
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.45);
+  cursor: pointer;
+}
+.attachment-lightbox-nav:hover,
+.attachment-lightbox-nav:focus-visible {
+  background: rgb(0 0 0 / 0.65);
+}
+.attachment-lightbox-nav.prev {
+  left: var(--space-2);
+}
+.attachment-lightbox-nav.next {
+  right: var(--space-2);
 }
 .attachment-lightbox-media img,
 .attachment-lightbox-media video {
@@ -167,6 +228,10 @@
   .attachment-lightbox-body {
     width: 100%;
     border-radius: 0;
+  }
+  /* A phone zooms by tap or pinch; the header keeps room for the caption and Close. */
+  .attachment-lightbox-zoom {
+    display: none;
   }
 }
 .ticket-attachments {

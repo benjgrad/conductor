@@ -2,10 +2,11 @@
 // 06 §Attachments: the picker (checks, uploads, paste, remove), the create form linking the
 // uploads, the queued ticket's gallery and the editor's add / remove. Mock API, jsdom Files.
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { CreateTicketRequest, UpdateTicketRequest } from '@conductor/shared';
+import type { AttachmentDto, CreateTicketRequest, UpdateTicketRequest } from '@conductor/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
+import { AgentAttachments, AttachmentGallery } from './AttachmentGallery.js';
 import { AttachmentPicker, useAttachmentUploads } from './AttachmentPicker.js';
 import { CreateTicketForm } from './CreateTicketForm.js';
 
@@ -182,5 +183,110 @@ describe('TicketEditor attachments', () => {
         .ticket_id,
     );
     expect(after.attachments?.map((a) => a.name)).toEqual(['new.png']);
+  });
+});
+
+function att(
+  id: string,
+  mime: AttachmentDto['mime'],
+  at: string,
+  state: string | null = null,
+): AttachmentDto {
+  return {
+    id,
+    name: `${id}.${mime.split('/')[1]}`,
+    mime,
+    size_bytes: 1,
+    source: 'agent',
+    caption: null,
+    session_id: null,
+    workflow_state: state,
+    created_at: at,
+    url: `/api/attachments/${id}/content`,
+  };
+}
+
+describe('AttachmentGallery lightbox: previous / next and zoom', () => {
+  const items = [
+    att('a', 'image/png', '2026-11-01T00:00:00.000Z'),
+    att('b', 'image/png', '2026-11-01T00:00:01.000Z'),
+    att('c', 'video/mp4', '2026-11-01T00:00:02.000Z'),
+  ];
+  const dialog = () => screen.getByRole('dialog');
+
+  it('steps with the arrow keys and the Previous / Next buttons, wrapping around', () => {
+    render(<AttachmentGallery api={createMockApi({ replyDelayMs: 0 })} attachments={items} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open a.png' }));
+    expect(dialog().getAttribute('aria-label')).toBe('a.png');
+    expect(within(dialog()).getByLabelText('Position').textContent).toBe('1 / 3');
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(dialog().getAttribute('aria-label')).toBe('b.png');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Next' }));
+    expect(dialog().getAttribute('aria-label')).toBe('c.mp4');
+    // A video has no zoom.
+    expect(dialog().querySelector('video')).not.toBeNull();
+    expect(within(dialog()).queryByRole('button', { name: 'Zoom in' })).toBeNull();
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Next' }));
+    expect(dialog().getAttribute('aria-label')).toBe('a.png');
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(dialog().getAttribute('aria-label')).toBe('c.mp4');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Previous' }));
+    expect(dialog().getAttribute('aria-label')).toBe('b.png');
+  });
+
+  it('zooms with the buttons, the keys and a click on the image; moving on resets it', () => {
+    render(<AttachmentGallery api={createMockApi({ replyDelayMs: 0 })} attachments={items} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open a.png' }));
+    const img = () => within(dialog()).getByRole('img', { name: 'a.png' });
+    expect(img().style.transform).toContain('scale(1)');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Zoom in' }));
+    expect(img().style.transform).toContain('scale(1.5)');
+    expect(within(dialog()).getByRole('button', { name: 'Reset zoom' }).textContent).toBe('150%');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Reset zoom' }));
+    expect(img().style.transform).toContain('scale(1)');
+    fireEvent.keyDown(window, { key: '+' });
+    expect(img().style.transform).toContain('scale(1.5)');
+    fireEvent.keyDown(window, { key: '0' });
+    expect(img().style.transform).toContain('scale(1)');
+    // A click toggles the zoom and leaves the lightbox open.
+    fireEvent.click(img());
+    expect(img().style.transform).toContain('scale(2.5)');
+    fireEvent.click(img());
+    expect(img().style.transform).toContain('scale(1)');
+    fireEvent.click(img());
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Next' }));
+    const b = within(dialog()).getByRole('img', { name: 'b.png' });
+    expect(b.style.transform).toContain('scale(1)');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('a single item has no Previous / Next and no position', () => {
+    render(
+      <AttachmentGallery api={createMockApi({ replyDelayMs: 0 })} attachments={[items[0]!]} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open a.png' }));
+    expect(within(dialog()).queryByRole('button', { name: 'Next' })).toBeNull();
+    expect(within(dialog()).queryByRole('button', { name: 'Previous' })).toBeNull();
+    expect(within(dialog()).queryByLabelText('Position')).toBeNull();
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(dialog().getAttribute('aria-label')).toBe('a.png');
+  });
+
+  it("the agent's attachments step across their state groups, in the order shown", () => {
+    const grouped = [
+      att('plan1', 'image/png', '2026-11-01T00:00:00.000Z', 'planning'),
+      att('impl1', 'image/png', '2026-11-01T00:00:01.000Z', 'implementing'),
+      att('impl2', 'image/png', '2026-11-01T00:00:02.000Z', 'implementing'),
+    ];
+    render(<AgentAttachments api={createMockApi({ replyDelayMs: 0 })} attachments={grouped} />);
+    // The latest group (implementing) is shown first.
+    fireEvent.click(screen.getByRole('button', { name: 'Open impl2.png' }));
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(within(dialog()).getByLabelText('Position').textContent).toBe('2 / 3');
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(dialog().getAttribute('aria-label')).toBe('plan1.png');
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(dialog().getAttribute('aria-label')).toBe('impl1.png');
   });
 });

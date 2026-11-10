@@ -162,7 +162,6 @@
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  align-items: center;
   justify-content: center;
   overflow: hidden;
 }
@@ -196,10 +195,11 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: none;
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
   color: var(--text);
-  background: color-mix(in srgb, var(--panel) 75%, transparent);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  box-shadow: var(--shadow-1);
   cursor: pointer;
 }
 .attachment-lightbox-nav:hover,

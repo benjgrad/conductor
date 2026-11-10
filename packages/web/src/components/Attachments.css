@@ -198,13 +198,13 @@
   padding: 0;
   border: none;
   border-radius: 999px;
-  color: #fff;
-  background: rgb(0 0 0 / 0.45);
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 75%, transparent);
   cursor: pointer;
 }
 .attachment-lightbox-nav:hover,
 .attachment-lightbox-nav:focus-visible {
-  background: rgb(0 0 0 / 0.65);
+  background: var(--panel);
 }
 .attachment-lightbox-nav.prev {
   left: var(--space-2);

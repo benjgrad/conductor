@@ -30,7 +30,38 @@ sequenceDiagram
 - **Compute release**: a session parked in `needs_input` keeps its process alive but idle. After `park_release_after` (default **15 min**) the daemon checkpoints. That means the worktree is committed and pushed to the session branch and the `claude_session_id` is saved. Then the reservation is released. Answers that arrive after that go through the resume path.
 - **Unmet requirements** ([ADR-0009](../adr/0009-transition-requirements-review.md), [05](05-workflow-engine.md#requirements-gates-adr-0009)). A gate's `on_unmet.else` is always a human state. It is entered with kind `retries_exhausted` and the question "Requirements for "implement" → "build" were not met after 3 reviews (retry limit 2):", one `- <item>: <reason>` line per unmet item, then "Retry, skip, or abort?". A review that produced no verdict uses `retries_exhausted` ("…produced no verdict (…)"), a review that timed out uses `timeout` ("…timed out (review timed out after 10m)"). No new kind: `input_request_kind` is a Postgres enum. `return_to` is the gate's source state, so an answer resumes the **worker's** Claude conversation with the answer (never the reviewer's); finishing that state goes through the gate again, and since the counter is already at its limit an unmet verdict comes straight back here. "Skip to <state>" bypasses the gate.
 - Answering is idempotent per `input_request_id`. A second answer to the same request is rejected.
-- `answered_by` records a UI user, or `slack:<id>` once Slack answering exists ([U-007](../tracking/UNKNOWNS.md)).
+- `answered_by` records a UI user, `conductor` for an answer the answerer gave ([ADR-0040](../adr/0040-answerer-pass.md), [§Conductor answers first](#conductor-answers-first-adr-0040)), or `slack:<id>` once Slack answering exists ([U-007](../tracking/UNKNOWNS.md)).
+
+## Conductor answers first (ADR-0040)
+
+**Proposed; not available yet** (rule 14, feature `answerer`). R5a-1 adds the definition and its validation; the engine (R5a-2), Overrule (R5a-3) and metrics (R5a-4) follow. Until then every question reaches a human as above.
+
+A workflow's `answerer` block names question transitions ([05 §Answerer](05-workflow-engine.md#answerer-adr-0040-proposed)). An agent question on one of them goes to a fresh read-only conductor agent before Ben is asked:
+
+```mermaid
+sequenceDiagram
+  participant CC as Agent
+  participant O as Orchestrator
+  participant A as Answerer (fresh, read-only)
+  participant UI as Ben
+  CC->>O: ask_user / scope_changed / needs_product_context {question, options?}
+  O->>O: apply → answer step "<from> → <to> (answer)" (status running)
+  O->>A: start_session {answer: true, tools: answer alias}
+  A->>O: complete_state {verdict, confidence, answer, option?, citations, notes}
+  alt answered, confidence ≥ min_confidence, ≥ 1 citation
+    O->>O: input_request created and answered (answered_by conductor, citations)
+    O->>CC: input.provided "Conductor answered your question (Ben can overrule this): …"
+    O-->>UI: push "Conductor answered <agent>'s question" [Overrule]
+  else unconfident, malformed, timeout, failure
+    O->>O: question opens as today, with answerer_notes
+    O-->>UI: input.requested (and its push, per P6)
+  end
+```
+
+- **Never routed:** `plan_needs_approval`, `needs_approval_to_message`, `impossible`, any hand-off, and every generated request (`retries_exhausted`, `timeout`, `budget_exceeded`, `machine_lost`, `check_config`, `approval`). Only `agent_question` requests are.
+- **Sources** the answerer may cite: repo files (`file:<path>[:<line>]`, ADRs and docs included), the ticket (`ticket`), earlier answers on the ticket (`answer:<id>`) and read-only `gh` commands it ran (`gh:<command>`).
+- **The fallback is today's path.** A question the answerer can't settle opens with the same kind, text, options, human state and `return_to`; the panel shows its notes under the question as "Conductor looked into this: …".
+- **Overrule.** From the push, the panel's "Answered by conductor" block, MCP `overrule_answer` or `POST /api/input-requests/:id/overrule`. It opens a new `agent_question` (`overrules: <id>`) with the question and conductor's answer and citations, without stopping the agent. Ben's answer is delivered as a correction: a live message to a working agent ("Correction from Ben to conductor's answer to "<question>": …"), the answer to a parked one, or a Reopen of a finished session. Each conductor answer can be overruled once, on the ticket's latest session.
 
 ## Check-config failures and agent-proposed repo checks
 

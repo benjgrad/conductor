@@ -14,6 +14,7 @@ export * from './workflow/transition-rules.js';
 export * from './workflow/instructions.js';
 export * from './workflow/bases.js';
 export * from './workflow/validate-bases.js';
+export * from './workflow/validate-answerer.js';
 export * from './workflow/fold.js';
 export * from './workflow/fixtures.js';
 export * from './workflow/capabilities.js';

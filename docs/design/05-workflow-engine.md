@@ -248,6 +248,15 @@ The schema and the validator are in `packages/shared` (T1): every field below pa
 - **`cause`** (P7, in since T2) on every `state_entered`: `transition`, `start`, `check_failed`, `review_unmet`, `action_failed`, `condition_unmet`, `condition_timeout`, `watch_broken`, `concurrency_released`, `timeout`, `retry`, `retries_exhausted`, `budget_exceeded`, `machine_lost`, `answer_routed` or `fallback`. Engine moves (every cause but `transition`, `start` and `answer_routed`) are recorded with `actor: system` and the gate's (or outcome's) transition name; `EnterOpts.record` is required, so `apply()` can't enter a state without one. Rows before T2 have no cause; their engine routes read as actor `engine`.
 - **`handoff: true`** (P8) on a transition into a human state: an input_request of kind `handoff`, with the reason as the summary. It is exclusive with `question`.
 
+### Answerer ([ADR-0040](../adr/0040-answerer-pass.md), proposed)
+A workflow-level `answerer {applies_to, model?, min_confidence = high, timeout? = 10m}` lets conductor try an agent's question before a human is asked. The schema and rule 28 are in `packages/shared` (R5a-1, `AnswererSchema`, `validate-answerer.ts`); rule 14 refuses the block ("not available yet", feature `answerer`) until the engine ticket (R5a-2) runs it. Absent means every question reaches a human, as today.
+
+- **Routed questions.** An agent outcome on a transition `applies_to` names (`ask_user`, also the mid-turn `ask_user` tool, or a `question: true` transition). Never `NEVER_AUTO_ANSWERED` (`plan_needs_approval`, `needs_approval_to_message`, `impossible`), a hand-off, or a generated request (rule 28).
+- **The answer step** (R5a-2). Shaped like a review step ([§Requirements gates](#requirements-gates-adr-0009)): the label `<from> → <to> (answer)`, its data under `context.__answer`, status `running`, a fresh read-only Claude session (`answer: true`, the `answer` tool alias, `dontAsk`, the `answerer.model`), bounded by `answerer.timeout`.
+- **Confident** (`verdict: answered`, confidence ≥ `min_confidence`, ≥ 1 citation, a valid option when the question had options): the input_request is created and answered at once (`answered_by: conductor`, `citations`), `input.provided` returns the agent to the asking state (`answer_routed`), and one push with Overrule follows the question transition's P6 decision.
+- **Anything else** (unconfident, malformed after one nudge, timeout, exit, no machine, budget): the question opens exactly as without an answerer, with `answerer_notes`. The step has no other exit: it ends at the asker or at the question's own human target, and adds no graph edge.
+- **Overrule** reopens the question to Ben without stopping the agent; his answer reaches it as a correction ([06 §Conductor answers first](06-human-input.md#conductor-answers-first-adr-0040)).
+
 ### Ticket breakdown (planning)
 A `triage` agent state returns `{size: "small"|"large"}`. A guard routes large tickets to a `plan` state. That state returns `child_tickets[]`, which the orchestrator creates (each `ready`, with `parent_ticket_id`), and then the parent waits on an `event` state `children.done`. Not in `pr_flow`; see [U-010](../tracking/UNKNOWNS.md).
 
@@ -315,6 +324,7 @@ Rules 10–14 are the transition rules of [ADR-0011](../adr/0011-transition-rule
     - A transition into the start state can't carry `requires` (`….requires`).
     - An agent state's known tool alias outside `AVAILABLE_TOOL_ALIASES` (`states.<s>.tools.<i>`), or result kind outside `AVAILABLE_RESULT_KINDS` (`states.<s>.result.<i>`), is "not available yet" (`checkAvailability`, ADR-0038 under ADR-0037's pattern). `pages` (alias and kind) is available.
     - So is an ADR-0037 primitive outside `AVAILABLE_WORKFLOW_FEATURES` (`no_checks` since T5, `instructions` since T8: the map, its refs and `presets`; the `notify` block and string `notify` values since T4; `requires.concurrency` since T7), at its path: `watch` (`states.<s>.watch`), `requires.concurrency`, the `instructions` map (`instructions`), `$instructions.<slug>` refs and `presets`, the `notify` block (`notify`) and string transition `notify` values, `handoff: true`. A watch's enabled conditions are checked like `requires.conditions`.
+    - So is the ADR-0040 feature `answerer` (not available until R5a-2): the workflow `answerer` block (`answerer`).
     - So is the ADR-0039 feature `bases` (not available until B2): the `bases` map (`bases`), `base_default` (`base_default`), and every `$base` / `$base_sha` use at its field (rule 27's sites). A ticket's `base` and a planning result's `base` are refused the same way by `ticketBaseProblems` / `planBaseProblems` (the create and PATCH routes answer 400 at path `base`).
     - Every "not available yet" refusal is `checkAvailability`'s; `validateWorkflow(def, {allowUnavailable: true})` skips them all (tests and drafts only; no save path sets it). The start-state refusal above is not one of them.
 
@@ -347,6 +357,14 @@ The live `conductor` workflow v6 (ADR-0037 T9) is that draft without `requires.c
 Rules 26–27 are [ADR-0039](../adr/0039-base-refs.md#validation-on-save-rules-2627)'s (base refs), in `validate-bases.ts` (`checkBases`, B1):
 - 26, `base_default` needs `bases`, and each of its values names a key of `bases` (`base_default.<kind>`). A ticket's or plan's base name is checked against the same map when it is set (`ticketBaseProblems`, `planBaseProblems`);
 - 27, `$base` / `$base_sha` in a check `cmd`, a `cmd` condition (`requires` or `watch`), an `instructions` text or a literal `on_unmet` / `on_broken` instruction needs the workflow's `bases`. A definition can't know a repo's default branch, so declaring `bases` (at least `{"default": {"ref": "$default_branch"}}`) is the opt-in.
+
+Rule 28 is [ADR-0040](../adr/0040-answerer-pass.md#9--validation-on-save-rule-28)'s (the answerer), in `validate-answerer.ts` (`checkAnswerer`, R5a-1). Errors are at `answerer.applies_to.<i>` unless stated:
+- each name is listed once;
+- no name is in `NEVER_AUTO_ANSWERED` (`plan_needs_approval`, `needs_approval_to_message`, `impossible`): those need a human's decision;
+- each name is a question some agent state asks (`ask_user` into a human state, or a `question: true` transition), never a `handoff` (a transition that exists but isn't a question, like `plan_ready`, is "no agent state asks");
+- `timeout` is 1m–30m (`answerer.timeout`).
+
+The answerer adds no edges, so rules 2–5 read the graph as before.
 
 **Warnings.** `validateWorkflow` also returns `warnings` (same shape as errors, present only when non-empty), which never block a save. Today there is one: a `cmd` base without `pr_into` (`bases.<name>.pr_into`, numbered 26), because B2 refuses a sha result it can't open a PR from. The save routes don't return warnings yet (B3).
 

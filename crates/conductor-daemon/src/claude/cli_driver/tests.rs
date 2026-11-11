@@ -300,6 +300,38 @@ fn base_opts() -> DriverStartOptions {
     opts_in(Path::new("/w"), json!([]))
 }
 
+/// R4: `--allowedTools` gets run_gate only with a handler and a transition that runs checks, and
+/// never for a reviewer: exactly when the outcome server lists it.
+#[test]
+fn allows_run_gate_only_with_a_handler_and_a_checked_transition() {
+    use crate::claude::driver::RunGateHook;
+    let allowed = |o: &DriverStartOptions| {
+        let args = build_claude_args(o, "{}", "/tmp/s/settings.json", &PermissionArgs::Host);
+        let i = args.iter().position(|a| a == "--allowedTools").unwrap();
+        args[i + 1].clone()
+    };
+    let option = |name: &str, checks: bool| -> AgentTransitionOption {
+        let mut v = json!({"name": name, "when": null, "question": false});
+        if checks {
+            v["checks"] = json!(true);
+        }
+        serde_json::from_value(v).unwrap()
+    };
+    let hook = RunGateHook(std::sync::Arc::new(|_| {
+        Box::pin(async { Ok(String::new()) })
+    }));
+    let mut o = base_opts();
+    o.transitions = Some(vec![option("ship", true)]);
+    assert!(!allowed(&o).contains(RUN_GATE_TOOL));
+    o.run_gate = Some(hook);
+    assert!(allowed(&o).contains(RUN_GATE_TOOL));
+    o.review = true;
+    assert!(!allowed(&o).contains(RUN_GATE_TOOL));
+    o.review = false;
+    o.transitions = Some(vec![option("done", false)]);
+    assert!(!allowed(&o).contains(RUN_GATE_TOOL));
+}
+
 /// ADR-0038: `--allowedTools` gets publish_page only for a state with the `pages` tool, and only
 /// with an attach target (the orchestrator to post to); a reviewer gets neither.
 #[test]
@@ -1667,6 +1699,7 @@ fn noop_handlers() -> OutcomeHandlers {
         on_permission_request: None,
         on_attach_file: None,
         on_publish_page: None,
+        on_run_gate: None,
     }
 }
 
@@ -1953,6 +1986,71 @@ async fn background_tasks_changed_from_the_cli_becomes_a_background_tasks_event(
     assert_eq!(counts, [1, 0]);
     s.end();
     t.exit().await;
+}
+
+// ---- U-018 (opt-in, `E2E_REAL_CLAUDE=budget`, ~$0.01 on haiku) ----
+// Does `--max-budget-usd` cap what one process spends, or the cumulative `total_cost_usd` that a
+// `--resume` reports? Resolved 2026-11-11 on Claude Code 2.1.321: per process. A resume capped
+// below the conversation's cumulative total (but above what the new process spends) succeeds,
+// and a fresh process over its cap ends `error_max_budget_usd`. So the daemon passes the
+// session's remaining budget whether or not it resumes (09 §Budgets).
+// Run: E2E_REAL_CLAUDE=budget cargo nextest run -p conductor-daemon real_claude_max_budget --run-ignored only
+
+fn real_print(dir: &Path, args: &[&str]) -> serde_json::Value {
+    let bin = std::env::var(CLAUDE_BIN_ENV).unwrap_or_else(|_| "claude".into());
+    let out = std::process::Command::new(bin)
+        .current_dir(dir)
+        .args([
+            "-p",
+            "Use the Read tool to read a.txt, then b.txt, then c.txt, one call at a time. Then reply with the three words.",
+            "--model",
+            "haiku",
+            "--output-format",
+            "json",
+            "--setting-sources",
+            "user",
+            "--strict-mcp-config",
+            "--tools",
+            "Read",
+            "--allowedTools",
+            "Read",
+        ])
+        .args(args)
+        .output()
+        .expect("claude runs");
+    serde_json::from_slice(&out.stdout).expect("claude prints one JSON result")
+}
+
+#[test]
+#[ignore = "E2E_REAL_CLAUDE=budget: runs the installed claude (~$0.01)"]
+fn real_claude_max_budget_caps_one_process_not_the_resumed_total() {
+    if real_mode().as_deref() != Some("budget") {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    for (f, w) in [("a.txt", "alpha"), ("b.txt", "beta"), ("c.txt", "gamma")] {
+        std::fs::write(dir.path().join(f), w).unwrap();
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let first = real_print(dir.path(), &["--session-id", &id]);
+    let second = real_print(dir.path(), &["--resume", &id]);
+    let cumulative = second["total_cost_usd"].as_f64().unwrap();
+    let process = cumulative - first["total_cost_usd"].as_f64().unwrap();
+    assert!(process > 0.0 && process < cumulative);
+    // A cap between what one process spends and the cumulative total.
+    let cap = (cumulative + 2.0 * process) / 3.0;
+    let capped = real_print(
+        dir.path(),
+        &["--resume", &id, "--max-budget-usd", &format!("{cap:.6}")],
+    );
+    println!("cap {cap:.6}, cumulative before {cumulative:.6}: {capped}");
+    assert_eq!(
+        capped["subtype"], "success",
+        "the cap counted the resumed conversation's earlier spend (U-018: cumulative)"
+    );
+    // Control: a fresh process over a tiny cap is stopped.
+    let fresh = real_print(dir.path(), &["--max-budget-usd", "0.0001"]);
+    assert_eq!(fresh["subtype"], "error_max_budget_usd");
 }
 
 /// R7: a read-only-shell state (`bash_readonly`, no write alias) runs in dontAsk with no prompts,

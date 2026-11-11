@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   RETURN_TO,
+  type EntryCheck,
   type TicketKind,
   type Transition,
   type TransitionActor,
@@ -136,6 +137,11 @@ export const AgentTransitionOptionSchema = z.object({
   when: z.string().nullable(),
   /** `question: true`: the agent's `reason` is the question for the human. */
   question: z.boolean(),
+  /**
+   * R4: taking it runs checks (`transitionChecks` is not null), so the agent can run them first
+   * with the outcome server's `run_gate`. Absent = it runs none.
+   */
+  checks: z.literal(true).optional(),
 });
 export type AgentTransitionOption = z.infer<typeof AgentTransitionOptionSchema>;
 
@@ -153,7 +159,38 @@ export function agentTransitionOptions(
     name: e.name,
     when: e.transition.when ?? null,
     question: e.transition.question === true,
+    ...(transitionChecks(def, state, e.name) !== null ? { checks: true as const } : {}),
   }));
+}
+
+/** The checks a transition's gate runs, as declared (no repo override): see transitionChecks. */
+export interface DeclaredChecks {
+  setup: string | null;
+  checks: readonly EntryCheck[];
+}
+
+/**
+ * R4: the checks taking `name` out of `state` runs, as declared in the definition: its
+ * `requires.checks` (the move step, ADR-0011), else the target's `entry.checks` (ADR-0010); null
+ * when neither declares any. `setup` null = auto-detect. The repo override is applied on top by
+ * `selfCheckSpecOf` (repo-checks.ts), as the engine does for a gate step.
+ */
+export function transitionChecks(def: Def, state: string, name: string): DeclaredChecks | null {
+  const s = def.states[state];
+  if (s === undefined || s.type === 'terminal' || s.on === undefined) return null;
+  const raw = s.on[name];
+  if (raw === undefined) return null;
+  const t = transitionObject(raw);
+  const req = t.requires;
+  if (req?.checks !== undefined && req.checks.length > 0) {
+    return { setup: req.setup ?? null, checks: req.checks };
+  }
+  if (t.goto === RETURN_TO) return null;
+  const entry = def.states[t.goto]?.entry;
+  if (entry?.checks !== undefined && entry.checks.length > 0) {
+    return { setup: entry.setup ?? null, checks: entry.checks };
+  }
+  return null;
 }
 
 /**

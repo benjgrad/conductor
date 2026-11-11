@@ -20,8 +20,9 @@ import { SESSION_ABSOLUTE_MS, lookupSession } from './sessions.js';
 //   - password mode: the session cookie's user and account, or null. `/api/*` without a session
 //     is 401 `unauthorized`, except POST API_PATHS.machinesEnroll (token-authenticated) and GET
 //     API_PATHS.daemonAttachmentContent and POST API_PATHS.daemonSessionAttachments /
-//     daemonSessionPages (machine-credential-authenticated), and POST
-//     API_PATHS.githubWebhookDelivery (signed with the account's webhook secret, R11). `/p/:id` (ADR-0038) is outside
+//     daemonSessionPages / daemonSessionGate / daemonSessionGateResult (machine-credential-
+//     authenticated), and POST API_PATHS.githubWebhookDelivery (signed with the account's
+//     webhook secret, R11). `/p/:id` (ADR-0038) is outside
 //     /api and checks `request.auth` or its share token itself. `/auth/*`
 //     routes check `request.auth` themselves. The path is the matched route (`policyPath`), never
 //     the raw URL alone, so no encoding of it gets past the check.
@@ -85,6 +86,11 @@ const DAEMON_ATTACHMENT = API_PATHS.daemonAttachmentContent(':id');
 const DAEMON_SESSION_ATTACHMENTS = API_PATHS.daemonSessionAttachments(':id');
 /** ADR-0038: the daemon publishing its agent's page (machine credential too). */
 const DAEMON_SESSION_PAGES = API_PATHS.daemonSessionPages(':id');
+/** R4: the daemon's run_gate requests (machine credential too). */
+const DAEMON_SESSION_GATE = new Set([
+  API_PATHS.daemonSessionGate(':id'),
+  API_PATHS.daemonSessionGateResult(':id'),
+]);
 /** R11: a GitHub delivery, authenticated by the HMAC of its body (api/github-webhook.ts). */
 const GITHUB_WEBHOOK_DELIVERY = API_PATHS.githubWebhookDelivery(':id');
 
@@ -94,6 +100,7 @@ const needsSession = (method: string, path: string): boolean =>
   !(method === 'GET' && path === DAEMON_ATTACHMENT) &&
   !(method === 'POST' && path === DAEMON_SESSION_ATTACHMENTS) &&
   !(method === 'POST' && path === DAEMON_SESSION_PAGES) &&
+  !(method === 'POST' && DAEMON_SESSION_GATE.has(path)) &&
   !(method === 'POST' && path === GITHUB_WEBHOOK_DELIVERY);
 
 export function authHook(deps: { db: Db; auth: AuthConfig; now: () => Date }) {

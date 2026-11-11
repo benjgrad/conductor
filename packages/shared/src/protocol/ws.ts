@@ -79,6 +79,11 @@ export const DAEMON_FEATURE_PAGES = 'pages';
  */
 export const DAEMON_FEATURE_PERMISSION_MODE = 'permission_mode';
 /**
+ * R4: the daemon's outcome server has `run_gate` for a working agent with a transition that runs
+ * checks (POST `API_PATHS.daemonSessionGate`). A machine without it gets a note in the prompt.
+ */
+export const DAEMON_FEATURE_RUN_GATE = 'run_gate';
+/**
  * ADR-0043: the daemon knows the `triage` tool alias (read-only git and `gh`). A machine without it
  * gets a triage session with the `review` alias instead (read-only git, no `gh`).
  */
@@ -90,6 +95,7 @@ export const DAEMON_FEATURES = [
   DAEMON_FEATURE_AGENT_ATTACHMENTS,
   DAEMON_FEATURE_PAGES,
   DAEMON_FEATURE_PERMISSION_MODE,
+  DAEMON_FEATURE_RUN_GATE,
   DAEMON_FEATURE_TRIAGE,
 ] as const;
 

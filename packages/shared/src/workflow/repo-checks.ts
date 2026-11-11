@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { EntryCheckSchema, type EntryCheck, type WorkflowDefinition } from './schema.js';
-import { transitionObject } from './transition-rules.js';
+import { transitionChecks, transitionObject, transitionTitle } from './transition-rules.js';
 
 // ADR-0030: per-repo check overrides. A repo whose build doesn't fit the workflow's default checks
 // (`npm run build` / `npm test` at the root) gets its own list, stored per account and repo in the
@@ -81,4 +81,34 @@ export function checksGatesOf(def: Pick<WorkflowDefinition, 'states'>): ChecksGa
     }
   }
   return out;
+}
+
+/** R4: what `run_gate` runs for a transition: its gate's checks with the repo override applied. */
+export interface SelfCheckSpec {
+  /** The transition's title (`transitionTitle`). */
+  title: string;
+  /** null = auto-detect from the lockfile, '' = none. */
+  setup: string | null;
+  checks: readonly EntryCheck[];
+}
+
+/**
+ * R4: the checks the gate of `name` out of `state` runs (`transitionChecks`), with the repo's
+ * override applied the way `applyRepoChecks` does for a gate step (its checks and setup replace
+ * the declared ones). null when the transition runs no checks.
+ */
+export function selfCheckSpecOf(
+  def: Pick<WorkflowDefinition, 'states'>,
+  state: string,
+  name: string,
+  override: RepoChecks | null | undefined,
+): SelfCheckSpec | null {
+  const declared = transitionChecks(def, state, name);
+  if (declared === null) return null;
+  const raw = def.states[state]?.type === 'terminal' ? undefined : def.states[state]?.on?.[name];
+  const title = transitionTitle(name, raw);
+  if (override !== null && override !== undefined) {
+    return { title, setup: override.setup ?? null, checks: override.checks };
+  }
+  return { title, setup: declared.setup, checks: declared.checks };
 }

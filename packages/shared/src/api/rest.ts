@@ -156,6 +156,13 @@ export const API_PATHS = {
    * credential) → 201 PublishPageResponse.
    */
   daemonSessionPages: (sessionId: string) => `/api/daemon/sessions/${sessionId}/pages`,
+  /**
+   * R4: POST RunGateRequest for the session's agent's `run_gate` (machine credential) → 201
+   * RunGateSpec (the checks to run; the call is recorded as a `self_check_run`).
+   */
+  daemonSessionGate: (sessionId: string) => `/api/daemon/sessions/${sessionId}/gate`,
+  /** R4: POST RunGateResult → OkResponse (the run's outcome, by `run_id`; once per run). */
+  daemonSessionGateResult: (sessionId: string) => `/api/daemon/sessions/${sessionId}/gate-result`,
   /** ADR-0038: GET → HostedPage[] (the ticket's conductor-hosted pages, newest first). */
   ticketPages: (id: string) => `/api/tickets/${id}/pages`,
   /** ADR-0038: POST {} → SharePageResponse (mints the page's share link once; idempotent). */

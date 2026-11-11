@@ -32,6 +32,7 @@ export {
   PLAN_TEMPLATE,
   PROMPT_TEMPLATES,
   renderPrompt,
+  RUN_GATE_INSTRUCTION,
   TICKET_TEMPLATE,
   type PromptAttachment,
   type RenderPromptInput,
@@ -46,6 +47,7 @@ export * from './engine/recorded.js';
 export * from './engine/simulate.js';
 export * from './engine/parallel.js';
 export * from './engine/spend.js';
+export * from './engine/budget.js';
 export * from './engine/qa.types.js';
 export * from './engine/triage.js';
 export * from './engine/fixtures.js';
@@ -59,6 +61,7 @@ export * from './machines/index.js';
 export * from './api/rest.js';
 export * from './api/proposals.js';
 export * from './api/pages.js';
+export * from './api/run-gate.js';
 export * from './api/planned-files.js';
 export * from './api/plan-base.js';
 export * from './api/base-label.js';

@@ -126,6 +126,20 @@ import {
 } from './qa.js';
 import { applySpend } from './spend.js';
 import {
+  BUDGET_EXCEEDED_KEY,
+  budgetDecision,
+  budgetExceededMarkOf,
+  budgetOptions,
+  budgetQuestion,
+  budgetVerdict,
+  effectiveBudget,
+  formatUsd,
+  maxBudgetForStart,
+  raiseLabel,
+  raiseStep,
+  withBudgetRaise,
+} from './budget.js';
+import {
   freshWatch,
   inOrderOutcome,
   prefixVerdict,
@@ -178,6 +192,7 @@ export {
   PLAN_TEMPLATE,
   PROMPT_TEMPLATES,
   renderPrompt,
+  RUN_GATE_INSTRUCTION,
   TICKET_TEMPLATE,
 } from './render.js';
 export type { PromptAttachment, RenderPromptInput } from './render.js';
@@ -272,7 +287,16 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return 'wrong_status';
     }
   }
+  // 09 §Budgets: only a session that is over its budget on this very snapshot is routed.
+  if (e.type === 'budget.exceeded' && budgetVerdict(st.def, st.s, st.now) === null) {
+    return 'within_budget';
+  }
   if (e.type === 'session.assigned') {
+    // A re-claim after a requeue restarts the wall clock: the queued time never counts (the
+    // requeue banked the time before it; 10-contracts §Wall time).
+    if (st.s.status === 'queued' && st.s.workflow_state !== null) {
+      st.s.state_entered_at = st.now.toISOString();
+    }
     const reason = st.s.step !== null ? handleStep(st, e) : onAssigned(st, e.machine_id);
     // The lost-machine mark pins the claim until the agent runs again (`session.started`). A
     // re-emit with no start_session (a command, check, event or human state) never gets one.
@@ -325,7 +349,7 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       // ADR-0037 P4: only a held move step waits for one.
       return 'stale_timer';
     case 'budget.exceeded':
-      return onBudget(st, e);
+      return onBudget(st);
     case 'operator.cancel':
       failSession(st, 'cancelled', e.reason ?? 'operator_cancel');
       return null;
@@ -947,6 +971,8 @@ function onInput(
   e: Extract<EngineEvent, { type: 'input.provided' }>,
 ): ApplyIgnoreReason | null {
   if (st.s.status !== 'needs_input' || st.state?.type !== 'human') return 'wrong_status';
+  const budget = onBudgetAnswer(st, e);
+  if (budget !== undefined) return budget;
   const target = e.goto ?? st.s.return_to ?? st.def.start;
   const targetState = st.def.states[target];
   if (targetState === undefined) return 'unexpected_event';
@@ -1017,22 +1043,112 @@ function onTimer(st: Step, state: string, deadline: string): ApplyIgnoreReason |
   return null;
 }
 
-/** 09 §Budgets: → `def.on_budget_exceeded`, kind `budget_exceeded`. Nothing emits it in M1 (TD-015). */
-function onBudget(
-  st: Step,
-  e: Extract<EngineEvent, { type: 'budget.exceeded' }>,
-): ApplyIgnoreReason | null {
+/**
+ * 09 §Budgets: → `def.on_budget_exceeded`, kind `budget_exceeded`, with the options "Raise budget
+ * by X and continue" and "Stop" (answered through `input.provided`, `onBudgetAnswer`). The live
+ * agent is killed: it would keep spending, and its CLI keeps the old `--max-budget-usd`, so a
+ * raise resumes the conversation in a new process. `handle` already checked the verdict.
+ */
+function onBudget(st: Step): ApplyIgnoreReason | null {
   const name = st.stateName;
   if (name === null || st.state?.type === 'human') return 'wrong_status';
-  const unit = e.dimension === 'usd' ? 'USD' : 'minutes';
-  const question = `Budget exceeded in "${name}": spent ${e.spent} of ${e.limit} ${unit}. Raise the budget, skip, or abort?`;
-  const target = st.def.states[st.def.on_budget_exceeded] ? st.def.on_budget_exceeded : null;
-  const record = engineMove('budget_exceeded', null, question);
+  const v = budgetVerdict(st.def, st.s, st.now);
+  if (v === null) return 'within_budget';
+  const question = budgetQuestion(name, v, raiseLabel(st.def, v.dimension));
+  const record = engineMove(
+    'budget_exceeded',
+    null,
+    v.dimension === 'usd'
+      ? `spent ${formatUsd(v.spent)} of ${formatUsd(v.limit)}`
+      : `ran ${Math.floor(v.spent)} of ${Math.round(v.limit)} minutes`,
+  );
+  releaseAgent(st, 'budget exceeded');
+  const target =
+    st.def.states[st.def.on_budget_exceeded] !== undefined
+      ? st.def.on_budget_exceeded
+      : fallbackHumanState(st.def);
   if (target === null) {
-    toFallbackHuman(st, 'budget_exceeded', question, record);
-  } else {
-    enter(st, target, { ...NO_ROUTE, kind: 'budget_exceeded', question, skipEntry: true, record });
+    failSession(st, 'failed', `no human state to route to: ${question}`);
+    return null;
   }
+  enter(st, target, {
+    ...NO_ROUTE,
+    kind: 'budget_exceeded',
+    question,
+    options: budgetOptions(st.def, v.dimension),
+    skipEntry: true,
+    record,
+  });
+  if (st.stateName === target && st.def.states[target]?.type === 'human') {
+    st.s.context = {
+      ...st.s.context,
+      [BUDGET_EXCEEDED_KEY]: {
+        dimension: v.dimension,
+        at: target,
+        visit: st.s.state_visits[target] ?? 0,
+      },
+    };
+  }
+  return null;
+}
+
+/**
+ * The answer to an open `budget_exceeded` request (the mark matches this visit). "Raise …" adds
+ * one more workflow budget of that dimension (`context.__budget`) and resumes `return_to` in a
+ * new process (the new `max_budget_usd`); "Stop" cancels the ticket. Any other answer is handled
+ * like any answer (null): the next check trips again if the session is still over budget.
+ */
+function onBudgetAnswer(
+  st: Step,
+  e: Extract<EngineEvent, { type: 'input.provided' }>,
+): ApplyIgnoreReason | null | undefined {
+  const s = st.s;
+  const mark = budgetExceededMarkOf(s.context);
+  if (mark === null) return undefined;
+  const rest = { ...s.context };
+  delete rest[BUDGET_EXCEEDED_KEY];
+  s.context = rest;
+  if (
+    mark.at !== s.workflow_state ||
+    mark.visit !== s.state_visits[mark.at] ||
+    e.goto !== undefined
+  ) {
+    return undefined;
+  }
+  const decision = budgetDecision(st.def, mark.dimension, e.answer);
+  if (decision === null) return undefined;
+  if (decision === 'stop') {
+    failSession(st, 'cancelled', 'budget_stop');
+    return null;
+  }
+  s.context = withBudgetRaise(st.def, s.context, mark.dimension, st.now.toISOString());
+  const target = s.return_to ?? st.def.start;
+  const targetState = st.def.states[target];
+  if (targetState === undefined) return 'unexpected_event';
+  const by = raiseStep(st.def, mark.dimension);
+  const limit = effectiveBudget(st.def, s.context);
+  const raised =
+    mark.dimension === 'usd'
+      ? `The budget was raised by ${formatUsd(by)} to ${formatUsd(limit.usd)}.`
+      : `The time budget was raised by ${Math.round(by)} to ${Math.round(limit.minutes)} minutes.`;
+  // The parked process (if any) was killed on the trip; a fresh start resumes the conversation
+  // with the new cap.
+  releaseAgent(st, 'budget raised');
+  leaveParkedAgent(st, targetState);
+  enter(st, target, {
+    ...NO_ROUTE,
+    answer: { input_request_id: e.input_request_id, answer: `${raised} Continue.` },
+    sendInput: false,
+    continuation: target === s.return_to,
+    outcome: 'answered',
+    info: { detail: `a human raised the budget: ${raised}` },
+    record: {
+      cause: 'answer_routed',
+      transition: null,
+      reason: clipReason(e.answer),
+      actor: 'human',
+    },
+  });
   return null;
 }
 
@@ -1686,7 +1802,7 @@ function emitReviewer(st: Step, spec: GateSpec, nudge: string | null): void {
     tools: [...REVIEW_TOOLS],
     resume_claude_session_id: resume,
     ...(review.model !== undefined ? { model: review.model } : {}),
-    max_budget_usd: Math.max(0, st.def.budget.usd - st.s.spend_usd),
+    max_budget_usd: maxBudgetForStart(st.def, st.s),
     review: true,
   });
 }
@@ -1896,7 +2012,7 @@ function handleStep(
     case 'budget.exceeded': {
       const target = st.def.states[st.def.on_budget_exceeded];
       leaveStep(st, target?.type !== 'agent' && target?.type !== 'command');
-      return onBudget(st, e);
+      return onBudget(st);
     }
     case 'operator.cancel':
       failSession(st, 'cancelled', e.reason ?? 'operator_cancel');
@@ -2315,7 +2431,12 @@ function conditionsOverride(
 function bankWallTime(st: Step, from: string): void {
   const s = st.s;
   const fromState = st.def.states[from];
-  if (fromState !== undefined && fromState.type !== 'human' && fromState.type !== 'event') {
+  if (
+    fromState !== undefined &&
+    fromState.type !== 'human' &&
+    fromState.type !== 'event' &&
+    s.status !== 'queued'
+  ) {
     const elapsed = (st.now.getTime() - Date.parse(s.state_entered_at)) / 1000;
     if (elapsed > 0) s.wall_seconds += elapsed;
   }
@@ -3184,14 +3305,20 @@ function releaseAgent(st: Step, reason: string): void {
 
 /**
  * 10-contracts §Wall time: add `now - state_entered_at` for the state being left unless it is a
- * parked (`human` / `event`) state, then restart the clock. A review step is not in `def.states`;
- * its time is added when it is left, after `leaveReview` has put its source state back.
+ * parked (`human` / `event`) state or the session waits in the queue (its requeue banked the time
+ * before), then restart the clock. A review step is not in `def.states`; its time is added when
+ * it is left, after `leaveReview` has put its source state back.
  */
 function addWallTime(st: Step): void {
   const s = st.s;
   const from = s.workflow_state;
   const fromState = from === null ? undefined : st.def.states[from];
-  if (fromState !== undefined && fromState.type !== 'human' && fromState.type !== 'event') {
+  if (
+    fromState !== undefined &&
+    fromState.type !== 'human' &&
+    fromState.type !== 'event' &&
+    s.status !== 'queued'
+  ) {
     const elapsed = (st.now.getTime() - Date.parse(s.state_entered_at)) / 1000;
     if (elapsed > 0) s.wall_seconds += elapsed;
   }
@@ -3245,8 +3372,21 @@ function startFailedQuestion(what: string, reason: string): string {
   return `Could not start ${what}: the machine refused it ${MAX_START_FAILURES} times in a row (${reason}). Retry, skip, or abort?`;
 }
 
-/** Back to the queue: the ticket is re-claimable and no timer runs while queued. */
+/**
+ * Back to the queue: the ticket is re-claimable and no timer runs while queued. The wall clock
+ * stops (10-contracts §Wall time): the time so far is banked here, and the re-claim restarts it.
+ */
 function requeue(st: Step): void {
+  const s = st.s;
+  if (s.status === 'assigned' || s.status === 'running') {
+    const name = s.step !== null ? s.step.from : s.workflow_state;
+    const state = name === null ? undefined : st.def.states[name];
+    if (state !== undefined && state.type !== 'human' && state.type !== 'event') {
+      const elapsed = (st.now.getTime() - Date.parse(s.state_entered_at)) / 1000;
+      if (elapsed > 0) s.wall_seconds += elapsed;
+    }
+    s.state_entered_at = st.now.toISOString();
+  }
   st.setStatus('queued');
   st.ticket('ready');
   if (st.s.state_deadline !== null && st.stateName !== null) st.setDeadline(st.stateName, null);
@@ -3824,7 +3964,7 @@ function startSession(
     resume_claude_session_id: resume,
     ...(state.model !== undefined ? { model: state.model } : {}),
     ...(state.max_turns !== undefined ? { max_turns: state.max_turns } : {}),
-    max_budget_usd: Math.max(0, st.def.budget.usd - st.s.spend_usd),
+    max_budget_usd: maxBudgetForStart(st.def, st.s),
     ...(transitions !== null ? { transitions } : {}),
   };
 }

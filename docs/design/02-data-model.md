@@ -179,7 +179,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | agent_process_live | bool | a live Claude process exists for `agent_command_id`; false → an answer resumes via `start_session` instead of `send_input` |
 | pending_answer | jsonb null | `{input_request_id, answer}`: set by apply on `input.provided`, used as the prompt of any resume `start_session`, cleared once the agent runs on it ([10](10-contracts.md#pending-answer)). A reopened session ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)) is created with `{input_request_id: null, answer: <the human's text>}` |
 | retry_counters | jsonb | per-loop counters, e.g. `{"build->implement": 2}`; a requirements gate's unmet loop counts under `"requirements:<from>:<outcome>"` |
-| spend_usd, wall_seconds | numeric | against the workflow budget. `spend_usd` grows only by positive deltas (below). `wall_seconds` is maintained by apply: on each transition it adds `now − state_entered_at`, except for `human`/`event` states ([10](10-contracts.md#wall-time)) |
+| spend_usd, wall_seconds | numeric | against the workflow budget. `spend_usd` grows only by positive deltas (below). `wall_seconds` is maintained by apply (queued time excluded; a human's budget raises live in `context.__budget`, [09](09-security-and-budgets.md#budgets)): on each transition it adds `now − state_entered_at`, except for `human`/`event` states ([10](10-contracts.md#wall-time)) |
 | claude_spend_totals | jsonb | `{<claude_session_id>: <last cumulative total_usd>}`. Claude's `total_usd` is cumulative per Claude session and survives `--resume` ([ADR-0005](../adr/0005-claude-code-driver.md)), so a `spend` report adds `max(0, total − claude_spend_totals[id])` to `spend_usd` and stores the new total. Replays and duplicates are no-ops (`packages/shared/src/engine/spend.ts`) |
 | context | jsonb | state results, e.g. `{"open_pr": {"pr_url": "…"}}`, plus each review's last verdict under its label (`{"implement → build (review)": {"verdict": […]}}`). The PR conductor opened is recorded only under the reserved key `__pr` (`{"__pr": {"pr_url": "https://github.com/o/r/pull/7", "state": "waiting_external"}}`), written by the engine from open_pr's result and shown on the card; a `pr_url` in an agent's result is ignored ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)). Also holds the in-progress gate step under the reserved key `__entry` (below) |
 | port_range | int4range | allocated by the daemon; `[base, base+count)` from `session_event started` |
@@ -562,6 +562,25 @@ The bytes of one `attachment` (`attachment_id` pk, FK CASCADE; `account_id` fk a
 | shared_by | text null | `agent` (`publish_page {share: true}`) · `user` (the card's Share) |
 | created_at | timestamptz | |
 | expires_at | timestamptz | indexed (the sweep) |
+
+### self_check_run
+
+R4, 05 §[Self-checks](05-workflow-engine.md#self-checks-run_gate-r4). Migration `1764100000003_self-check-run`. One agent `run_gate` that reached the orchestrator: inserted when the daemon asks for the checks, finished when it reports the outcome. Read only by process metrics (`self_checks`); the engine never sees it.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | `RunGateSpec.run_id` |
+| account_id | uuid fk account | `(account_id, started_at)` indexed |
+| ticket_id | uuid fk ticket | CASCADE |
+| session_id | uuid fk session | CASCADE; indexed |
+| workflow_state | text | the agent state it ran from |
+| transition | text | the transition whose checks ran |
+| sha | text | the commit checked |
+| started_at | timestamptz | |
+| finished_at | timestamptz null | null until reported (forever, if the run was killed) |
+| passed | bool null | set with `finished_at` (CHECK) |
+| duration_ms | int null | |
+| results | jsonb null | the `RunGateResult` minus `run_id`, `passed`, `duration_ms` |
 
 ### github_webhook
 

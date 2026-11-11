@@ -85,6 +85,15 @@ call's result) in `pages`. The Plan review's session detail lists the page as ho
 serves it with the sandbox CSP, and once its expiry is moved into the past it answers 410 and is
 listed as expired.
 
+## Self-checks (R4)
+
+`run-gate.e2e.test.ts` saves a small `conductor` whose Implementing ships through `npm test` and
+`open_pr`. The fake agent commits a `fail-test` (the fixture's tests fail on it), calls `run_gate`
+(the daemon runs the gate's checks in a fresh checkout: FAILED), removes it, commits, calls
+`run_gate` again (PASSED) and ships. The two runs are in `self_check_run` (failed, then passed), the
+gate passes first time (Implementing entered once, no retry counter), and process metrics count
+them under `self_checks`.
+
 ## Windows (MR-T16b)
 
 `daemon-rust.yml`'s `e2e-windows` job runs the same suite on `windows-latest` against the Rust

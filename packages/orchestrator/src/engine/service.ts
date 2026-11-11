@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  budgetVerdict,
   RETRY_CHECKS,
   apply as sharedApply,
   commandPayloadForEffect,
@@ -55,6 +56,7 @@ import { storeProposedChecks } from './check-proposals.js';
 import { withStartAttachments } from './attachments.js';
 import { withSkipPermissions } from './skip-permissions.js';
 import { withPagesFeature } from './pages.js';
+import { withRunGateFeature } from './run-gate.js';
 import { withTriageFeature } from './triage-feature.js';
 
 /** Session statuses after which apply ignores every event. */
@@ -107,11 +109,11 @@ export class EngineServiceImpl implements EngineService {
     opts: ApplyEventOptions = {},
   ): Promise<ApplyEventResult> {
     if (opts.tx) {
-      const { result } = await this.applyInTx(opts.tx, sessionId, event, opts);
+      const { result } = await this.applyWithBudget(opts.tx, sessionId, event, opts);
       return result; // caller publishes result.boardEvents after its COMMIT
     }
     const { result, wroteOutbox, wrotePush } = await withTransaction(this.deps.db, (tx) =>
-      this.applyInTx(tx, sessionId, event, opts),
+      this.applyWithBudget(tx, sessionId, event, opts),
     );
     if (result.status === 'applied') {
       for (const ev of result.boardEvents) this.deps.boardBus.publish(ev);
@@ -119,6 +121,35 @@ export class EngineServiceImpl implements EngineService {
     if (wroteOutbox) this.deps.onOutboxWritten?.();
     if (wrotePush) this.deps.onPushWritten?.();
     return result;
+  }
+
+  /**
+   * 09 §Budgets: a `spend.reported` that takes the session over its budget is followed, in the
+   * same transaction, by `budget.exceeded` (its own event row and move). The wall-time trigger is
+   * the sweep's (`sweepBudgets`).
+   */
+  private async applyWithBudget(
+    tx: Queryable,
+    sessionId: string,
+    event: EngineEvent,
+    opts: ApplyEventOptions,
+  ): Promise<{ result: ApplyEventResult; wroteOutbox: boolean; wrotePush?: boolean }> {
+    const first = await this.applyInTx(tx, sessionId, event, opts);
+    if (event.type !== 'spend.reported' || first.result.status !== 'applied') return first;
+    const s = first.result.snapshot;
+    const def = await this.defs.get(tx, s.workflow_id, s.workflow_version);
+    const verdict = budgetVerdict(def, s, this.deps.now());
+    if (verdict === null) return first;
+    const second = await this.applyInTx(tx, sessionId, { type: 'budget.exceeded', ...verdict }, {});
+    if (second.result.status !== 'applied') return first;
+    return {
+      result: {
+        ...second.result,
+        boardEvents: [...first.result.boardEvents, ...second.result.boardEvents],
+      },
+      wroteOutbox: first.wroteOutbox || second.wroteOutbox,
+      wrotePush: first.wrotePush === true || second.wrotePush === true,
+    };
   }
 
   private async applyInTx(
@@ -648,16 +679,21 @@ export class EngineServiceImpl implements EngineService {
       // 06 §Attachments: the ticket's files (or a note, for a daemon that can't fetch them).
       // ADR-0038: no `pages` tool for a daemon without publish_page (a note instead).
       // ADR-0039: skip permissions (a working agent on a daemon that honours it).
+      // R4: a note instead of `run_gate` for a daemon without it.
       const payload =
         cmd.kind === 'start_session'
           ? await withSkipPermissions(
               tx,
-              await withPagesFeature(
+              await withRunGateFeature(
                 tx,
-                // ADR-0043: `review` for a triage on a daemon without the `triage` alias.
-                await withTriageFeature(
+                await withPagesFeature(
                   tx,
-                  await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+                  // ADR-0043: `review` for a triage on a daemon without the `triage` alias.
+                  await withTriageFeature(
+                    tx,
+                    await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+                    cmd.target,
+                  ),
                   cmd.target,
                 ),
                 cmd.target,

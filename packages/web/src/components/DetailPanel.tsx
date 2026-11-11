@@ -335,7 +335,7 @@ export function DetailPanel({
                 </p>
               )}
               {isConductorStep(detail.card) && (
-                <ConductorCheckBanner card={detail.card} agent={name} />
+                <ConductorCheckBanner card={detail.card} agent={name} sessionId={sessionId} />
               )}
               <OutputLog
                 output={output}

@@ -3,6 +3,7 @@
 // agent has finished its part, so its avatar shows as idle. Also the failed item of UX-4's
 // "Step failed" request (its name and first error line).
 import type { BoardCard, BoardChecking, BoardCheckingItem } from '@conductor/shared';
+import { useId, useState } from 'react';
 import { routeHash } from '../nav.js';
 import './ConductorChecks.css';
 
@@ -128,19 +129,63 @@ function nextNote(checking: BoardChecking, agent: string): string {
 }
 
 /**
+ * The banner head's progress while collapsed: "waiting for a build slot", the running item
+ * ("Unit tests (3/5)"), else "1 failed" or "2/5 passed"; '' with no items.
+ */
+export function checkingProgress(card: CardStep): string {
+  const checking = card.checking;
+  if (checking === null) return '';
+  if (waitingForBuildSlot(card)) return 'waiting for a build slot';
+  const cur = currentItem(checking);
+  const items = checking.items ?? [];
+  if (cur) return `${cur.item.label} (${cur.n}/${items.length})`;
+  if (items.length === 0) return '';
+  const failed = items.filter((i) => i.status === 'failed').length;
+  if (failed > 0) return `${failed} failed`;
+  const passed = items.filter((i) => i.status === 'passed').length;
+  return `${passed}/${items.length} passed`;
+}
+
+const checksStorageKey = (sessionId: string) => `conductor.checks.open.${sessionId}`;
+
+function readChecksOpen(sessionId: string): boolean {
+  try {
+    return localStorage.getItem(checksStorageKey(sessionId)) === 'open';
+  } catch {
+    return false;
+  }
+}
+
+function writeChecksOpen(sessionId: string, open: boolean) {
+  try {
+    localStorage.setItem(checksStorageKey(sessionId), open ? 'open' : 'closed');
+  } catch {
+    // Private mode or a full quota: the choice just isn't remembered.
+  }
+}
+
+/**
  * FR-3: the Messages banner while conductor runs a gate step: what it is checking, the items with
  * their statuses in text, and what happens next. Updates with the card (SSE `card.upserted`).
+ * A disclosure, collapsed by default (the head carries the progress), remembered per session;
+ * the live region announces either way.
  */
 export function ConductorCheckBanner({
   card,
   agent,
+  sessionId,
 }: {
   /** `repo` links the Repo checks badge; without it the badge isn't shown. */
   card: CardStep & Partial<Pick<BoardCard, 'repo'>>;
   agent: string;
+  /** Remembers the open state per session; without it the state isn't persisted. */
+  sessionId?: string;
 }) {
+  const bodyId = useId();
+  const [open, setOpen] = useState(() => (sessionId ? readChecksOpen(sessionId) : false));
   const checking = card.checking;
   if (checking === null) return null;
+  const progress = checkingProgress(card);
   const items = checking.items ?? [];
   const slot = waitingForBuildSlot(card);
   // UXR-75: the step runs the repo's own checks (ADR-0030), not the workflow's: say so, and link.
@@ -151,11 +196,27 @@ export function ConductorCheckBanner({
   return (
     <section className="conductor-checks" aria-label="Conductor is running checks">
       <div className="conductor-checks-head">
-        <strong>Conductor is running checks</strong>
-        <span className="muted"> · {checking.label ?? `Checks before ${checking.title}`}</span>
+        <button
+          type="button"
+          className="conductor-checks-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={() => {
+            setOpen(!open);
+            if (sessionId) writeChecksOpen(sessionId, !open);
+          }}
+        >
+          <span className="conductor-checks-chevron" aria-hidden="true">
+            ▸
+          </span>
+          <strong>Conductor is running checks</strong>
+          <span className="muted"> · {checking.label ?? `Checks before ${checking.title}`}</span>
+          {progress !== '' && (
+            <span className="muted conductor-checks-progress"> · {progress}</span>
+          )}
+        </button>
         {repo !== null && (
           <>
-            {' '}
             <a
               className="badge conductor-checks-source"
               href={routeHash({ view: 'repo-checks', repo })}
@@ -167,37 +228,39 @@ export function ConductorCheckBanner({
           </>
         )}
       </div>
-      {slot && (
-        <p className="conductor-checks-slot">
-          Conductor is checking · waiting for a build slot. Checks run one at a time on this machine
-          to protect it; this step starts when the one ahead of it finishes.
+      <div id={bodyId} className="conductor-checks-body" hidden={!open}>
+        {slot && (
+          <p className="conductor-checks-slot">
+            Conductor is checking · waiting for a build slot. Checks run one at a time on this
+            machine to protect it; this step starts when the one ahead of it finishes.
+          </p>
+        )}
+        {items.length > 0 && (
+          <ol className="conductor-checks-items">
+            {items.map((item, i) => {
+              const error = item.status === 'failed' ? firstErrorLine(item.detail) : null;
+              return (
+                <li
+                  key={`${i}-${item.label}`}
+                  className={`check-item check-item-${item.status}`}
+                  data-status={item.status}
+                  title={item.detail ?? undefined}
+                >
+                  <span className="check-icon" aria-hidden="true">
+                    {CHECK_ICONS[item.status]}
+                  </span>
+                  <span className="check-label">{item.label}</span>
+                  <span className="check-status"> · {CHECK_STATUS_TEXT[item.status]}</span>
+                  {error && <span className="check-error">: {error}</span>}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        <p className="conductor-checks-note muted">
+          {agent} has finished its part; it isn&apos;t running. {nextNote(checking, agent)}
         </p>
-      )}
-      {items.length > 0 && (
-        <ol className="conductor-checks-items">
-          {items.map((item, i) => {
-            const error = item.status === 'failed' ? firstErrorLine(item.detail) : null;
-            return (
-              <li
-                key={`${i}-${item.label}`}
-                className={`check-item check-item-${item.status}`}
-                data-status={item.status}
-                title={item.detail ?? undefined}
-              >
-                <span className="check-icon" aria-hidden="true">
-                  {CHECK_ICONS[item.status]}
-                </span>
-                <span className="check-label">{item.label}</span>
-                <span className="check-status"> · {CHECK_STATUS_TEXT[item.status]}</span>
-                {error && <span className="check-error">: {error}</span>}
-              </li>
-            );
-          })}
-        </ol>
-      )}
-      <p className="conductor-checks-note muted">
-        {agent} has finished its part; it isn&apos;t running. {nextNote(checking, agent)}
-      </p>
+      </div>
       <p className="visually-hidden" aria-live="polite" aria-atomic="true">
         {checkingAnnouncement(card)}
       </p>

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import type { BoardCard } from '@conductor/shared';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mockChecking } from '../api/mock-data.js';
 import {
   checkingAnnouncement,
+  checkingProgress,
   checkingSummary,
   ConductorCheckBanner,
   failedItemOfQuestion,
@@ -12,7 +13,13 @@ import {
   firstErrorLine,
 } from './ConductorChecks.js';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
+
+const toggle = () => screen.getByRole('button', { name: /Conductor is running checks/ });
+const expand = () => fireEvent.click(toggle());
 
 type Step = Pick<BoardCard, 'checking' | 'badges'>;
 const at = (current: number, badges: BoardCard['badges'] = ['checking']): Step => ({
@@ -111,6 +118,7 @@ describe('failedItemOfQuestion (FR-4: the engine wording, TD-152)', () => {
 describe('ConductorCheckBanner (FR-3, NFR-3)', () => {
   it('lists the items with their status in text, and the note', () => {
     render(<ConductorCheckBanner card={at(2)} agent="Ada" />);
+    expand();
     const region = within(screen.getByRole('region', { name: 'Conductor is running checks' }));
     expect(region.getByText('Checks before PR ready for review', { exact: false })).toBeTruthy();
     const items = region.getAllByRole('listitem').map((li) => li.textContent);
@@ -140,6 +148,7 @@ describe('ConductorCheckBanner (FR-3, NFR-3)', () => {
       },
     };
     render(<ConductorCheckBanner card={card} agent="Ada" />);
+    expand();
     const failed = screen.getByText('Unit tests').closest('li')!;
     expect(failed.textContent).toBe('✗Unit tests · failed: Error: expected 1 to be 2');
   });
@@ -148,12 +157,15 @@ describe('ConductorCheckBanner (FR-3, NFR-3)', () => {
     render(
       <ConductorCheckBanner card={at(0, ['waiting_for_build_slot', 'checking'])} agent="Ada" />,
     );
+    expand();
     expect(screen.getByText(/Checks run one at a time on this machine to protect it/)).toBeTruthy();
   });
 
   it('the polite live region changes once per item change, not on an identical re-render', async () => {
     const { container, rerender } = render(<ConductorCheckBanner card={at(2)} agent="Ada" />);
     const live = container.querySelector('[aria-live="polite"]')!;
+    // Collapsed: the live region sits outside the hidden body and still announces.
+    expect(container.querySelector('.conductor-checks-body')!.hasAttribute('hidden')).toBe(true);
     expect(live.getAttribute('aria-atomic')).toBe('true');
     expect(live.textContent).toBe('Unit tests: running (3 of 5)');
     const changes: string[] = [];
@@ -194,6 +206,58 @@ describe('ConductorCheckBanner (FR-3, NFR-3)', () => {
     cleanup();
     render(<ConductorCheckBanner card={{ ...at(2), repo }} agent="Ada" />);
     expect(screen.queryByRole('link', { name: /^Repo checks/ })).toBeNull();
+  });
+});
+
+describe('checkingProgress (the collapsed head)', () => {
+  it('the running item, the build-slot wait, a failure, else the passed count', () => {
+    expect(checkingProgress(at(2))).toBe('Unit tests (3/5)');
+    expect(checkingProgress(at(0, ['waiting_for_build_slot', 'checking']))).toBe(
+      'waiting for a build slot',
+    );
+    const c = mockChecking(2);
+    const failed: Step = {
+      badges: ['checking'],
+      checking: {
+        ...c,
+        current: null,
+        items: c.items!.map((i, n) => (n === 2 ? { ...i, status: 'failed' } : i)),
+      },
+    };
+    expect(checkingProgress(failed)).toBe('1 failed');
+    const idle: Step = { badges: ['checking'], checking: { ...c, current: null } };
+    expect(checkingProgress(idle)).toBe('2/5 passed');
+    expect(checkingProgress({ badges: [], checking: null })).toBe('');
+  });
+});
+
+describe('ConductorCheckBanner disclosure', () => {
+  it('starts collapsed with the progress in the head; the toggle expands it', () => {
+    const { container } = render(<ConductorCheckBanner card={at(2)} agent="Ada" />);
+    const body = container.querySelector('.conductor-checks-body')!;
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    expect(toggle().getAttribute('aria-controls')).toBe(body.id);
+    expect(body.hasAttribute('hidden')).toBe(true);
+    expect(toggle().textContent).toContain('Unit tests (3/5)');
+    expect(screen.queryAllByRole('listitem')).toEqual([]);
+    expand();
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(body.hasAttribute('hidden')).toBe(false);
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+  });
+
+  it('remembers the open state per session', () => {
+    render(<ConductorCheckBanner card={at(2)} agent="Ada" sessionId="s1" />);
+    expand();
+    expect(localStorage.getItem('conductor.checks.open.s1')).toBe('open');
+    cleanup();
+    render(<ConductorCheckBanner card={at(2)} agent="Ada" sessionId="s1" />);
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expand();
+    expect(localStorage.getItem('conductor.checks.open.s1')).toBe('closed');
+    cleanup();
+    render(<ConductorCheckBanner card={at(2)} agent="Ada" sessionId="s2" />);
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
   });
 });
 

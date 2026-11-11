@@ -16,6 +16,38 @@
   background: var(--panel);
   font-size: var(--text-base);
 }
+.conductor-checks-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+/* A disclosure: collapsed by default, the head carries the progress. */
+.conductor-checks-toggle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.conductor-checks-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.conductor-checks-chevron {
+  display: inline-block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.conductor-checks-toggle[aria-expanded='true'] .conductor-checks-chevron {
+  transform: rotate(90deg);
+}
 .conductor-checks-source {
   background: var(--user-bg);
   color: var(--accent);

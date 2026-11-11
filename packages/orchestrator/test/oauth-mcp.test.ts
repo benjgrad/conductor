@@ -1446,6 +1446,18 @@ describe('/mcp workflow tools', () => {
     const clearB = await call(b.access, 'clear_repo_checks', { repo: 'github.com/acme/methodui' });
     expect([clearB.isError, errorOf(clearB).code]).toEqual([true, 'not_found']);
 
+    // R3: a check's paths round-trip.
+    const withPaths = [
+      { name: 'Cargo', cmd: 'cargo nextest run', paths: ['crates/**', 'Cargo.*'] },
+    ];
+    const setPaths = await call(a.access, 'set_repo_checks', {
+      repo: 'github.com/acme/methodui',
+      checks: withPaths,
+    });
+    expect(setPaths.body).toMatchObject({ checks: withPaths });
+    const gotPaths = await call(a.access, 'get_repo_checks', { repo: 'github.com/acme/methodui' });
+    expect(gotPaths.body.override).toMatchObject({ checks: withPaths });
+
     const cleared = await call(a.access, 'clear_repo_checks', { repo: 'github.com/acme/methodui' });
     expect(cleared.body).toEqual({ ok: true });
     expect((await call(a.access, 'list_repo_checks', {})).body.repos).toEqual([]);
@@ -1466,6 +1478,16 @@ describe('/mcp workflow tools', () => {
       checks: [{ name: 'Build', cmd: '   ' }],
     });
     expect([blank.isError, errorOf(blank).code]).toEqual([true, 'invalid_input']);
+    // R3: the input schema refuses a glob outside the repo before the tool runs.
+    const outside = await mcp(a.access, 'tools/call', {
+      name: 'set_repo_checks',
+      arguments: {
+        repo: 'github.com/acme/app',
+        checks: [{ name: 'X', cmd: 'x', paths: ['../x'] }],
+      },
+    });
+    const result = outside.json.result as { isError?: boolean } | undefined;
+    expect(result?.isError === true || outside.json.error !== undefined).toBe(true);
     expect((await call(a.access, 'list_repo_checks', {})).body.repos).toEqual([]);
   });
 

@@ -178,8 +178,16 @@ function history(now: Date): Stamped {
         answered_at: at(start + (5 + 20 + (i % 3) * 25) * MIN),
       });
     }
-    // linux-box keeps being refused `docker compose up`.
+    // linux-box keeps being refused `docker compose up`, and its sessions stall (R13).
     if (machine_id === 'linux-box') {
+      rows.inputs.push({
+        ...base,
+        state: 'implementing',
+        kind: 'engine_timeout',
+        class: 'stop',
+        created_at: at(start + 60 * MIN),
+        answered_at: at(start + 65 * MIN),
+      });
       rows.permissions.push({
         ...base,
         machine_id,
@@ -233,6 +241,7 @@ function windowed(h: Stamped, now: Date, days: number) {
       checks: inside(h.rows.checks),
       inputs: inside(h.rows.inputs),
       permissions: inside(h.rows.permissions),
+      machines: { 'mbp-ben': 'Ben’s MacBook', 'linux-box': 'linux-box' },
       // The approval wait before Done is by design: not slow, marked "waiting on others".
       waits: { 'implementing.ready_for_testing': { ceiling_minutes: 3 * 24 * 60 } },
       // ADR-0037 P5: review replies where the re-sync recipe was on offer; two sent as is.
@@ -309,7 +318,20 @@ export function mockInsights(now: Date, proposals: () => ChangeProposalDetail[])
         ...sampleNote({
           finished_sessions: w.finished.length,
           analysed_sessions: w.finished.filter((f) => analysed.has(f.session_id)).length,
+          mode: 'all',
+          open: 0,
         }),
+        analyst: {
+          mode: 'all' as const,
+          daily_cap: null,
+          jobs: w.insights.length + 1,
+          done: w.insights.length,
+          failed: 1,
+          dropped: 0,
+          open: 0,
+          cost_usd: Math.round(w.insights.length * 0.0007 * 10_000) / 10_000,
+          priced_jobs: w.insights.length,
+        },
         totals: processMetrics(w.rows, 'state').totals,
         ...frictionReport(w.insights),
       };

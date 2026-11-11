@@ -43,7 +43,7 @@ The data for cross-session analysis is already in Postgres:
 3. **Analyst sub-agents (the map step)**, P2. One-shot `claude -p --json-schema --tools ""` jobs (`assistant_job`), one per finished session, on the user's machine, on the cheapest model, with an empty strict MCP config and a 120 s cap.
    - The orchestrator re-validates each result against zod `SessionInsightSchema` and drops malformed ones; it never retries in a loop.
    - Results are stored in `session_insight`.
-   - Jobs use **one light slot per machine** (outside `max_sessions`) and a **default cap of 20 jobs a day per account**.
+   - Jobs use **one light slot per machine** (outside `max_sessions`) and a **default cap of 20 jobs a day per account**. *R13 changed the default: every finished session, see the amendment below.*
    - Insights are kept **180 days** and deleted with their ticket (U-066: storing them is allowed).
 4. **Reduce**, P2: `get_process_report` joins the insights with the deterministic metrics.
 5. **Change management**, P3:
@@ -130,6 +130,16 @@ Ben approved finishing P3 without machine settings: MA-T06 waits on M2-T28c (the
   - permission prompts have no state, so `group_by: state` doesn't count them;
   - P2 stores model text in Postgres (U-066, 180 days).
 - **Follow-ups:** the MA tasks; an `event (type, ts)` index if the queries get slow; machine-wide stalls (offline time, build-slot waits) as metrics.
+
+## Amendment: R13, every session and machine health (2026-11)
+The 2026-11 workflow retrospective (R13 / I-9) found the analyst covered 64 of 152 finished sessions (42 %), and that a machine with 21 stops over 6 sessions and 3 of 3 failed checks was flagged by nothing. Ben's ticket asked for every session by default and a machine-health finding:
+
+- **Every finished session by default.** The 20-a-day cap is now an opt-in per account, `account.analyst_daily_cap` (null = every session; `conductor-admin analyst-sample <email> <n|off>`).
+- **Pacing.** The scheduler writes at most one job per machine and none while the machine has an open (queued or sent) job, so a burst no longer overflows the one light slot and is refused `light_slot_busy`.
+- **One retry.** A `failed` job (refused, ack timeout, expired, an error result) gets a second attempt (`MAX_ATTEMPTS` 2) under its own key `insight:<session_id>:<schema_version>:2`. A malformed result is still `dropped` and never retried; nothing retries beyond the bound.
+- **Backfill** is 30 days (the default insights window), so a machine offline for a few days is caught up.
+- **Cost.** `assistant_job.cost_usd` and `duration_ms` store what the daemon reports. `get_process_report` returns `analyst {mode, daily_cap, jobs, done, failed, dropped, open, cost_usd, priced_jobs}`, and Insights shows the analysed share and the cost.
+- **`machine_health` findings** (deterministic, `machineHealthFindings`): a machine with ≥ 3 sessions whose stops per session or check-failure rate is ≥ 2× the median of the account's machines with ≥ 3 sessions (floors: 0.5 stops per session; 20 % over ≥ 3 runs), named, with its sessions, stops, failed checks and p90 stay. Suggested tool: the board. Draining a machine automatically is out of scope.
 
 ## Revisit when
 - Per-account workflows (M2-T12) land: the advisor's workflow proposals can then drop the "every account" warning and the admin gate.

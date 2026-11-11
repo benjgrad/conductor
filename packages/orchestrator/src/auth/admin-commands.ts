@@ -46,6 +46,9 @@ export const USAGE = [
   '  revoke-sessions <email>   sign the user out everywhere',
   "  disable <email>           disable the user, sign them out, revoke their accounts' machines",
   '  list-users                list users',
+  '  analyst-sample <email> <jobs-per-day|off>',
+  "                            sample the session analyst for the user's accounts at most",
+  '                            that many jobs a day (off: analyse every finished session)',
   '  vapid-keys                print a new Web Push (VAPID) key pair for the env (no database)',
   '  deploy-failed             read a failed deploy report (JSON) on stdin; open or update the',
   '                            deploy:<sha> ticket and push (deploy/gradyserver/ci-deploy.sh)',
@@ -327,6 +330,30 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
           ].join('\t'),
         );
       }
+      return 0;
+    }
+
+    case 'analyst-sample': {
+      // R13: the analyst analyses every finished session unless an account samples.
+      const usage = 'usage: conductor-admin analyst-sample <email> <jobs-per-day|off>';
+      const raw = args[1]?.trim() ?? '';
+      const cap = raw === 'off' ? null : /^[1-9][0-9]{0,5}$/.test(raw) ? Number(raw) : undefined;
+      if (args.length !== 2 || args[0]!.trim() === '' || cap === undefined) {
+        err(usage);
+        return 2;
+      }
+      const user = await findUser(throttleKey(args[0]!));
+      if (user === null) return 1;
+      const res = await db.query(
+        'UPDATE account SET analyst_daily_cap = $2 ' +
+          'WHERE id IN (SELECT account_id FROM account_member WHERE user_id = $1)',
+        [user.id, cap],
+      );
+      out(
+        cap === null
+          ? `${user.email}: the analyst analyses every finished session (${res.rowCount ?? 0} account(s))`
+          : `${user.email}: the analyst samples at most ${cap} sessions a day (${res.rowCount ?? 0} account(s))`,
+      );
       return 0;
     }
 

@@ -1715,8 +1715,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'List process findings',
       description:
-        'Inefficiencies in past sessions, most severe first, with evidence, example tickets ' +
-        'and the fixing tool. Paged by cursor.',
+        'Inefficiencies in past sessions (incl. unhealthy machines), most severe first, with ' +
+        'evidence, example tickets and the fixing tool. Paged by cursor.',
       inputSchema: {
         ...advisorArgs,
         cursor: z.number().int().min(0).optional(),
@@ -1730,7 +1730,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     'get_process_report',
     {
       title: 'Process report',
-      description: 'Analyst-reported frictions across sessions, by category and state.',
+      description:
+        'Analyst-reported frictions across sessions, by category and state; the share ' +
+        'analysed and what the analysts cost.',
       inputSchema: advisorArgs,
       annotations: readOnly,
     },

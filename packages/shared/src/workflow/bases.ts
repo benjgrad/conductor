@@ -35,7 +35,8 @@ export function substituteBase(text: string, values: BaseValues): string {
 
 /**
  * Every field `$base` / `$base_sha` is substituted in (ADR-0039 FR-4), as `[path, text]`: check
- * `cmd`s (a transition's `requires.checks`, a state's `entry.checks`), `cmd` condition `cmd`s
+ * `cmd`s (a transition's `requires.checks`, a state's `entry.checks`), ADR-0040 `cmd` leg `cmd`s
+ * (`requires.parallel`), `cmd` condition `cmd`s
  * (`requires.conditions` and `watch.conditions`), the `instructions` map's texts, and literal
  * instruction fields (`on_unmet.instruction`, `on_broken.instruction`; a `$instructions.<slug>`
  * ref is covered by the map entry it names).
@@ -62,6 +63,12 @@ export function baseSubstitutionFields(
     (t.requires?.conditions ?? []).forEach((c, i) => {
       if (c.type === 'cmd') fields.push([[...base, 'requires', 'conditions', i, 'cmd'], c.cmd]);
     });
+    (t.requires?.parallel ?? []).forEach((lane, l) =>
+      lane.forEach((leg, i) => {
+        if (leg.type === 'cmd')
+          fields.push([[...base, 'requires', 'parallel', l, i, 'cmd'], leg.cmd]);
+      }),
+    );
   }
   for (const [slug, text] of Object.entries(def.instructions ?? {})) {
     fields.push([['instructions', slug], text]);

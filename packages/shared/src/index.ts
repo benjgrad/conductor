@@ -41,6 +41,7 @@ export * from './engine/notify.js';
 export * from './engine/watch.js';
 export { applyRepoChecks, moveSpecOf, PIN_CHECK, type GateSpec } from './engine/move-step.js';
 export * from './engine/concurrency.js';
+export * from './engine/parallel.js';
 export * from './engine/spend.js';
 export * from './engine/qa.types.js';
 export * from './engine/fixtures.js';

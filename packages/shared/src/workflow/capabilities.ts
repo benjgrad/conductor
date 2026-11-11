@@ -51,6 +51,9 @@ export const ACTION_CAPABILITIES = {
  * nothing; any agent state or reviewer adds `claude`. ADR-0039: the kind's `base_default`, when it
  * is a `cmd` base, adds what its command needs (`cmdBaseCapability`); kind null counts every
  * default. A base a ticket or its plan names is not known per workflow (B2 checks it).
+ * ADR-0040: a `requires.parallel` `cmd` leg's `needs` route that **leg** to an eligible machine,
+ * never the ticket, so they are not collected here (else a Windows leg would pin every ticket to
+ * the Windows machine).
  */
 export function requiredCapabilitiesOf(
   def: WorkflowDefinition,

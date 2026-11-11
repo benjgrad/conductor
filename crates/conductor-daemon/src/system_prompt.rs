@@ -6,12 +6,12 @@
 //!
 //! ADR-0023: a tool call that needs approval reaches a human as a permission prompt, so agents are
 //! told to attempt it rather than refuse in advance. ADR-0035 adds `## Long-running work` and
-//! 06 §Attachments `## Screenshots and recordings` (Rust only: the TS daemon is frozen); the first
-//! 9 lines are the TS text byte for byte.
+//! 06 §Attachments `## Screenshots and recordings`. The TS daemon is deleted (MR-T18b); the first 9
+//! lines keep its line structure, and line 3 now tells the agent to ask instead of guessing.
 
 pub const CONDUCTOR_INSTRUCTIONS: &str = "You are running unattended as a conductor session, inside a git worktree on your own branch.\n\
 When the task for this step is finished, call the `complete_state` tool (conductor MCP server) once with a JSON `result` object, then stop.\n\
-If you need a decision only a human can make, call the `ask_user` tool with one clear question (and `options` when the answer is one of a few choices) and end your turn; the answer arrives as the next user message.\n\
+If you need a decision or information from a human, call the `ask_user` tool with one clear question (and `options` when the answer is one of a few choices) and end your turn; the answer arrives as the next user message. Ask whenever you'd otherwise be guessing.\n\
 Never push; later workflow steps do that.\n\
 \n\
 ## Permissions\n\
@@ -80,6 +80,14 @@ mod tests {
         assert!(s.contains("\n\n## Screenshots and recordings\n"));
         assert!(s.contains("`attach_file`"));
         assert!(s.contains("before you call `complete_state`"));
+    }
+
+    #[test]
+    fn tells_the_agent_to_ask_instead_of_guessing() {
+        let s = CONDUCTOR_INSTRUCTIONS;
+        assert!(s.contains("If you need a decision or information from a human"));
+        assert!(s.contains("Ask whenever you'd otherwise be guessing."));
+        assert!(!s.contains("only a human can make"));
     }
 
     #[test]

@@ -195,7 +195,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 
 **Reopen (ADR-0008, no migration).** `POST /api/sessions/:id/reopen` inserts a new `queued` session for the ticket that copies the old one's `workflow_id`/`workflow_version`, `branch`, `claude_session_id`, `context` and `claude_spend_totals` (Claude's cost is cumulative across `--resume`, so only new spend is added), sets `pending_answer` to the human's text, and leaves everything else at its default (`retry_counters`, `state_visits`, `spend_usd`, `wall_seconds`, `worktree_path`…). Two sessions of one ticket then share a `branch`; the claim uses that to pin the new one to the old one's machine ([04](04-scheduler.md#2--claim-query-ticket-side)). The human's text is kept durably in an `operator.reopen` event row on the new session (`{text, reopened_from, actor}`). The gate step (`__entry`, or a legacy `__review`, below) is never carried.
 
-**Gate step (ADR-0009, ADR-0010, no migration).** While a gate step runs (an ADR-0009 transition review, or the ADR-0010 requirements to enter a column), the snapshot's `step` field (`GateStepSchema` in `packages/shared/src/engine/types.ts`: `{kind: 'transition'|'entry', from, outcome, to, attachment, subject, claude_session_id, nudged, phase: 'checks'|'review'|'actions', index, head_sha}`) is stored inside `context` under the reserved key `__entry` (`STEP_CONTEXT_KEY`). Rows written before ADR-0010 have it under `__review` (`REVIEW_CONTEXT_KEY`); it is still read (as `kind: 'transition'`, `phase: 'review'`) and rewritten under `__entry`. Neither name, nor `__pr`, may be a state (validator rule 8). `toSnapshot` lifts it out and `writeSession` puts it back (`orchestrator/src/engine/rows.ts`). `GET /api/sessions/:id` leaves it out of `context`. Status stays `running` (no new `session_status` value) and the unmet / failed review questions use the existing `retries_exhausted` and `timeout` `input_request_kind`s, so neither enum changes.
+**Gate step (ADR-0009, ADR-0010, no migration).** While a gate step runs (an ADR-0009 transition review, or the ADR-0010 requirements to enter a column), the snapshot's `step` field (`GateStepSchema` in `packages/shared/src/engine/types.ts`: `{kind: 'transition'|'entry', from, outcome, to, attachment, subject, claude_session_id, nudged, phase: 'checks'|'review'|'actions', index, head_sha, skipped_checks}`; `skipped_checks` (R3, default `[]`): `{index, reason}` of each check the daemon skipped) is stored inside `context` under the reserved key `__entry` (`STEP_CONTEXT_KEY`). Rows written before ADR-0010 have it under `__review` (`REVIEW_CONTEXT_KEY`); it is still read (as `kind: 'transition'`, `phase: 'review'`) and rewritten under `__entry`. Neither name, nor `__pr`, may be a state (validator rule 8). `toSnapshot` lifts it out and `writeSession` puts it back (`orchestrator/src/engine/rows.ts`). `GET /api/sessions/:id` leaves it out of `context`. Status stays `running` (no new `session_status` value) and the unmet / failed review questions use the existing `retries_exhausted` and `timeout` `input_request_kind`s, so neither enum changes.
 
 Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencing tokens, global across sessions. `CREATE UNIQUE INDEX session_one_live_per_ticket ON session (ticket_id) WHERE status NOT IN ('done', 'failed', 'lost')` enforces one live session per ticket (the claim re-uses a `queued` one, [10](10-contracts.md#claim)).
 
@@ -402,7 +402,7 @@ The migration's down drops the three tables.
 |---|---|---|
 | account_id | uuid fk account | part of the pk |
 | repo | text | `repoChecksKey(repo)`: canonical `host/org/repo`, lower-cased (else the repo as given, trimmed, lower-cased); `CHECK repo <> ''`; part of the pk |
-| config | jsonb | `RepoChecksSchema`: `{setup?, checks: [{name, cmd, timeout?}]}` (1..20, unique names), validated on write; a row that no longer parses reads as none |
+| config | jsonb | `RepoChecksSchema`: `{setup?, checks: [{name, cmd, timeout?, paths?}]}` (1..20, unique names; `paths`: 1..50 globs, R3 [05 §Diff-aware checks](05-workflow-engine.md#diff-aware-checks-r3)), validated on write; a row that no longer parses reads as none |
 | updated_at | timestamptz | default `now()` |
 | updated_by | text null | the user's email; `mcp:<email>` over MCP |
 
@@ -562,6 +562,29 @@ The bytes of one `attachment` (`attachment_id` pk, FK CASCADE; `account_id` fk a
 | shared_by | text null | `agent` (`publish_page {share: true}`) · `user` (the card's Share) |
 | created_at | timestamptz | |
 | expires_at | timestamptz | indexed (the sweep) |
+
+### github_webhook
+
+R11 ([ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) Q1 amended, [setup](../setup/github-webhooks.md)). Migration `1764100000001_github-webhook`. The account's GitHub webhook signing secret; deliveries to `/api/webhooks/github/<account_id>` are verified against it. Rotating (`POST /api/github-webhook/secret`, `conductor-admin github-webhook`) replaces it.
+
+| column | type | notes |
+|---|---|---|
+| account_id | uuid pk fk account | CASCADE; one webhook secret per account |
+| secret | text | 32 random bytes, hex. Plaintext, because HMAC needs the key (TD-222) |
+| created_at | timestamptz | |
+| rotated_at | timestamptz | the last rotation |
+
+### github_webhook_delivery
+
+R11: one accepted (signed, non-ping) delivery, so a redelivery changes nothing (FR-4). The route deletes rows older than 7 days on each delivery.
+
+| column | type | notes |
+|---|---|---|
+| delivery_id | text pk | `X-GitHub-Delivery` (a GUID per delivery; GitHub's redelivery reuses it) |
+| account_id | uuid fk account | CASCADE; `(account_id, received_at)` indexed (`last_delivery_at`) |
+| event | text | `X-GitHub-Event` |
+| received_at | timestamptz | indexed (the prune) |
+| sessions_nudged | int | how many sessions' next check came forward (0 for an ignored event) |
 
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.

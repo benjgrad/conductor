@@ -1302,7 +1302,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           .array(EntryCheckSchema)
           .min(1)
           .max(REPO_CHECKS_MAX)
-          .describe('[{name, cmd, timeout?: "10m"}], run in order; each must exit 0'),
+          .describe(
+            '[{name, cmd, timeout?: "10m", paths?: ["crates/**"]}] in order, each exits 0; ' +
+              'paths: skip unless the diff touches one',
+          ),
       },
       annotations: {
         readOnlyHint: false,

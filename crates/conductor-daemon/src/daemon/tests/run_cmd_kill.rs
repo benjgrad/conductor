@@ -36,6 +36,28 @@ fn check(
     .0
 }
 
+/// R3: an entry check with `paths` at token 3.
+fn check_paths(
+    sid: Uuid,
+    command: &str,
+    sha: Option<&str>,
+    last: bool,
+    paths: &[&str],
+) -> OrchestratorToDaemon {
+    run_cmd(
+        sid,
+        json!({
+            "workflow_state": "implementing → waiting_external (entry)",
+            "cmd": command,
+            "timeout_ms": 1000,
+            "require_clean": true,
+            "checkout": { "sha": sha, "setup": "", "last": last, "paths": paths },
+        }),
+        3,
+    )
+    .0
+}
+
 async fn started_session(c: &Ctx, runner: FakeCommandRunner, token: i64) -> (Uuid, PathBuf) {
     c.make(
         driver(complete(json!({}))),
@@ -504,5 +526,160 @@ async fn kill_with_target_command_id_kills_the_process_that_start_spawned() {
         c.data("exit")[0],
         json!({ "command_id": start.cid, "code": null, "signal": "SIGTERM" })
     );
+    c.done().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn r3_a_check_whose_paths_match_no_change_is_skipped_and_the_last_one_removes_the_checkout() {
+    let c = Ctx::new().await;
+    let runner = FakeCommandRunner::new(1, true);
+    let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    commit_ahead(&wt); // changes work.txt only
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    c.send(&check(sid, "npm test", None, "", false));
+    c.until_for(10_000, || c.data("cmd_exit").into_iter().next())
+        .await;
+    let dir = runner.calls()[0].cwd.clone();
+    assert!(dir.exists()); // kept for the next check
+    c.send(&check_paths(
+        sid,
+        "cargo nextest run",
+        Some(&head),
+        true,
+        &["crates/**", "Cargo.*"],
+    ));
+    let exit = c
+        .until_for(10_000, || c.data("cmd_exit").get(1).cloned())
+        .await;
+    assert_eq!(exit["exit_code"], 0, "{exit}");
+    assert_eq!(exit["head_sha"], json!(head));
+    assert_eq!(exit["not_run"], Value::Null);
+    let why = exit["skipped"].as_str().unwrap();
+    assert!(
+        why.starts_with("no changes match paths: crates/**, Cargo.*"),
+        "{why}"
+    );
+    assert!(why.contains("(diff against origin/"), "{why}");
+    // Never run, and as the last check its skip removed the gate's checkout.
+    let cmds: Vec<String> = runner.calls().iter().map(|x| x.cmd.clone()).collect();
+    assert_eq!(cmds, ["npm test"]);
+    assert!(!dir.exists());
+    c.done().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn r3_a_check_whose_paths_match_a_change_runs() {
+    let c = Ctx::new().await;
+    let runner = FakeCommandRunner::new(1, true);
+    let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    commit_ahead(&wt);
+    c.send(&check_paths(
+        sid,
+        "npm test",
+        None,
+        true,
+        &["docs/**", "*.txt"],
+    ));
+    let exit = c
+        .until_for(10_000, || c.data("cmd_exit").into_iter().next())
+        .await;
+    assert_eq!(exit["exit_code"], 0, "{exit}");
+    assert_eq!(exit["skipped"], Value::Null);
+    assert_eq!(runner.calls().len(), 1);
+    c.done().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn r3_td_221_forged_refs_do_not_skip_a_check_the_recorded_base_says_must_run() {
+    // The agent changes crates/, commits once more, then moves origin/main past its Rust commit
+    // and drops origin/HEAD: diffed against its refs, only work.txt would have changed.
+    let c = Ctx::new().await;
+    let runner = FakeCommandRunner::new(1, true);
+    let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    std::fs::create_dir_all(wt.join("crates/x")).unwrap();
+    std::fs::write(wt.join("crates/x/lib.rs"), "fn x() {}\n").unwrap();
+    commit_ahead(&wt); // commits crates/x/lib.rs and work.txt
+    let rust = git(&wt, &["rev-parse", "HEAD"]);
+    std::fs::write(wt.join("work.txt"), "more\n").unwrap();
+    git(&wt, &["add", "."]);
+    git(
+        &wt,
+        &[
+            "-c",
+            "user.email=t@x",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "more",
+        ],
+    );
+    git(
+        &wt,
+        &["update-ref", "refs/remotes/origin/main", rust.trim()],
+    );
+    git(&wt, &["remote", "set-head", "origin", "--delete"]);
+    c.send(&check_paths(
+        sid,
+        "cargo nextest run",
+        None,
+        true,
+        &["crates/**"],
+    ));
+    let exit = c
+        .until_for(10_000, || c.data("cmd_exit").into_iter().next())
+        .await;
+    assert_eq!(exit["skipped"], Value::Null, "{exit}");
+    assert_eq!(exit["exit_code"], 0, "{exit}");
+    assert_eq!(runner.calls().len(), 1);
+    c.done().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn r3_a_skipped_check_runs_no_setup_and_the_next_check_runs_it_first_in_the_same_checkout() {
+    let c = Ctx::new().await;
+    let runner = FakeCommandRunner::new(1, true);
+    let (sid, wt) = started_session(&c, runner.clone(), 3).await;
+    commit_ahead(&wt);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let with_setup = |cmd: &str, sha: Option<&str>, last: bool, paths: &[&str]| {
+        let mut co = json!({ "sha": sha, "setup": "make deps", "last": last });
+        if !paths.is_empty() {
+            co["paths"] = json!(paths);
+        }
+        run_cmd(
+            sid,
+            json!({
+                "workflow_state": "implementing → waiting_external (entry)",
+                "cmd": cmd,
+                "timeout_ms": 1000,
+                "require_clean": true,
+                "checkout": co,
+            }),
+            3,
+        )
+        .0
+    };
+    c.send(&with_setup(
+        "cargo nextest run",
+        None,
+        false,
+        &["crates/**"],
+    ));
+    let first = c
+        .until_for(10_000, || c.data("cmd_exit").into_iter().next())
+        .await;
+    assert!(first["skipped"].is_string(), "{first}");
+    assert!(
+        runner.calls().is_empty(),
+        "no setup, no command for a skipped check"
+    );
+    c.send(&with_setup("npm test", Some(&head), true, &[]));
+    let second = c
+        .until_for(10_000, || c.data("cmd_exit").get(1).cloned())
+        .await;
+    assert_eq!(second["exit_code"], 0, "{second}");
+    let cmds: Vec<String> = runner.calls().iter().map(|x| x.cmd.clone()).collect();
+    assert_eq!(cmds, ["make deps", "npm test"]);
     c.done().await;
 }

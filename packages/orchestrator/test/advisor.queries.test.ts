@@ -182,6 +182,51 @@ describe('loadAdvisorRows (ADR-0033)', () => {
     expect(ticketId).toBeTruthy();
   });
 
+  it('R3: reads a skipped check as skipped, counted apart from runs', async () => {
+    const r3 = await account('R3');
+    const m3 = await machine(r3);
+    const { sessionId } = await advisorHistory(db.pool, {
+      accountId: r3,
+      machineId: m3,
+      repo: 'github.com/acme/app',
+      ago: 2,
+      now: NOW,
+    });
+    const commandId = randomUUID();
+    await db.pool.query(
+      "INSERT INTO outbox (command_id, target, kind, session_id, payload, created_at) VALUES ($1, $2, 'run_cmd', $3, $4, $5)",
+      [
+        commandId,
+        `machine:${m3}`,
+        sessionId,
+        JSON.stringify({ command_id: commandId, workflow_state: 'x', cmd: 'cargo nextest run' }),
+        daysAgo(2, 61),
+      ],
+    );
+    await db.pool.query(
+      "INSERT INTO event (session_id, type, payload, ts) VALUES ($1, 'command.exited', $2, $3)",
+      [
+        sessionId,
+        JSON.stringify({
+          command_id: commandId,
+          exit_code: 0,
+          timed_out: false,
+          skipped: 'no changes match paths: crates/**',
+        }),
+        daysAgo(2, 62),
+      ],
+    );
+    const rows = await loadAdvisorRows(db.pool, { accountId: r3, windowDays: 30, now: NOW });
+    const cargo = rows.checks.filter((r) => r.cmd === 'cargo nextest run');
+    expect(cargo.map((r) => r.skipped)).toEqual([true]);
+    expect(rows.checks.filter((r) => r.cmd !== 'cargo nextest run').every((r) => !r.skipped)).toBe(
+      true,
+    );
+    const totals = processMetrics(rows, 'state').totals;
+    expect(totals.check_skips).toBe(1);
+    expect(totals.check_runs).toBe(rows.checks.length - 1);
+  });
+
   it('counts review answers that equal a saved reply of the pinned definition (ADR-0037 P5)', async () => {
     const d = await account('D');
     const md = await machine(d);

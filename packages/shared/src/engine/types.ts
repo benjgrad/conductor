@@ -222,6 +222,13 @@ export const GateStepSchema = z.object({
    * its landing records `cause: 'concurrency_released'`.
    */
   held: z.boolean().default(false),
+  /**
+   * R3: the checks of this attempt the daemon skipped (no change matched their `paths`), by
+   * index into the step's checks, with the daemon's reason. They count as passed.
+   */
+  skipped_checks: z
+    .array(z.object({ index: z.number().int().nonnegative(), reason: z.string() }))
+    .default([]),
 });
 export type GateStep = z.infer<typeof GateStepSchema>;
 /** ADR-0037 P4: `GateStep.hold` while held. */
@@ -473,6 +480,8 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     not_run: z.string().optional(),
     /** The session branch has no commits ahead of origin's default branch (the check did not run). */
     no_commits: z.boolean().optional(),
+    /** R3: no change matched the check's `paths`, so it did not run (counts as passed): why. */
+    skipped: z.string().optional(),
   }),
   /**
    * D `spend`: cumulative per claude_session_id (ADR-0005). apply adds only
@@ -837,10 +846,15 @@ export const EffectSchema = z.discriminatedUnion('type', [
      * the agent's worktree. `sha` null = the worktree's clean HEAD (the first check); `setup` null
      * = auto-detect (`package-lock.json` → `npm ci`, `package.json` → `npm install`), '' = none;
      * runs once per checkout. `last`: the daemon deletes the checkout after this check (it also
-     * does on any failure).
+     * does on any failure). R3 `paths`: the check's globs (skipped when no change matches).
      */
     checkout: z
-      .object({ sha: z.string().nullable(), setup: z.string().nullable(), last: z.boolean() })
+      .object({
+        sha: z.string().nullable(),
+        setup: z.string().nullable(),
+        last: z.boolean(),
+        paths: z.array(z.string()).optional(),
+      })
       .optional(),
   }),
   /**

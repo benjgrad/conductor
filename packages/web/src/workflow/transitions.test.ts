@@ -327,6 +327,22 @@ describe('checkListIssues (shared with the Repo checks page, ADR-0030)', () => {
     ]);
   });
 
+  it('R3: paths are valid globs, at most 50', () => {
+    const c = { name: 'Cargo', cmd: 'cargo test' };
+    expect(checkListIssues([{ ...c, paths: ['crates/**', 'Cargo.*'] }], undefined)).toEqual([]);
+    expect(checkListIssues([{ ...c, paths: ['crates\\x'] }], undefined)).toEqual([
+      {
+        suffix: 'checks.0.paths',
+        message:
+          'Check 1: Paths: "crates\\x" contains a backslash: use forward slashes, as git does',
+      },
+    ]);
+    const many = Array.from({ length: 51 }, (_, i) => `d${i}/**`);
+    expect(checkListIssues([{ ...c, paths: many }], undefined)).toEqual([
+      { suffix: 'checks.0.paths', message: 'Check 1: Paths: at most 50 globs' },
+    ]);
+  });
+
   it('setup only with checks, at most 2000 characters; none and auto are fine', () => {
     const one = [{ name: 'Tests', cmd: 'npm test' }];
     expect(checkListIssues([], 'npm ci')).toEqual([

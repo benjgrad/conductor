@@ -282,6 +282,17 @@ describe('password mode (09 §Hosted security)', () => {
     // session: the empty body reaches the M2-T17 route and is a 400, not a 401 / 403
     const enroll = await rawPost(pw.port, API_PATHS.machinesEnroll, { host: HOST, ...json });
     expect(enroll.status).toBe(400);
+    // R11: a GitHub delivery (no Origin, no cookie) passes the guard and the session check; its
+    // signature is the route's to judge (no secret for this account → 404, never 401 / 403)
+    const hook = await rawPost(
+      pw.port,
+      API_PATHS.githubWebhookDelivery('00000000-0000-4000-8000-000000000000'),
+      { host: HOST, ...json },
+    );
+    expect(hook.status).toBe(404);
+    // …and only that path: another POST without Origin is still refused
+    const other = await rawPost(pw.port, API_PATHS.githubWebhookSecret, { host: HOST, ...json });
+    expect(other.status).toBe(403);
   });
 
   it('415 unsupported_media_type for text/plain', async () => {

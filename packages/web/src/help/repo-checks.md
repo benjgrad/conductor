@@ -13,8 +13,11 @@ Each check has a name and a command; it passes when the command exits with 0. A 
 
 Commands run in a shell at the root of a fresh checkout of the commit being shipped. On Windows machines that shell is Git Bash, so write bash and use forward slashes, e.g. `cd m-one && npm ci && npm run build`.
 
+## Run a check only for some files
+A check can list the files it covers under **Only when these change**: path globs relative to the repo root, separated by commas, e.g. `crates/**, Cargo.*, rust-toolchain.toml`. `**` matches any folders, `*` and `?` match within one folder name, and `{a,b}` matches either. The check then runs only when the branch changes a matching file since it left the default branch. Otherwise it is skipped, shown as **Skipped: no matching changes**, and counts as passed. When conductor can't tell what changed, the check runs. Leave the field empty to always run the check.
+
 ## Last runs
-A repo's page shows each check's last 5 runs from the past 30 days, oldest to newest. A green ✓ passed and a red ✗ failed; hover a mark for how it ended, how long it took and its ticket, and click it to open the ticket. The list of repos shows a health hint for each one.
+A repo's page shows each check's last 5 runs from the past 30 days, oldest to newest. A green ✓ passed, a red ✗ failed and a grey – was skipped (no matching changes); hover a mark for how it ended, how long it took and its ticket, and click it to open the ticket. The list of repos shows a health hint for each one.
 
 Runs are matched to a check by its command, so renaming a check keeps its history, but changing its command starts it again from empty.
 ## Where you see them

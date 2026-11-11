@@ -93,13 +93,13 @@ It validates as is: nothing in it is "not available yet". It is not saved live b
 These rules hold for triage, and for the answerer of ADR-0040, whenever conductor decides something Ben would otherwise decide:
 1. **Declared choices only.** The agent picks one of the transitions the definition declares. A name it may not take goes to a human (`fallback`).
 2. **Recorded.** Every decision is a `state_entered` with the agent's reason and the evidence it judged. An escalation leads with the agent's diagnosis.
-3. **Bounded.** Every loop the agent can drive is counted and ends at a human state (rule 29, and rule 4 on the expanded edges).
+3. **Bounded.** Every loop the agent can drive is counted and ends at a human state (rule 30, and rule 4 on the expanded edges).
 4. **Hands off the work.** It never edits the branch, pushes, merges, comments on GitHub or reruns CI. Read-only tools, fresh conversation, forced `dontAsk`.
 5. **Inside the budget.** Its spend counts toward the session's `budget.usd` like any agent's.
 
-### Validation on save (rule 29)
+### Validation on save (rule 30)
 
-Rule 29 is new, in `validate-triage.ts`. Rule 28 is ADR-0040's.
+Rule 30 is new, in `validate-triage.ts`. Rule 28 is ADR-0040's.
 - **The triage state itself.** It is not the start state. It has no `entry`, `checkout` or `follow_ups`. Its `tools` are absent or exactly `["triage"]`. At least one route enters it (path `states.<s>`).
 - **Its transitions.** None has `question`, `handoff`, `requires` or `requirements`. At least one goes to a human state, the escalate verdict (path `states.<s>.on`). That verdict also satisfies rule 12, the "can ask" rule.
 - **`$return_to` / `$gate` verdicts** on a triage state or a leg are counted, with `retries` or `else` (path `….goto`). Their `else` is a human state (`….else`).
@@ -111,7 +111,7 @@ Rule 29 is new, in `validate-triage.ts`. Rule 28 is ADR-0040's.
 
 | # | Ticket | Acceptance |
 |---|---|---|
-| R5b (this ticket) | This ADR; schema, rule 29, engine, `triage` alias and daemon feature, the alias swap, 05/10 docs; the draft [`conductor.triage.draft.json`](../design/workflows/conductor.triage.draft.json) (v6 plus triage, not saved live); `get_process_metrics.triage` | Validator and engine tests, a bounded-path property (`apply.triage.test.ts`), the property suite runs a triage flow; `conductor.triage-draft.test.ts`; `triageVerdicts` and query tests; `e2e/triage.e2e.test.ts`, one fake verdict per branch |
+| R5b (this ticket) | This ADR; schema, rule 30, engine, `triage` alias and daemon feature, the alias swap, 05/10 docs; the draft [`conductor.triage.draft.json`](../design/workflows/conductor.triage.draft.json) (v6 plus triage, not saved live); `get_process_metrics.triage` | Validator and engine tests, a bounded-path property (`apply.triage.test.ts`), the property suite runs a triage flow; `conductor.triage-draft.test.ts`; `triageVerdicts` and query tests; `e2e/triage.e2e.test.ts`, one fake verdict per branch |
 | R5b-next | The designer: a role picker, `$return_to` / `$gate` targets, and its gate editor's "else is human" check relaxed to human-or-triage; Insights' page shows the triage table | Designer tests |
 
 ## Alternatives considered
@@ -122,7 +122,7 @@ Rule 29 is new, in `validate-triage.ts`. Rule 28 is ADR-0040's.
 | Resume the implementer with the evidence and let it decide | Not independent: it is the agent that just failed, and it spends that agent's context. 08e318fb shows that the implementer doesn't go and read CI. |
 | Let triage fix things itself (push, rerun CI, edit the branch) | FR-3: a judge that edits the work it judges is no longer a judge. A fix goes back through the implementer or a declared `fix_env` leg, both of which run the gate again. |
 | An `error_workflow` sub-workflow (n8n style) | There is one workflow (ADR-0010). A sub-workflow is a second engine concept. A state with a role is the same idea in the existing graph. |
-| Let any agent state be an `else` target | It drops the "every failure path ends at a human" guarantee for states that aren't built to escalate. Rule 29's structure (escalate verdict, counted pseudo-targets) is what keeps the guarantee. |
+| Let any agent state be an `else` target | It drops the "every failure path ends at a human" guarantee for states that aren't built to escalate. Rule 30's structure (escalate verdict, counted pseudo-targets) is what keeps the guarantee. |
 
 ## Consequences
 

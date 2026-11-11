@@ -64,7 +64,7 @@
         "timeout": "needs_input",
         "ask_user": {
           "goto": "needs_input",
-          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets.",
+          "when": "You need a decision or information from a human. Ask one clear question, give your recommended answer, and point to the evidence (a log line, a file, a PR check). Ask whenever you'd otherwise be guessing; search the repo first for what you can find out yourself.",
           "notify": "every"
         },
         "impossible": {
@@ -82,7 +82,7 @@
         "scope_changed": {
           "goto": "needs_input",
           "title": "Scope changed",
-          "when": "A finding changes what the ticket can deliver and the milestone spec doesn't settle it. If the ticket only bundles several tasks ('finish the remaining work'), don't ask: plan the first task and put the rest in proposed_tickets.",
+          "when": "A finding changes what the ticket can deliver. Give your recommended option and the alternative. If the ticket only bundles several tasks, plan the first and put the rest in proposed_tickets. Before asking whether something already exists, search the repo for it and state what you found.",
           "question": true,
           "notify": "every"
         },
@@ -96,7 +96,7 @@
         "needs_product_context": {
           "goto": "needs_input",
           "title": "Needs product context",
-          "when": "You need more product context to plan the work.",
+          "when": "You need product context the ticket and the repo's docs and ADRs don't give. Say what you'd assume otherwise.",
           "question": true,
           "notify": "every"
         }
@@ -137,7 +137,7 @@
         "timeout": "needs_input",
         "ask_user": {
           "goto": "needs_input",
-          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets.",
+          "when": "You need a decision or information from a human. Ask one clear question, give your recommended answer, and point to the evidence (a log line, a file, a PR check). Ask whenever you'd otherwise be guessing; search the repo first for what you can find out yourself.",
           "notify": "every"
         },
         "ready_for_testing": {
@@ -212,7 +212,7 @@
         "pr_ready_for_review": {
           "goto": "in_review",
           "title": "PR ready for review",
-          "when": "The work is done and you want Ben to review the PR before it goes further. Start your summary (the PR description) with what changed in at most three bullets, what to look at first, and anything you couldn't verify, such as the Windows leg.",
+          "when": "The work is done and you want Ben to review the PR before it goes further. Start your summary (the PR description) with what changed in at most three bullets, what to look at first, and anything you couldn't verify, such as the Windows leg. Take this only once every question you had is answered: the summary hands off finished work and asks nothing.",
           "kinds": [
             "work"
           ],
@@ -283,7 +283,7 @@
         "personal_pr_ready_for_review": {
           "goto": "in_review",
           "title": "PR ready for review",
-          "when": "The work is done and committed. Conductor opens the PR, waits for CI, and moves the ticket to In review for Ben. Start your summary (the PR description) with what changed in at most three bullets, what to look at first, and anything you couldn't verify, such as the Windows leg.",
+          "when": "The work is done and committed. Conductor opens the PR, waits for CI, and moves the ticket to In review for Ben. Start your summary (the PR description) with what changed in at most three bullets, what to look at first, and anything you couldn't verify, such as the Windows leg. Take this only once every question you had is answered: the summary hands off finished work and asks nothing.",
           "kinds": [
             "personal"
           ],

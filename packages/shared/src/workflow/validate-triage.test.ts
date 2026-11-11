@@ -6,7 +6,7 @@ import { WorkflowDefinitionSchema } from './schema.js';
 import { validateWorkflow } from './validate.js';
 import { triageLegs, triagePseudoEdges, triageSources } from './validate-triage.js';
 
-// ADR-0043 rule 29 (the triage role), the relaxed "else is a human or triage state" of rules 8,
+// ADR-0043 rule 30 (the triage role), the relaxed "else is a human or triage state" of rules 8,
 // 9, 13 and 19, and rule 4 on the edges `$return_to` / `$gate` stand for.
 
 type Raw = { states: Record<string, any> } & Record<string, any>;
@@ -17,7 +17,7 @@ const found = (input: unknown) => {
 };
 const parse = (raw: Raw) => WorkflowDefinitionSchema.parse(raw);
 
-describe('rule 29: the triage role', () => {
+describe('rule 30: the triage role', () => {
   it('accepts the reference definition (a gate else into triage, four verdicts)', () => {
     expect(found(base())).toEqual([]);
   });
@@ -60,9 +60,9 @@ describe('rule 29: the triage role', () => {
     raw.states.triage.on.rerun = '$gate';
     raw.states.fix_env.on.exit_0 = { goto: '$gate', retries: 1, else: 'fix_env' };
     const errs = found(raw);
-    expect(errs).toContain('29 states.triage.on.send_back.goto');
-    expect(errs).toContain('29 states.triage.on.rerun');
-    expect(errs).toContain('29 states.fix_env.on.exit_0.else');
+    expect(errs).toContain('30 states.triage.on.send_back.goto');
+    expect(errs).toContain('30 states.triage.on.rerun');
+    expect(errs).toContain('30 states.fix_env.on.exit_0.else');
   });
 
   it('rule 4 flags an uncounted triage loop', () => {
@@ -71,7 +71,7 @@ describe('rule 29: the triage role', () => {
     expect(found(raw)).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/^4 states\./),
-        '29 states.triage.on.rerun.goto',
+        '30 states.triage.on.rerun.goto',
       ]),
     );
   });
@@ -81,15 +81,15 @@ describe('rule 29: the triage role', () => {
     raw.states.implementing.on.retry = { goto: '$gate', retries: 1, else: 'needs_input' };
     raw.states.in_review.on.again = { goto: '$gate', actor: 'human' };
     const errs = found(raw);
-    expect(errs).toContain('29 states.implementing.on.retry.goto');
-    expect(errs).toContain('29 states.in_review.on.again.goto');
+    expect(errs).toContain('30 states.implementing.on.retry.goto');
+    expect(errs).toContain('30 states.in_review.on.again.goto');
   });
 
   it('a state also entered from outside triage is no leg', () => {
     const raw = base();
     raw.states.implementing.on.fix = 'fix_env';
     expect(triageLegs(parse(raw)).has('fix_env')).toBe(false);
-    expect(found(raw)).toContain('29 states.fix_env.on.exit_0.goto');
+    expect(found(raw)).toContain('30 states.fix_env.on.exit_0.goto');
     expect(triageLegs(parse(base()))).toEqual(new Set(['fix_env']));
   });
 
@@ -102,12 +102,12 @@ describe('rule 29: the triage role', () => {
       on_unmet: { goto: 'implementing', else: 'needs_input' },
     };
     const errs = found(raw);
-    expect(errs).toContain('29 states.triage.on');
-    expect(errs).toContain('29 states.triage.on.fix_env.requires');
+    expect(errs).toContain('30 states.triage.on');
+    expect(errs).toContain('30 states.triage.on.fix_env.requires');
 
     const q = base();
     q.states.triage.on.escalate = { goto: 'needs_input', question: true };
-    expect(found(q)).toContain('29 states.triage.on.escalate.question');
+    expect(found(q)).toContain('30 states.triage.on.escalate.question');
   });
 
   it('refuses a triage start state, entry, checkout, follow-ups and other tools', () => {
@@ -115,8 +115,8 @@ describe('rule 29: the triage role', () => {
     raw.states.triage.tools = ['edit'];
     raw.states.triage.follow_ups = { enabled: true };
     const errs = found(raw);
-    expect(errs).toContain('29 states.triage.tools');
-    expect(errs).toContain('29 states.triage.follow_ups');
+    expect(errs).toContain('30 states.triage.tools');
+    expect(errs).toContain('30 states.triage.follow_ups');
 
     const ok = base();
     ok.states.triage.tools = ['triage'];
@@ -130,7 +130,7 @@ describe('rule 29: the triage role', () => {
     expect(found(raw)).toEqual([]);
     raw.states.needs_input.on.triage_it = undefined;
     delete raw.states.needs_input.on.triage_it;
-    expect(found(raw)).toEqual(expect.arrayContaining(['29 states.triage']));
+    expect(found(raw)).toEqual(expect.arrayContaining(['30 states.triage']));
   });
 
   it('expands the pseudo-targets into edges back to the failed state', () => {
@@ -160,7 +160,7 @@ describe('rule 29: the triage role', () => {
   });
 });
 
-describe('rule 29 leaves every shipped workflow unchanged', () => {
+describe('rule 30 leaves every shipped workflow unchanged', () => {
   it('each docs/design/workflows definition validates as before', () => {
     const dir = new URL('../../../../docs/design/workflows/', import.meta.url);
     for (const f of readdirSync(dir).filter((n) => n.endsWith('.json'))) {

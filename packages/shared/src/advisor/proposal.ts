@@ -155,6 +155,7 @@ export function effectValue(rows: AdvisorRows, effect: Pick<ExpectedEffect, 'met
     case 'check_failure_rate': {
       const runs = rows.checks
         .filter(inRepo)
+        .filter((c) => c.skipped !== true)
         .filter(
           (c) =>
             (state === undefined || c.state === state) &&

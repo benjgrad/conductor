@@ -1,6 +1,6 @@
 {
   "function": "matchingPaths",
-  "description": "matchingPaths(paths, globs) → string[] (workflow/screenshots.ts; globToRegExp)",
+  "description": "matchingPaths(paths, globs) \u2192 string[] (workflow/screenshots.ts; globToRegExp)",
   "cases": [
     {
       "input": {
@@ -452,6 +452,102 @@
         "globs": []
       },
       "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "crates/conductor-daemon/src/daemon.rs",
+          "docs/x.md"
+        ],
+        "globs": [
+          "crates/**",
+          "Cargo.*",
+          "rust-toolchain.toml"
+        ]
+      },
+      "expected": [
+        "crates/conductor-daemon/src/daemon.rs"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "Cargo.toml",
+          "Cargo.lock",
+          "rust-toolchain.toml"
+        ],
+        "globs": [
+          "crates/**",
+          "Cargo.*",
+          "rust-toolchain.toml"
+        ]
+      },
+      "expected": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "Cargo.toml.bak/x",
+          "packages/web/Cargo.toml",
+          "cratesx/a.rs"
+        ],
+        "globs": [
+          "crates/**",
+          "Cargo.*",
+          "rust-toolchain.toml"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "docs/design/05-workflow-engine.md",
+          "README.md"
+        ],
+        "globs": [
+          "docs/**"
+        ]
+      },
+      "expected": [
+        "docs/design/05-workflow-engine.md"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "README.md",
+          "docs/a/b.md",
+          "src/a.ts"
+        ],
+        "globs": [
+          "**/*.md"
+        ]
+      },
+      "expected": [
+        "README.md",
+        "docs/a/b.md"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "packages/web/src/App.tsx",
+          "packages/shared/src/x.ts",
+          "packages/orchestrator/src/y.ts"
+        ],
+        "globs": [
+          "packages/{web,shared}/**"
+        ]
+      },
+      "expected": [
+        "packages/web/src/App.tsx",
+        "packages/shared/src/x.ts"
+      ]
     }
   ]
 }

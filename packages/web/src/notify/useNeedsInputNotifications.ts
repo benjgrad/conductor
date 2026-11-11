@@ -30,6 +30,10 @@ export function clip(text: string, max: number = BODY_MAX): string {
  *   notifications are on and the page is hidden or unfocused (FR-1, FR-2). Requests already open
  *   when the board loads are only counted, and an id seen once never fires again, so reconnects,
  *   re-renders and the user's own answer (it only clears the request) don't re-fire (NFR-1).
+ * - ADR-0037 P6: a question whose opening move the workflow's notify policy kept silent
+ *   (`input_request.notify.decision === 'silent'`: a transition set to Never, a Once per ticket
+ *   transition already notified, an engine move) shows no notification, as it sends no Web Push.
+ *   It still counts in the title and the favicon dot: it still waits on a person.
  * The notification is shown by `showInTab` (show.ts: the service worker, else the constructor,
  * whose click focuses the tab and calls `onSelect` with the card's session id).
  * A card carries only its oldest pending permission, so a second one on the same session notifies
@@ -99,6 +103,7 @@ function notify(card: BoardCard, select: (sessionId: string) => void): Close | n
   const request = card.input_request;
   const sessionId = card.session_id;
   if (!request || sessionId === null || !mayNotifyInTab()) return null;
+  if (request.notify?.decision === 'silent') return null;
   return showInTab({
     title: `${cardAgent(card).name} needs input`,
     body: clip(`${card.title}: ${request.question}`),

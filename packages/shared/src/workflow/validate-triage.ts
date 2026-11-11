@@ -10,7 +10,7 @@ import {
 import { isCountedTransition, transitionObject } from './transition-rules.js';
 import type { WorkflowValidationError } from './validate.js';
 
-// ADR-0043, rule 29: the triage role. A `role: 'triage'` agent state may be a failure leg's target
+// ADR-0043, rule 30: the triage role. A `role: 'triage'` agent state may be a failure leg's target
 // (`on_unmet.goto` / `else`, an entry's, a watch's `on_broken`); it reads the evidence and picks a
 // declared verdict. Its verdicts (and those of its "legs", e.g. a `fix_env` command reached only
 // from triage) may name `$return_to` (back to the state that failed) and `$gate` (retry the move
@@ -142,7 +142,7 @@ export interface PseudoEdge {
 /**
  * The graph edges `$return_to` / `$gate` stand for (rules 2–4): from a triage state, or a leg,
  * back to every source of a triage state (a leg's: of any triage state). A counted verdict's edge
- * is bounded; an uncounted one is not (rule 29 also refuses it).
+ * is bounded; an uncounted one is not (rule 30 also refuses it).
  */
 export function triagePseudoEdges(def: WorkflowDefinition): PseudoEdge[] {
   const triage = Object.keys(def.states).filter((n) => isTriageState(def.states[n]));
@@ -173,7 +173,7 @@ export function triagePseudoEdges(def: WorkflowDefinition): PseudoEdge[] {
 }
 
 /**
- * Rule 29 (ADR-0043), the triage role:
+ * Rule 30 (ADR-0043), the triage role:
  * - a triage state is not the start state, has no `entry`, `checkout` or `follow_ups`, and its
  *   `tools` are absent or exactly `["triage"]` (the engine always runs it with that alias);
  * - it is the target of at least one failure leg or route (else nothing ever triages);
@@ -189,7 +189,7 @@ export function checkTriage(
   has: (name: string) => boolean,
 ): WorkflowValidationError[] {
   const errors: WorkflowValidationError[] = [];
-  const err = (path: Path, message: string) => errors.push({ rule: 29, path, message });
+  const err = (path: Path, message: string) => errors.push({ rule: 30, path, message });
   const stateOf = (name: string): WorkflowState | undefined =>
     has(name) ? def.states[name] : undefined;
   const legs = triageLegs(def);

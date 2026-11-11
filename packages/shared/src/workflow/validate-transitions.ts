@@ -40,7 +40,7 @@ export function checkTransitions(
     has(name) ? def.states[name] : undefined;
   const isHuman = (name: string) => stateOf(name)?.type === 'human';
   const mergeAware = isMergeAware(def);
-  // ADR-0043: rule 29 owns `$return_to` / `$gate` on a triage state and its legs.
+  // ADR-0043: rule 30 owns `$return_to` / `$gate` on a triage state and its legs.
   const legs = triageLegs(def);
 
   for (const [from, state] of Object.entries(def.states)) {
@@ -154,7 +154,7 @@ function checkQuestion(
 /**
  * Rule 12, every agent state can ask a human: it declares `ask_user` into a human state (the
  * built-in fallback, U-061), or at least one agent-actor `question: true` transition. A triage
- * state (ADR-0043) asks through its escalate verdict instead, which rule 29 requires.
+ * state (ADR-0043) asks through its escalate verdict instead, which rule 30 requires.
  */
 function checkCanAsk(
   errors: WorkflowValidationError[],
@@ -164,7 +164,7 @@ function checkCanAsk(
   on: NonNullable<Exclude<WorkflowState, { type: 'terminal' }>['on']>,
   isHuman: (name: string) => boolean,
 ): void {
-  // ADR-0043: a triage state asks through its escalate verdict (rule 29 requires one).
+  // ADR-0043: a triage state asks through its escalate verdict (rule 30 requires one).
   if (isTriageState(state)) return;
   const askUser = on.ask_user;
   if (askUser !== undefined && isHuman(transitionGoto(askUser))) return;
@@ -182,7 +182,7 @@ function checkCanAsk(
 /**
  * Rules 13 (bounded requirements) and 14 (what M1b can run), on a transition's `requires` and
  * `on_unmet`:
- * - 13: `requires` names at least one check, review item, action or condition; `setup` needs
+ * - 13: `requires` names at least one check, review item, action, condition or ADR-0042 `cmd` leg; `setup` needs
  *   checks; check commands aren't blank, check names and actions are unique; any `requires` has an
  *   `on_unmet`; `conditions` need a `condition_timeout`; `on_unmet` needs `requires` (or ADR-0009
  *   `requirements`); `on_unmet.else` is a human state; `on_unmet.goto` is not the transition's
@@ -212,7 +212,8 @@ function checkRequires(
       checks.length +
       (req.review ? 1 : 0) +
       (req.actions?.length ?? 0) +
-      (req.conditions?.length ?? 0);
+      (req.conditions?.length ?? 0) +
+      (req.parallel ?? []).flat().filter((leg) => leg.type === 'cmd').length;
     if (steps === 0) r13(at, 'requires needs at least one check, review, action or condition');
     if (FALLBACK_TRANSITION_NAMES.includes(name)) {
       r13(at, `"${name}" is a built-in route to a human and never runs requirements`);

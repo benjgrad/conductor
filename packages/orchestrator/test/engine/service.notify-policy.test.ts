@@ -19,10 +19,10 @@ const now = () => new Date(t);
 let script: ScriptedApply;
 const sender: PushSender = { send: () => Promise.resolve({ ok: true }) };
 
-const make = () =>
+const make = (boardBus = new InMemoryBoardBus()) =>
   createEngineService({
     db: db.pool,
-    boardBus: new InMemoryBoardBus(),
+    boardBus,
     now,
     apply: script.apply,
     push: { publicKey: 'pub', privateKey: 'priv', subject: 'mailto:o@example.test' },
@@ -144,8 +144,16 @@ describe('notify policy in the EngineService wrapper (ADR-0037 P6)', () => {
   it('a silent decision writes no push but records the decision', async () => {
     handoff(decision('pr_ready_for_review', 'silent'));
     const { sessionId } = await running();
-    await make().applyEvent(sessionId, { type: 'agent.complete_state', result: {} });
+    const bus = new InMemoryBoardBus();
+    await make(bus).applyEvent(sessionId, { type: 'agent.complete_state', result: {} });
     expect(await pushes()).toEqual([]);
+    // The tab reads the decision off the SSE events, so it skips the in-tab notification too.
+    const requested = bus.published.find((e) => e.type === 'input.requested');
+    expect(requested).toMatchObject({ notify: decision('pr_ready_for_review', 'silent') });
+    const upsert = bus.published.findLast((e) => e.type === 'card.upserted');
+    expect(upsert).toMatchObject({
+      card: { input_request: { notify: decision('pr_ready_for_review', 'silent') } },
+    });
     const req = await db.pool.query<{ notify: unknown }>(
       'SELECT notify FROM input_request WHERE session_id = $1',
       [sessionId],

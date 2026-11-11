@@ -174,6 +174,30 @@ describe('useNeedsInputNotifications', () => {
     expect(N.instances[0]!.close).toHaveBeenCalled();
   });
 
+  it('a request the notify policy kept silent counts but does not fire (ADR-0037 P6)', () => {
+    const silent = { via: 'ask_user', mode: 'never', decision: 'silent' } as const;
+    const push = { via: 'ask_user', mode: 'every', decision: 'push' } as const;
+    const start = loaded([RUNNING]);
+    const { rerender } = mount(start);
+    const quiet = applyBoardEvent(start, { ...asked(11), notify: silent } as BoardSseEvent);
+    rerender({ b: quiet });
+    expect(N.instances).toHaveLength(0);
+    expect(document.title).toBe('(1) Conductor');
+    expect(favicon()).toBe(FAVICON_DOT);
+    // The card.upserted that follows carries the same decision: still nothing.
+    rerender({ b: loaded([quiet.cards.get(RUNNING.ticket_id)!], 12) });
+    expect(N.instances).toHaveLength(0);
+
+    const answeredBoard = applyBoardEvent(quiet, answered(13));
+    rerender({ b: answeredBoard });
+    const loud = applyBoardEvent(answeredBoard, {
+      ...asked(14, 'Ship it?', '66666666-6666-4666-8666-666666666666'),
+      notify: push,
+    } as BoardSseEvent);
+    rerender({ b: loud });
+    expect(N.instances).toHaveLength(1);
+  });
+
   it("doesn't fire while the page is focused and visible", () => {
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const start = loaded([RUNNING]);

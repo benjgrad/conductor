@@ -462,6 +462,31 @@ async fn bases_each_new_session_on_the_fetched_default_branch() {
 }
 
 #[tokio::test]
+async fn r3_records_the_base_of_a_new_branch_only() {
+    // TD-221: the commit a new session branch starts at, read before any agent runs in it.
+    let f = FreshBase::new(None);
+    f.ws.ensure_clone(&f.repo()).await.unwrap();
+    let x = f.push("x.txt");
+    let o = |sid: &str| EnsureWorktree {
+        repo: f.repo(),
+        session_id: sid.into(),
+        branch: "conductor/t/based".into(),
+        base_ref: "HEAD".into(),
+        default_branch: None,
+    };
+    let (wt, base) = f.ws.ensure_worktree_based(&o("s1")).await.unwrap();
+    let base = base.expect("a new branch has a base");
+    assert_eq!(base.sha, x);
+    assert_eq!(base.branch, "origin/trunk");
+    // Reused worktree, or the existing branch checked out again: no base (the daemon keeps the
+    // one it recorded with the session).
+    assert_eq!(
+        f.ws.ensure_worktree_based(&o("s1")).await.unwrap(),
+        (wt, None)
+    );
+}
+
+#[tokio::test]
 async fn uses_an_explicit_default_branch() {
     let f = FreshBase::new(None);
     f.ws.ensure_clone(&f.repo()).await.unwrap();

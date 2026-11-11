@@ -1242,3 +1242,52 @@ export const SETUP_TRIAGE_WS_FIXTURES: {
     },
   },
 };
+
+// ---------------------------------------------------------------- diff-aware checks (R3)
+
+/** A check with `paths` (run_cmd.checkout.paths) and the daemon skipping it (cmd_exit.skipped). */
+export const CHECK_PATHS_WS_FIXTURES: {
+  run_cmd_paths: Extract<OrchestratorToDaemon, { type: 'run_cmd' }>;
+  cmd_exit_skipped: DaemonToOrchestrator;
+} = {
+  run_cmd_paths: {
+    type: 'run_cmd',
+    msg_id: '00000000-0000-4000-8000-0000000c0001',
+    seq: null,
+    session_id: S,
+    fencing_token: 2,
+    payload: {
+      command_id: FIXTURE_IDS.command,
+      workflow_state: 'implementing → done (move: done)',
+      cmd: 'cargo nextest run --workspace',
+      cwd: null,
+      timeout_ms: 900000,
+      require_clean: true,
+      checkout: {
+        sha: '3b18e512dba79e4c8300dd08aeb37f8e728b8dad',
+        setup: '',
+        last: true,
+        paths: ['crates/**', 'Cargo.*', 'rust-toolchain.toml'],
+      },
+    },
+  },
+  cmd_exit_skipped: {
+    type: 'session_event',
+    ...daemonSession(42),
+    payload: {
+      kind: 'cmd_exit',
+      data: {
+        command_id: FIXTURE_IDS.command,
+        exit_code: 0,
+        signal: null,
+        timed_out: false,
+        duration_ms: 0,
+        output_tail:
+          'no changes match paths: crates/**, Cargo.*, rust-toolchain.toml (diff against origin/main)',
+        head_sha: '3b18e512dba79e4c8300dd08aeb37f8e728b8dad',
+        skipped:
+          'no changes match paths: crates/**, Cargo.*, rust-toolchain.toml (diff against origin/main)',
+      },
+    },
+  },
+};

@@ -1,0 +1,25 @@
+{
+  "type": "run_cmd",
+  "msg_id": "00000000-0000-4000-8000-0000000c0001",
+  "seq": null,
+  "session_id": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f",
+  "fencing_token": 2,
+  "payload": {
+    "command_id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+    "workflow_state": "implementing → done (move: done)",
+    "cmd": "cargo nextest run --workspace",
+    "cwd": null,
+    "timeout_ms": 900000,
+    "require_clean": true,
+    "checkout": {
+      "sha": "3b18e512dba79e4c8300dd08aeb37f8e728b8dad",
+      "setup": "",
+      "last": true,
+      "paths": [
+        "crates/**",
+        "Cargo.*",
+        "rust-toolchain.toml"
+      ]
+    }
+  }
+}

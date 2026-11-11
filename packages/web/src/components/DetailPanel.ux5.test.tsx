@@ -7,7 +7,14 @@ import { mockChecking, SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
+
+/** The banner starts collapsed: open it. */
+const expand = (banner: HTMLElement) =>
+  fireEvent.click(within(banner).getByRole('button', { name: /Conductor is running checks/ }));
 
 async function open(title: string) {
   const api = createMockApi({ replyDelayMs: 0 });
@@ -29,6 +36,8 @@ describe('Conductor is running checks (UX-5)', () => {
     // At the top of Messages: before the thread.
     const messages = el.querySelector('.messages-tab')!;
     expect(messages.firstElementChild).toBe(banner);
+    expect(within(banner).getByText(/Unit tests \(3\/5\)/)).toBeTruthy();
+    expand(banner);
     expect(within(banner).getByText(/Checks before PR ready for review/)).toBeTruthy();
     expect(statusOf(banner, 'Unit tests')).toBe('running');
     expect(within(banner).getByText(/When the checks pass, conductor opens the PR/)).toBeTruthy();
@@ -68,6 +77,7 @@ describe('Conductor is running checks (UX-5)', () => {
       );
     expect(card().getByText('Conductor is checking · waiting for a build slot')).toBeTruthy();
     const banner = await panel.findByRole('region', { name: 'Conductor is running checks' });
+    expand(banner);
     expect(
       within(banner).getByText(/Checks run one at a time on this machine to protect it/),
     ).toBeTruthy();

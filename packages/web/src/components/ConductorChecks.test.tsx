@@ -133,6 +133,23 @@ describe('ConductorCheckBanner (FR-3, NFR-3)', () => {
     expect(region.getByText(/Ada has finished its part; it isn't running/)).toBeTruthy();
   });
 
+  it('R3: a skipped check says "Skipped: no matching changes", with the reason on hover', () => {
+    const c = mockChecking(2);
+    const why = 'no changes match paths: crates/** (diff against origin/main)';
+    const card: Step = {
+      badges: ['checking'],
+      checking: {
+        ...c,
+        items: c.items!.map((i, n) => (n === 1 ? { ...i, status: 'skipped', detail: why } : i)),
+      },
+    };
+    render(<ConductorCheckBanner card={card} agent="Ada" />);
+    expand();
+    const item = screen.getAllByRole('listitem')[1]!;
+    expect(item.textContent).toBe('–Lint · Skipped: no matching changes');
+    expect(item.getAttribute('title')).toBe(why);
+  });
+
   it('a failed item shows its name and first error line', () => {
     const c = mockChecking(2);
     const card: Step = {

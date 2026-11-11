@@ -17,6 +17,7 @@ const STATUS_TEXT: Record<CheckRunStatus, string> = {
   fail: 'Failed',
   timed_out: 'Timed out',
   setup_failed: 'Setup failed',
+  skipped: 'Skipped: no matching changes',
 };
 
 /** "Failed (exit 1), 2m 10s, 3d ago, <ticket title>". */
@@ -45,11 +46,24 @@ export function RunMarks({ runs, now }: { runs: readonly RepoCheckRun[]; now?: n
           title={runLabel(run, now)}
           aria-label={runLabel(run, now)}
         >
-          {run.status === 'pass' ? '✓' : '✗'}
+          {run.status === 'pass' ? '✓' : run.status === 'skipped' ? '–' : '✗'}
         </a>
       ))}
     </span>
   );
+}
+
+/** "1 of 4 failed, 2 skipped": the window's runs, and the skipped checks (R3) apart. */
+export function windowText(c: {
+  runs_in_window: number;
+  failures_in_window: number;
+  skips_in_window?: number;
+}): string {
+  const skips = c.skips_in_window ?? 0;
+  const ran =
+    c.runs_in_window === 0 ? null : `${c.failures_in_window} of ${c.runs_in_window} failed`;
+  const skipped = skips === 0 ? null : `${skips} skipped`;
+  return [ran, skipped].filter((x) => x !== null).join(', ') || '—';
 }
 
 type Load =
@@ -123,11 +137,7 @@ export function CheckHistory({
                       <RunMarks runs={c.runs} />
                     )}
                   </td>
-                  <td className="muted">
-                    {c.runs_in_window === 0
-                      ? '—'
-                      : `${c.failures_in_window} of ${c.runs_in_window} failed`}
-                  </td>
+                  <td className="muted">{windowText(c)}</td>
                 </tr>
               ))}
             </tbody>

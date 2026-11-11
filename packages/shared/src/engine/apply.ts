@@ -1406,6 +1406,7 @@ function enterStep(
     started_at: st.now.toISOString(),
     hold: null,
     held: false,
+    skipped_checks: [],
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit, ...moveFields(p.record) });
   // ADR-0037 P4: `requires.concurrency` first holds the move (no machine needed to wait).
@@ -1472,6 +1473,10 @@ function runPhase(st: Step, assigning: boolean): void {
                   sha: r.head_sha,
                   setup: spec.setup,
                   last: r.index === spec.checks.length - 1,
+                  // R3: the daemon skips the check when no change matches its globs.
+                  ...(check.paths !== undefined && check.paths.length > 0
+                    ? { paths: check.paths }
+                    : {}),
                 },
               }),
         });
@@ -2372,6 +2377,13 @@ function onCheckExited(
             : `the branch moved while the checks ran (from ${r.head_sha ?? 'unknown'} to ${head}); nothing may change it after you finish`,
       },
     ]);
+    return;
+  }
+  // R3: no change matched the check's `paths`: it counts as passed, and the checklist says so.
+  if (e.skipped !== undefined) {
+    r.skipped_checks = [...r.skipped_checks, { index: r.index, reason: e.skipped }];
+    r.index += 1;
+    runPhase(st, false);
     return;
   }
   if (e.exit_code === 0 && !e.timed_out) {

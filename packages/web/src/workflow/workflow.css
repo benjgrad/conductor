@@ -688,6 +688,19 @@ main[hidden] {
 .wf-checks .wf-checks-problems td {
   padding-top: 0;
 }
+/* R3: a check's "Only when these change" globs, under its row. */
+.wf-checks .wf-checks-paths td {
+  padding-top: 0;
+}
+.wf-checks-paths-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+.wf-checks-paths-field span {
+  white-space: nowrap;
+}
 .wf-checks .wf-item-actions {
   flex-direction: row;
 }

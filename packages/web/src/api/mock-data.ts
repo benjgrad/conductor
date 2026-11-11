@@ -1076,6 +1076,8 @@ export function mockRepoChecks(now: Date): RepoChecksDto[] {
       checks: [
         { name: 'Build', cmd: 'pnpm build' },
         { name: 'Tests', cmd: 'pnpm test', timeout: '10m' },
+        // R3: runs only when the diff touches the Rust code.
+        { name: 'Cargo tests', cmd: 'cargo nextest run', paths: ['crates/**', 'Cargo.*'] },
       ],
       updated_at: new Date(now.getTime() - 2 * 86_400_000).toISOString(),
       updated_by: 'ben@example.com',

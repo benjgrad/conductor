@@ -499,6 +499,8 @@ pub struct AskUserEventDataProposedChecksChecks {
 pub struct AskUserEventDataProposedChecksChecksChecksItem {
     pub cmd: AskUserEventDataProposedChecksChecksChecksItemCmd,
     pub name: AskUserEventDataProposedChecksChecksChecksItemName,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub paths: ::std::vec::Vec<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub timeout: ::std::option::Option<AskUserEventDataProposedChecksChecksChecksItemTimeout>,
 }
@@ -1352,6 +1354,8 @@ pub struct CmdExitEventData {
     pub setup_on_base: ::std::option::Option<CmdExitEventDataSetupOnBase>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub signal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub skipped: ::std::option::Option<CmdExitEventDataSkipped>,
     pub timed_out: bool,
 }
 ///`CmdExitEventDataNotRun`
@@ -1457,6 +1461,56 @@ impl ::std::convert::TryFrom<::std::string::String> for CmdExitEventDataSetupOnB
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`CmdExitEventDataSkipped`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CmdExitEventDataSkipped(::std::string::String);
+impl ::std::ops::Deref for CmdExitEventDataSkipped {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CmdExitEventDataSkipped> for ::std::string::String {
+    fn from(value: CmdExitEventDataSkipped) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CmdExitEventDataSkipped {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CmdExitEventDataSkipped {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for CmdExitEventDataSkipped {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CmdExitEventDataSkipped {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`CommandAckPayload`
@@ -5467,6 +5521,8 @@ pub struct RunCmdPayload {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct RunCmdPayloadCheckout {
     pub last: bool,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub paths: ::std::vec::Vec<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub setup: ::std::option::Option<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]

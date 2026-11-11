@@ -349,6 +349,7 @@ describe('createHttpApi REST', () => {
       handoffs: 0,
       stops: 0,
       permission_prompts: 0,
+      check_skips: 0,
     };
     const metrics = {
       window_days: 7,

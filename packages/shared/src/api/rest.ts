@@ -1674,10 +1674,16 @@ export const RepoChecksDetailSchema = z.object({
 export type RepoChecksDetail = z.infer<typeof RepoChecksDetailSchema>;
 
 /**
- * UXR-80: how one check run ended. `setup_failed` wins over `timed_out`, which wins over a non-zero
- * (or missing) exit (`fail`).
+ * UXR-80: how one check run ended. `skipped` (R3: no change matched its `paths`) wins, then
+ * `setup_failed` over `timed_out`, which wins over a non-zero (or missing) exit (`fail`).
  */
-export const CheckRunStatusSchema = z.enum(['pass', 'fail', 'timed_out', 'setup_failed']);
+export const CheckRunStatusSchema = z.enum([
+  'pass',
+  'fail',
+  'timed_out',
+  'setup_failed',
+  'skipped',
+]);
 export type CheckRunStatus = z.infer<typeof CheckRunStatusSchema>;
 
 /** UXR-80: one past run of a check (a `run_cmd` and its `command.exited`). */
@@ -1711,8 +1717,11 @@ export const RepoCheckRunsResponseSchema = z.object({
       cmd: z.string(),
       /** Newest first, at most `limit`. */
       runs: z.array(RepoCheckRunSchema),
+      /** Runs that ran (R3: skipped ones are under `skips_in_window`). */
       runs_in_window: z.number().int().nonnegative(),
       failures_in_window: z.number().int().nonnegative(),
+      /** R3: skipped because no change matched the check's `paths`. */
+      skips_in_window: z.number().int().nonnegative().default(0),
     }),
   ),
 });
@@ -1722,6 +1731,7 @@ export type RepoCheckRunsResponse = z.infer<typeof RepoCheckRunsResponseSchema>;
 export const RepoCheckHealthSchema = z.object({
   /** `repoChecksKey` of the repo. */
   repo: z.string(),
+  /** Runs that ran (R3: skipped ones are not runs). */
   runs: z.number().int().nonnegative(),
   failures: z.number().int().nonnegative(),
   last_run_at: z.string().nullable(),
@@ -2196,9 +2206,17 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
   }
   const declared = req.checks ?? [];
   const checks = stepChecksSource(declared, step) === 'repo' ? step.repo_checks!.checks : declared;
-  checks.forEach((c, i) =>
-    items.push({ kind: 'check', label: c.name, status: indexed(1, i), detail: null }),
-  );
+  // R3: a check the daemon skipped (no change matched its `paths`) shows as skipped, with why.
+  const skipped = new Map((step.skipped_checks ?? []).map((k) => [k.index, k.reason]));
+  checks.forEach((c, i) => {
+    const status = indexed(1, i);
+    const reason = status === 'met' ? skipped.get(i) : undefined;
+    items.push(
+      reason !== undefined
+        ? { kind: 'check', label: c.name, status: 'skipped', detail: reason }
+        : { kind: 'check', label: c.name, status, detail: null },
+    );
+  });
   if (req.review !== undefined) {
     const n = req.review.items.length;
     items.push({

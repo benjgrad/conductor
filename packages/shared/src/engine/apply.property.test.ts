@@ -25,6 +25,7 @@ import { isQaState } from './qa.js';
 import { QA_CONTEXT_KEY, QaContextSchema } from './qa.types.js';
 import { entryStateLabel, reviewStateLabel } from './review.js';
 import { lostAnswerOf, machineLostMarkOf } from './machine-lost.js';
+import { defaultRuntime } from './default-answer.js';
 import {
   isEngineMove,
   isOutboxEffect,
@@ -149,6 +150,22 @@ const GENS: Gen[] = [
     ...(p % 2 ? { machine_name: 'Ben' } : {}),
     ...(p % 5 === 0 ? { offline_ms: 3_600_000 } : {}),
   }),
+  // ADR-0041: the default sweep (the armed deadline, or a stale one) and a human's overrule.
+  (h, p) => {
+    const rt = defaultRuntime(h.snap.context);
+    return {
+      type: 'default.fired',
+      state: p % 5 === 0 ? 'other' : (rt?.state ?? h.snap.workflow_state ?? 'implement'),
+      deadline: p % 3 === 0 || rt === null ? h.now.toISOString() : rt.at,
+      input_request_id: REQ,
+    };
+  },
+  (_h, p) => ({
+    type: 'human.overrule',
+    input_request_id: p % 4 === 0 ? uuid(9996) : REQ,
+    text: `o${p}`,
+    actor: 'ui',
+  }),
   () => ({ type: 'operator.cancel' }),
 ];
 
@@ -235,6 +252,16 @@ const progress: Gen = (h, p) => {
     };
   }
   const kind = s.ticket.kind ?? null;
+  // ADR-0041: now and then nobody answers and the armed default is taken.
+  const armed = defaultRuntime(s.context);
+  if (s.status === 'needs_input' && armed !== null && p % 4 === 3) {
+    return {
+      type: 'default.fired',
+      state: armed.state,
+      deadline: armed.at,
+      input_request_id: REQ,
+    };
+  }
   if (s.status === 'needs_input' || (state?.type === 'event' && p % 3 === 0)) {
     const humans =
       s.workflow_state === null
@@ -281,7 +308,7 @@ const progress: Gen = (h, p) => {
       const t = agents[p % agents.length]!;
       return {
         type: 'agent.complete_state',
-        result: { plan: 'P', summary: 's', pr_url: 'https://x/pull/1' },
+        result: { plan: 'P', summary: 's', pr_url: 'https://x/pull/1', recommended: `R${p}` },
         transition: t.name,
         reason: `r${p}`,
       };
@@ -452,6 +479,42 @@ function conductorV5Live(): WorkflowDefinition {
   const url = new URL('./fixtures/conductor.v5.live.json', import.meta.url);
   const result = validateWorkflow(JSON.parse(readFileSync(url, 'utf8')));
   if (!result.ok) throw new Error(`conductor.v5.live.json: ${JSON.stringify(result.errors)}`);
+  return result.def;
+}
+
+/**
+ * ADR-0041: the live v5 with an 8h `default` on every question rule 29 allows (ask_user and the
+ * `question: true` transitions into a human state, but plan_needs_approval and anything with
+ * `requires`).
+ */
+function conductorV5Defaults(): WorkflowDefinition {
+  const url = new URL('./fixtures/conductor.v5.live.json', import.meta.url);
+  const raw = JSON.parse(readFileSync(url, 'utf8')) as {
+    states: Record<string, { type: string; on?: Record<string, unknown> }>;
+  };
+  let armed = 0;
+  for (const st of Object.values(raw.states)) {
+    if (st.type !== 'agent') continue;
+    for (const [name, t] of Object.entries(st.on ?? {})) {
+      if (typeof t !== 'object' || t === null) continue;
+      const o = t as Record<string, unknown>;
+      const target = raw.states[o.goto as string];
+      if (
+        target?.type === 'human' &&
+        (o.question === true || name === 'ask_user') &&
+        o.requires === undefined &&
+        o.handoff === undefined &&
+        name !== 'plan_needs_approval' &&
+        name !== 'needs_approval_to_message'
+      ) {
+        o.default = { after: '8h', answer: '$recommended' };
+        armed++;
+      }
+    }
+  }
+  if (armed === 0) throw new Error('no question to give a default');
+  const result = validateWorkflow(raw);
+  if (!result.ok) throw new Error(`v5 with defaults: ${JSON.stringify(result.errors)}`);
   return result.def;
 }
 
@@ -647,6 +710,8 @@ const WORKFLOWS: [string, () => WorkflowDefinition, TicketKind | null][] = [
   ['conductor v5 live (work)', conductorV5Live, 'work'],
   ['conductor v5 live (personal)', conductorV5Live, 'personal'],
   ['conductor v5 live (no kind)', conductorV5Live, null],
+  // ADR-0041: default answers taken and overruled.
+  ['conductor v5 defaults (work)', conductorV5Defaults, 'work'],
 ];
 
 describe.each(WORKFLOWS)('apply property: %s', (name, load, kind) => {

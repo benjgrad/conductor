@@ -211,6 +211,8 @@ export const MOVE_CAUSES = [
   'machine_lost',
   'answer_routed',
   'fallback',
+  /** ADR-0041: no human answered a question in time; conductor delivered the recommended answer. */
+  'default_taken',
 ] as const;
 export const MoveCauseSchema = z.enum(MOVE_CAUSES);
 export type MoveCause = z.infer<typeof MoveCauseSchema>;
@@ -387,6 +389,7 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * - `handoff` (P8, T3, available): `handoff: true`.
  * - `bases` (ADR-0039, B1 → B2): `bases`, `base_default`, `$base` / `$base_sha` substitution, and a
  *   ticket's or planning result's `base`.
+ * - `default_answer` (ADR-0041, available): a question transition's `default`.
  */
 export const WORKFLOW_FEATURES = [
   'watch',
@@ -396,6 +399,7 @@ export const WORKFLOW_FEATURES = [
   'notify_policy',
   'handoff',
   'bases',
+  'default_answer',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
 export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
@@ -405,6 +409,7 @@ export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
   'instructions',
   'notify_policy',
   'handoff',
+  'default_answer',
 ];
 
 /** `enabled` defaults to true. */
@@ -569,6 +574,29 @@ export const NotifyDecisionSchema = z.object({
 });
 export type NotifyDecision = z.infer<typeof NotifyDecisionSchema>;
 
+/** ADR-0041: the `answer` of a transition `default`: the agent's own recommended answer. */
+export const RECOMMENDED = '$recommended';
+/** ADR-0041: the shortest and longest `default.after` (rule 29). */
+export const MIN_DEFAULT_AFTER = '1m';
+export const MAX_DEFAULT_AFTER = '7d';
+/**
+ * ADR-0041 (FR-5): question transitions that never take a default answer, whatever the
+ * definition says (rule 29): approving a plan and a message to a person stay a human's call.
+ */
+export const NEVER_DEFAULTED = ['plan_needs_approval', 'needs_approval_to_message'] as const;
+
+/**
+ * ADR-0041: a question that no human answers within `after` is answered with the agent's own
+ * recommended answer (`result.recommended`, or the `ask_user` tool's first option), delivered to
+ * `$return_to` as an answer would be. Only on an agent-actor `question: true` / `ask_user`
+ * transition into a human state, without `requires` or `handoff` (rule 29).
+ */
+export const DefaultAnswerSchema = z.strictObject({
+  after: DurationSchema,
+  answer: z.literal(RECOMMENDED),
+});
+export type DefaultAnswer = z.infer<typeof DefaultAnswerSchema>;
+
 /**
  * `"build"` or an object (05 §Retry loops; ADR-0009 `requirements`; ADR-0011 for the rest). The
  * key in `on` is the transition's name.
@@ -623,6 +651,8 @@ export const TransitionObjectSchema = z.strictObject({
   notify: TransitionNotifySchema.optional(),
   /** What happens when `requires` is not met (ADR-0010 semantics, U-063 for conditions). */
   on_unmet: OnUnmetSchema.optional(),
+  /** ADR-0041: answer the question with the agent's recommended answer after `after`. */
+  default: DefaultAnswerSchema.optional(),
 });
 export type TransitionObject = z.infer<typeof TransitionObjectSchema>;
 export const TransitionSchema = z.union([StateNameSchema, TransitionObjectSchema]);
@@ -838,6 +868,8 @@ export const RESERVED_CONTEXT_KEYS = [
   '__machine_lost',
   '__working_copy',
   '__qa',
+  '__default',
+  '__default_taken',
 ] as const;
 export type ReservedContextKey = (typeof RESERVED_CONTEXT_KEYS)[number];
 

@@ -1,6 +1,9 @@
 import {
   conditionEnabled,
   instructionRef,
+  MAX_DEFAULT_AFTER,
+  MIN_DEFAULT_AFTER,
+  NEVER_DEFAULTED,
   parseDuration,
   RETURN_TO,
   MIN_WATCH_POLL,
@@ -116,6 +119,9 @@ export function checkPrimitiveAvailability(
       if (t.handoff === true && off('handoff')) {
         r14([...base, 'handoff'], 'handoff is not available yet');
       }
+      if (t.default !== undefined && off('default_answer')) {
+        r14([...base, 'default'], 'default answers are not available yet');
+      }
     }
   }
   if (off('instructions')) {
@@ -156,6 +162,10 @@ export function checkPrimitiveAvailability(
  * - 24 placement: `age_below` only inside a watch. (`cmd` needs a repo; every ticket has one
  *   today, so there is nothing to refuse yet.)
  * - 25 no-CI: `no_checks` and `no_checks_after` are not both set.
+ *
+ * And ADR-0041's rule 29 (default answers): `default` only on an agent-actor transition that asks
+ * (`question: true`, or `ask_user`) into a human state, without `handoff` or `requires`, never on
+ * NEVER_DEFAULTED, with MIN_DEFAULT_AFTER ≤ `after` ≤ MAX_DEFAULT_AFTER.
  */
 export function checkPrimitives(
   def: WorkflowDefinition,
@@ -267,6 +277,39 @@ export function checkPrimitives(
             22,
             [...base, 'handoff'],
             `a hand-off must go to a human state ("${t.goto}" is ${target})`,
+          );
+        }
+      }
+      // Rule 29 (ADR-0041).
+      if (t.default !== undefined) {
+        const at: Path = [...base, 'default'];
+        if ((NEVER_DEFAULTED as readonly string[]).includes(tName)) {
+          err(29, at, `"${tName}" always waits for a human: it can't take a default answer`);
+        }
+        if (actor !== 'agent') {
+          err(
+            29,
+            at,
+            `a default answer is only for an agent-actor question (this one is ${actor})`,
+          );
+        }
+        if (t.question !== true && tName !== 'ask_user') {
+          err(29, at, 'a default answer is only for a question ("question": true, or ask_user)');
+        }
+        if (t.handoff === true) err(29, at, 'a hand-off is not a question: no default answer');
+        if (t.requires !== undefined) {
+          err(29, at, 'a default answer is not allowed on a transition with requires');
+        }
+        const target = t.goto === RETURN_TO ? 'not a state' : stateOf(t.goto)?.type;
+        if (target !== undefined && target !== 'human') {
+          err(29, at, `a default answer needs a human target ("${t.goto}" is ${target})`);
+        }
+        const ms = parseDuration(t.default.after);
+        if (ms < parseDuration(MIN_DEFAULT_AFTER) || ms > parseDuration(MAX_DEFAULT_AFTER)) {
+          err(
+            29,
+            [...at, 'after'],
+            `default.after must be between ${MIN_DEFAULT_AFTER} and ${MAX_DEFAULT_AFTER}`,
           );
         }
       }

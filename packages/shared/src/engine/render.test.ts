@@ -141,6 +141,37 @@ describe('renderPrompt (ADR-0011)', () => {
     );
     expect(p).toContain('a `result` object containing `summary`');
   });
+
+  it('ADR-0041: a transition with a default asks for result.recommended; others do not', () => {
+    const p = renderPrompt({
+      stateName: 'implement',
+      state: {
+        ...template,
+        on: {
+          ask: {
+            goto: 'needs_input',
+            question: true,
+            default: { after: '8h', answer: '$recommended' },
+          },
+          ask_user: { goto: 'needs_input', default: { after: '2h', answer: '$recommended' } },
+          other: { goto: 'needs_input', question: true },
+        },
+      },
+      snapshot: SNAPSHOT_FIXTURE,
+      transitions: [
+        { name: 'ask', when: null, question: true },
+        { name: 'ask_user', when: null, question: false },
+        { name: 'other', when: null, question: true },
+      ],
+    });
+    expect(p).toContain(
+      '- ask: Your `reason` is the question for the human. If no human answers within 8h, conductor delivers your recommended answer: put it in `result.recommended`',
+    );
+    expect(p).toMatch(
+      /- ask_user: You are blocked[^\n]*within 2h[^\n]*list your recommended answer as the first option/,
+    );
+    expect(p).toContain('- other: Your `reason` is the question for the human.\n');
+  });
 });
 
 describe('proposed_tickets hint (optional follow-up tickets)', () => {

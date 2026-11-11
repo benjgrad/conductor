@@ -76,7 +76,8 @@ export type WorkflowRule =
   | 24
   | 25
   | 26
-  | 27;
+  | 27
+  | 29;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import { QA_CONTEXT_KEY } from '../engine/qa.types.js';
+import { DEFAULT_CONTEXT_KEY, DEFAULT_TAKEN_CONTEXT_KEY } from '../engine/default-answer.js';
 import { MACHINE_LOST_CONTEXT_KEY } from '../engine/types.js';
 import { WORKING_COPY_CONTEXT_KEY } from '../machines/inventory.js';
 import { CONDUCTOR_V1, CONDUCTOR_V2 } from './conductor.js';
@@ -133,6 +134,8 @@ describe('actions and reserved keys', () => {
         MACHINE_LOST_CONTEXT_KEY,
         WORKING_COPY_CONTEXT_KEY,
         QA_CONTEXT_KEY,
+        DEFAULT_CONTEXT_KEY,
+        DEFAULT_TAKEN_CONTEXT_KEY,
       ].sort(),
     );
     expect(RESERVED_CONTEXT_KEYS).toContain('__qa');

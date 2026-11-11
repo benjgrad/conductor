@@ -326,7 +326,9 @@ function howToFinish(state: AgentState, transitions: readonly AgentTransitionOpt
   const lines = transitions.map((t) => {
     const when =
       t.when ?? (t.name === 'ask_user' ? 'You are blocked and need a human decision.' : null);
-    const ask = t.question ? ' Your `reason` is the question for the human.' : '';
+    const ask =
+      (t.question ? ' Your `reason` is the question for the human.' : '') +
+      defaultHint(state, t.name);
     return when !== null ? `- ${t.name}: ${when}${ask}` : `- ${t.name}${ask ? `:${ask}` : ''}`;
   });
   return [
@@ -340,6 +342,25 @@ function howToFinish(state: AgentState, transitions: readonly AgentTransitionOpt
     'For a transition that asks a human, write the question in `reason`; the `result` may then be empty.',
     'Any other name is refused.',
   ].join('\n');
+}
+
+/**
+ * ADR-0041: the line telling the agent that transition `name` takes a default answer, so it puts
+ * its recommended answer in `result.recommended` (and, for `ask_user`, lists it first). '' else.
+ */
+export function defaultHint(state: AgentState, name: string): string {
+  const raw = state.on?.[name];
+  const after = raw !== undefined && typeof raw === 'object' ? raw.default?.after : undefined;
+  if (after === undefined) return '';
+  const tool =
+    name === 'ask_user'
+      ? ' With the `ask_user` tool, list your recommended answer as the first option; conductor takes it.'
+      : '';
+  return (
+    ` If no human answers within ${after}, conductor delivers your recommended answer: put it in` +
+    ' `result.recommended` (the answer you would act on); without it, the question waits.' +
+    tool
+  );
 }
 
 function finishSection(state: AgentState): string {

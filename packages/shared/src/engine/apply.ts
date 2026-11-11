@@ -24,6 +24,7 @@ import {
   type RequirementsGate,
   type Transition,
   type TransitionAction,
+  type TransitionObject,
   type Watch,
   type WorkflowDefinition,
   type WorkflowState,
@@ -110,6 +111,19 @@ import {
   type QaState,
 } from './qa.js';
 import { applySpend } from './spend.js';
+import {
+  canOverrule,
+  defaultAnswerText,
+  defaultCounterKey,
+  defaultRuntime,
+  defaultTakenOf,
+  overruleText,
+  recommendedFromOptions,
+  recommendedFromResult,
+  withDefault,
+  withDefaultTaken,
+  type DefaultRuntime,
+} from './default-answer.js';
 import {
   freshWatch,
   inOrderOutcome,
@@ -254,6 +268,7 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     if (e.type === 'input.provided' || e.type === 'human.fresh_conversation') {
       return 'wrong_status';
     }
+    if (e.type === 'default.fired') return 'stale_timer';
   }
   if (e.type === 'session.assigned') {
     const reason = st.s.step !== null ? handleStep(st, e) : onAssigned(st, e.machine_id);
@@ -319,6 +334,10 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return onFreshConversation(st, e);
     case 'gate.retry':
       return onGateRetry(st);
+    case 'default.fired':
+      return onDefaultFired(st, e);
+    case 'human.overrule':
+      return onOverrule(st, e);
   }
 }
 
@@ -525,7 +544,11 @@ function onComplete(
       ASK_USER,
       { question: plan.question },
       plan.named
-        ? { move: { transition: ASK_USER, reason, actor: 'agent' } }
+        ? {
+            move: { transition: ASK_USER, reason, actor: 'agent' },
+            // ADR-0041: the agent's recommended answer, delivered if no human answers in time.
+            recommended: recommendedFromResult(result),
+          }
         : // A name the agent may not take: conductor routes it to a human (not a transition).
           { record: engineMove('fallback', null, plan.question) },
     );
@@ -552,6 +575,7 @@ function onComplete(
         ...(move !== undefined ? { move } : {}),
         kind: plan.handoff ? 'handoff' : 'agent_question',
         ...(back !== null && st.def.states[back.state] !== undefined ? { goto: back.state } : {}),
+        ...(plan.question ? { recommended: recommendedFromResult(result) } : {}),
       },
     );
     return null;
@@ -829,7 +853,13 @@ function onAskUser(
   if (st.state?.type !== 'agent') return 'unexpected_event';
   if (!AGENT_ACTIVE.has(st.s.status)) return 'wrong_status';
   st.s.pending_answer = null;
-  takeOutcome(st, 'ask_user', { question, ...(options !== undefined ? { options } : {}) });
+  takeOutcome(
+    st,
+    'ask_user',
+    { question, ...(options !== undefined ? { options } : {}) },
+    // ADR-0041: the tool's recommended answer is its first single-select option.
+    { recommended: recommendedFromOptions(options) },
+  );
   return null;
 }
 
@@ -1050,6 +1080,8 @@ function takeOutcome(
     kind?: InputRequestKind;
     /** ADR-0037 P1: land here instead of the transition's own `goto` (a watch's `return_to`). */
     goto?: string;
+    /** ADR-0041: the agent's recommended answer (null/absent: none, so no default). */
+    recommended?: string | null;
   } = {},
 ): void {
   const from = st.stateName ?? st.def.start;
@@ -1124,6 +1156,8 @@ function takeOutcome(
       })
     : undefined;
   const target = opts.goto ?? t.goto;
+  // ADR-0041: a question with a `default` and a recommended answer arms it on landing.
+  const dflt = defaultFor(st, from, outcome, t, opts.recommended ?? null);
   const step = (attachment: PromptAttachment | null) =>
     enterStep(st, {
       kind: moveStep ? 'move' : 'transition',
@@ -1152,6 +1186,7 @@ function takeOutcome(
       info,
       record,
       ...notify,
+      ...dflt,
     });
     return;
   }
@@ -1178,6 +1213,7 @@ function takeOutcome(
       info,
       record,
       ...notify,
+      ...dflt,
     });
     return;
   }
@@ -1205,6 +1241,26 @@ function takeOutcome(
   } else {
     toFallbackHuman(st, 'retries_exhausted', exhausted, loopOut);
   }
+}
+
+/**
+ * ADR-0041: `{default}` for `enter` when transition `t` (`outcome` out of `from`) declares one, the
+ * agent gave a recommended answer, it has no `requires` (rule 29), and the defaults taken for
+ * questions from `from` are still under `budget.max_loop_retries` (bounded: once they run out,
+ * the question waits for a human). Else `{}`.
+ */
+function defaultFor(
+  st: Step,
+  from: string,
+  outcome: string,
+  t: TransitionObject,
+  recommended: string | null,
+): { default?: NonNullable<EnterOpts['default']> } {
+  const spec = t.default;
+  if (spec === undefined || recommended === null || t.requires !== undefined) return {};
+  const taken = st.s.retry_counters[defaultCounterKey(from)] ?? 0;
+  if (taken >= st.def.budget.max_loop_retries) return {};
+  return { default: { recommended, after: spec.after, transition: outcome } };
 }
 
 function kindForOutcome(outcome: string): InputRequestKind {
@@ -1868,7 +1924,11 @@ function handleStep(
     case 'human.transition':
     case 'human.fresh_conversation':
     case 'gate.retry':
+    case 'human.overrule':
       return 'wrong_status';
+    case 'default.fired':
+      // ADR-0041: a gate step is never a human state with an open question.
+      return 'stale_timer';
     case 'external.event':
       return conditionsOverride(st, r, e.name, e.data);
   }
@@ -2861,6 +2921,10 @@ interface EnterOpts {
    * again from the step's source state and outcome.
    */
   notify?: string;
+  /** ADR-0041: arm a default answer on the request a human target opens. */
+  default?: { recommended: string; after: string; transition: string };
+  /** ADR-0041: this entry is the default's delivery: keep `__default_taken` (set after it). */
+  keepDefaultTaken?: boolean;
 }
 
 /** `{notify: name}` when the transition `name` has `notify: true`, else `{}` (an EnterOpts part). */
@@ -2964,6 +3028,11 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
   const from = s.workflow_state;
   // ADR-0037 P1: leaving a watched state disarms its watch (an entry step disarms it too).
   disarmWatch(st);
+  // ADR-0041: any move ends an armed default, and (but for its own delivery) the overrule window.
+  if (defaultRuntime(s.context) !== null) s.context = withDefault(s.context, null);
+  if (opts.keepDefaultTaken !== true && defaultTakenOf(s.context) !== null) {
+    s.context = withDefaultTaken(s.context, null);
+  }
   // ADR-0010: an outcome into a state with `entry` requirements runs the entry step first; the
   // session stays in `from` (its column) until every requirement is met.
   if (toState.entry !== undefined && opts.skipEntry !== true && !opts.assigning && from !== null) {
@@ -3067,9 +3136,10 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
       st.setStatus('waiting_external');
       armWatch(st, target);
       return;
-    case 'human':
+    case 'human': {
       s.pending_answer = null;
       armWatch(st, target);
+      const dflt = armDefault(st, target, from, visit, opts.default);
       st.emit({
         type: 'create_input_request',
         kind: opts.kind,
@@ -3078,9 +3148,11 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
         ...(opts.options !== undefined ? { options: opts.options } : {}),
         // ADR-0037 P6: the landing's decision; the request pushes only when it says so.
         ...(decision !== null ? { notify_decision: decision } : {}),
+        ...(dflt !== null ? { default: { answer: dflt.recommended, at: dflt.at } } : {}),
       });
       st.setStatus('needs_input');
       return;
+    }
     case 'terminal':
       s.pending_answer = null;
       releaseAgent(st, 'session done');
@@ -3195,6 +3267,130 @@ function failSession(st: Step, ticket: TicketStatus, reason: string, kill = true
   disarmWatch(st);
   st.setStatus('failed');
   st.ticket(ticket);
+}
+
+// ---------------------------------------------------------------- default answers (ADR-0041)
+//
+// A question whose transition declares `default` and whose agent gave a recommended answer arms
+// `context.__default` when it lands in the human state; the request carries `default_at`, the
+// sweep's timer. Any move disarms it (`enter`). `default.fired` delivers the answer to
+// `return_to` as `input.provided` would, recorded as cause `default_taken`, actor `system`; the
+// wrapper closes the request (answered_by `system`) and pushes. Afterwards `human.overrule`
+// hands a human's correction to the agent while it is still on that visit.
+
+/** Arm the default for the request `target` is about to open, or null. */
+function armDefault(
+  st: Step,
+  target: string,
+  from: string | null,
+  visit: number,
+  spec: EnterOpts['default'],
+): DefaultRuntime | null {
+  if (spec === undefined || from === null || st.def.states[from] === undefined) return null;
+  const rt: DefaultRuntime = {
+    state: target,
+    visit,
+    return_to: from,
+    transition: spec.transition,
+    recommended: spec.recommended,
+    after: spec.after,
+    at: new Date(st.now.getTime() + parseDuration(spec.after)).toISOString(),
+  };
+  st.s.context = withDefault(st.s.context, rt);
+  return rt;
+}
+
+/** `default.fired`: deliver the recommended answer, unless the timer is stale. */
+function onDefaultFired(
+  st: Step,
+  e: Extract<EngineEvent, { type: 'default.fired' }>,
+): ApplyIgnoreReason | null {
+  const s = st.s;
+  const rt = defaultRuntime(s.context);
+  const name = st.stateName;
+  if (
+    rt === null ||
+    name === null ||
+    s.status !== 'needs_input' ||
+    st.state?.type !== 'human' ||
+    rt.state !== name ||
+    rt.visit !== (s.state_visits[name] ?? 0) ||
+    Date.parse(rt.at) !== Date.parse(e.deadline) ||
+    s.return_to !== rt.return_to
+  ) {
+    return 'stale_timer';
+  }
+  const target = rt.return_to;
+  const targetState = st.def.states[target];
+  if (targetState === undefined) return 'stale_timer';
+  const text = defaultAnswerText(rt.recommended, rt.after);
+  const earlier = leaveLostPark(
+    st,
+    targetState.type === 'agent' || targetState.type === 'command',
+    targetState.type === 'agent',
+  );
+  const answer: PendingAnswer = {
+    input_request_id: e.input_request_id,
+    answer: earlier !== null ? combineLostAnswer(earlier.answer, earlier.machine, text) : text,
+  };
+  leaveParkedAgent(st, targetState);
+  enter(st, target, {
+    ...NO_ROUTE,
+    kind: 'approval',
+    question: `Routed here by conductor's default answer: ${rt.recommended}`,
+    answer,
+    sendInput: s.agent_process_live,
+    continuation: true,
+    outcome: 'default_taken',
+    info: { detail: `conductor answered for a human: ${rt.recommended}` },
+    record: engineMove('default_taken', null, rt.recommended),
+    keepDefaultTaken: true,
+  });
+  const key = defaultCounterKey(target);
+  s.retry_counters = { ...s.retry_counters, [key]: (s.retry_counters[key] ?? 0) + 1 };
+  s.context = withDefaultTaken(s.context, {
+    input_request_id: e.input_request_id,
+    state: target,
+    visit: s.state_visits[target] ?? 1,
+    answer: rt.recommended,
+    at: st.now.toISOString(),
+  });
+  st.emit({
+    type: 'default_taken',
+    state: rt.state,
+    to: target,
+    input_request_id: e.input_request_id,
+    answer: rt.recommended,
+    after: rt.after,
+  });
+  return null;
+}
+
+/** `human.overrule`: hand the correction to the agent the default answered (ADR-0041). */
+function onOverrule(
+  st: Step,
+  e: Extract<EngineEvent, { type: 'human.overrule' }>,
+): ApplyIgnoreReason | null {
+  const s = st.s;
+  const taken = canOverrule(s);
+  const text = e.text.trim();
+  if (taken === null || taken.input_request_id !== e.input_request_id || text === '') {
+    return 'wrong_status';
+  }
+  const correction = overruleText(taken.answer, text);
+  if (s.status === 'running') {
+    // ADR-0020 §2: a QA state judges on its own (never the target of an answer anyway).
+    if (isQaState(st.state)) return 'wrong_status';
+    st.emit({ type: 'send_message', text: correction });
+    return null;
+  }
+  // Queued: the next start delivers the pending answer, now with the correction after it.
+  const pending = s.pending_answer;
+  s.pending_answer = {
+    input_request_id: pending?.input_request_id ?? e.input_request_id,
+    answer: pending !== null ? `${pending.answer}\n\n${correction}` : correction,
+  };
+  return null;
 }
 
 // ---------------------------------------------------------------- watch (ADR-0037 P1, T6)

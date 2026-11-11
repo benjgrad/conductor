@@ -945,6 +945,9 @@ export function mockSeeds(now: Date): MockSeed[] {
             { label: 'MySQL' },
           ],
         },
+        // ADR-0041: conductor takes the recommended option if nobody answers in 8h.
+        default_answer: 'Postgres',
+        default_at: new Date(now.getTime() + 8 * 3_600_000 - 4 * 60_000).toISOString(),
       },
     }),
     seed(now, {

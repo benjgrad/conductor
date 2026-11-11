@@ -227,6 +227,15 @@ describe('diffVersions', () => {
     ]);
   });
 
+  it('a default answer added (ADR-0041)', () => {
+    const after = v2((d) => {
+      t(d, 'implementing', 'ask_user').default = { after: '8h', answer: '$recommended' };
+    });
+    expect(lines(v1(), after)).toEqual([
+      "Default answer: none → the agent's recommended answer after 8h",
+    ]);
+  });
+
   it('a question switched to a hand-off (ADR-0037 P8)', () => {
     const before = v2((d) => {
       t(d, 'implementing', 'ask_user').question = true;

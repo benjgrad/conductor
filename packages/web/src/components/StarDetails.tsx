@@ -21,6 +21,7 @@ import {
 } from './star.js';
 import { formatDuration, resultMarkdown, steps, type StepRow } from './steps.js';
 import { MovesList, timeFormat } from './transitions.js';
+import { OverruleDefault } from './OverruleDefault.js';
 import './StarDetails.css';
 
 interface StarDetailsProps {
@@ -245,11 +246,18 @@ function TaskBody({ brief, body }: { brief: Brief | null; body: string | null })
 /** How many of the latest entries Action shows before "Show N earlier" (FR-6). */
 const RECENT = 3;
 
-function TimelineItem({ entry }: { entry: TimelineEntry }) {
+/** What a `default` entry needs to offer Overrule… (ADR-0041). */
+interface OverruleContext {
+  api: ApiClient;
+  sessionId: string;
+  onReload: () => void;
+}
+
+function TimelineItem({ entry, overrule }: { entry: TimelineEntry; overrule: OverruleContext }) {
   const reason = entry.reason ?? '';
   const head = firstLine(reason);
   const more = reason.trim() !== head;
-  const answer = entry.kind === 'answer';
+  const answer = entry.kind === 'answer' || entry.kind === 'default';
   return (
     <li className={`star-entry star-entry-${entry.kind}`}>
       <time dateTime={entry.at} className="muted">
@@ -288,11 +296,25 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
           )}
         </div>
       )}
+      {entry.overrule !== undefined && (
+        <OverruleDefault
+          api={overrule.api}
+          sessionId={overrule.sessionId}
+          inputRequestId={entry.overrule}
+          onDone={overrule.onReload}
+        />
+      )}
     </li>
   );
 }
 
-function ActionBody({ entries }: { entries: TimelineEntry[] }) {
+function ActionBody({
+  entries,
+  overrule,
+}: {
+  entries: TimelineEntry[];
+  overrule: OverruleContext;
+}) {
   const [all, setAll] = useState(false);
   if (entries.length === 0) return <p className="muted">Nothing has happened yet.</p>;
   const hidden = all ? 0 : Math.max(0, entries.length - RECENT);
@@ -310,7 +332,7 @@ function ActionBody({ entries }: { entries: TimelineEntry[] }) {
       )}
       <ol className="star-timeline" aria-label="Timeline">
         {entries.slice(hidden).map((e, i) => (
-          <TimelineItem key={`${e.at}-${hidden + i}`} entry={e} />
+          <TimelineItem key={`${e.at}-${hidden + i}`} entry={e} overrule={overrule} />
         ))}
       </ol>
       <p className="muted star-hint">The full log is in Messages.</p>
@@ -462,7 +484,7 @@ export function StarDetails({
         open={open.action}
         onToggle={() => toggle('action')}
       >
-        <ActionBody entries={entries} />
+        <ActionBody entries={entries} overrule={{ api, sessionId, onReload }} />
       </StarSection>
       <StarSection
         title="Steps"

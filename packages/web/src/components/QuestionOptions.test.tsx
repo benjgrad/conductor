@@ -100,6 +100,10 @@ describe('the session panel (mock: "Add audit log table" has options)', () => {
     expect(pending.getByText('Question', { selector: '.request-chip' })).toBeTruthy();
     expect(el.querySelector('section.request-question')).toBeTruthy();
     expect(pending.queryByText(/Action needed/i)).toBeNull();
+    // ADR-0041: the default conductor gives if nobody answers in time.
+    expect(
+      pending.getByText(/If nobody answers by .+, conductor answers: “Postgres”/),
+    ).toBeTruthy();
     fireEvent.click(pending.getByRole('button', { name: 'Type a different answer' }));
     expect(document.activeElement?.tagName).toBe('TEXTAREA');
     fireEvent.click(pending.getByRole('button', { name: /SQLite/ }));

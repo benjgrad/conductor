@@ -24,6 +24,7 @@ import type {
   CreateInviteRequest,
   CreateTicketRequest,
   FreshConversationRequest,
+  OverruleDefaultRequest,
   EnrollmentTokenCreated,
   InviteCreated,
   InvitePreview,
@@ -338,6 +339,12 @@ export interface ApiClient {
    * 409 conflict unless parked in a human state with an agent state to return to.
    */
   freshConversation(sessionId: string, req: FreshConversationRequest): Promise<OkResponse>;
+  /**
+   * POST /api/sessions/:id/overrule (ADR-0041): overrule the answer conductor gave on the human's
+   * behalf; the agent gets `text` as a correction. 409 conflict once the agent moved on (or while
+   * it is still starting).
+   */
+  overruleDefault(sessionId: string, req: OverruleDefaultRequest): Promise<OkResponse>;
   /**
    * GET /api/sessions/:id/permission-requests (ADR-0023): the session's permission prompts,
    * oldest first, every pending one included. 404 for an unknown or another account's session.

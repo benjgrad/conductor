@@ -104,6 +104,10 @@
 .star-entry-live {
   border-left-color: var(--attention);
 }
+.star-entry-default {
+  border-left-style: dashed;
+  border-left-color: var(--attention);
+}
 .star-entry-review,
 .star-entry-check {
   border-left-color: var(--ok);

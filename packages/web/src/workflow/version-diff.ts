@@ -162,6 +162,7 @@ const KNOWN_TRANSITION_KEYS = new Set([
   'presets',
   'requires',
   'on_unmet',
+  'default',
 ]);
 
 const KNOWN_REQUIRES_KEYS = new Set([
@@ -280,6 +281,10 @@ function transitionLines(
     lines.push(`Notifies people: ${shown(b.notify)} → ${shown(a.notify)}`);
   }
   if (b.text !== a.text) lines.push(`Text: ${b.text ?? 'none'} → ${a.text ?? 'none'}`);
+  // ADR-0041: the answer conductor gives when nobody answers in time.
+  const dflt = (t: TransitionObject) =>
+    t.default === undefined ? 'none' : `the agent's recommended answer after ${t.default.after}`;
+  if (dflt(b) !== dflt(a)) lines.push(`Default answer: ${dflt(b)} → ${dflt(a)}`);
 
   const br = b.requires ?? {};
   const ar = a.requires ?? {};

@@ -62,6 +62,13 @@ import { TicketSkipPermissions } from './TicketPanel.js';
 import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
 import { TransitionButtons } from './transitions.js';
 
+/** ADR-0041: when a default answer is due, in the viewer's own time. */
+const defaultTime = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
 interface DetailPanelProps {
   api: ApiClient;
   sessionId: string;
@@ -676,6 +683,13 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
         <Markdown text={request.question} />
       </div>
       {failureText !== null && <FailureOutput text={failureText} />}
+      {/* ADR-0041: the agent's recommended answer conductor gives if nobody answers in time. */}
+      {request.default_answer != null && request.default_at != null && (
+        <p className="muted question-default">
+          If nobody answers by {defaultTime.format(new Date(request.default_at))}, conductor
+          answers: “{request.default_answer}”
+        </p>
+      )}
       {offer === 'prominent' && fresh}
       {/* Questions UX: the agent's choices, clickable; typing an answer still works. */}
       {request.options && (

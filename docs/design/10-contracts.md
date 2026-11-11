@@ -435,6 +435,44 @@ SessionBase = { name: BaseName | null, ref: string, sha: sha40 | null, pr_into: 
 - **UI and MCP (B3).** The ticket Base select, the card chip, the ticket detail's Base row, the designer's Bases section and the `$base` preview are [11 §Base refs](11-web-ui.md#base-refs-adr-0039); MCP `get_ticket` returns `base` and `base_ref`, `list_tickets` rows `base` (a name, or an explicit ref). While the feature is off, the web treats it as off too (`webWorkflowFeatures`, `web/src/workflow/features.ts`); the mock app's `?mock-bases=1` scene turns it on for screenshots.
 - **Not changed yet.** `start_session.base_ref` stays `HEAD`, `open_pr` takes `{title, body}`, and the repo checks still say `origin/main`. All of these change in B2.
 
+## Answerer (ADR-0040)
+
+**Status: the definition is in `packages/shared/src/workflow/schema.ts` and `validate-answerer.ts` (R5a-1); refused "not available yet" (rule 14, feature `answerer`) until R5a-2.** Everything after the first block is proposed and lands with the engine (R5a-2), Overrule (R5a-3) and metrics (R5a-4) tickets.
+
+```ts
+// WorkflowDefinitionSchema gains (R5a-1)
+answerer?: {
+  applies_to: string[1..10],                 // question transition names (rule 28)
+  model?: string,                            // absent = the machine's default
+  min_confidence: 'medium' | 'high' = 'high',
+  timeout?: Duration,                        // default DEFAULT_ANSWERER_TIMEOUT (10m), 1m–30m (rule 28)
+}
+NEVER_AUTO_ANSWERED = ['plan_needs_approval', 'needs_approval_to_message', 'impossible']
+
+// R5a-2: the answerer's start_session, beside ADR-0009's `review: true`
+start_session { state: '<from> → <to> (answer)', answer: true, tools: ['answer'],   // review alias + exact read-only gh
+                resume_claude_session_id: null, model?, max_budget_usd }
+// its complete_state result
+AnswerVerdict = { verdict: 'answered' | 'unsure', confidence: 'low' | 'medium' | 'high',
+                  answer?: string(..4000), option?: string,
+                  citations: { source: 'file:<path>[:<line>]' | 'ticket' | 'answer:<id>' | 'gh:<command>', quote?: string }[..10],
+                  notes: string(..2000) }
+// delivered as the usual input.provided; the request row records
+input_request.answered_by = 'conductor', citations jsonb, answerer_notes text,
+input_request.overrules uuid null, overruled_at timestamptz null   // additive migration (R5a-2/3)
+
+// R5a-3: overrule
+POST /api/input-requests/:id/overrule  → 201 {input_request_id}   // 409 if not a conductor answer, already overruled, or not the latest session
+MCP overrule_answer {ticket, input_request_id?}
+
+// R5a-4: ProcessMetrics.answerer
+{ routed, answered, answered_rate, fell_back: {unconfident, malformed, timeout, error}, overruled, overruled_rate,
+  duration_ms: {p50, p90} }
+```
+
+- **Confidence rule.** Delivered only for `verdict: answered`, `confidence ≥ min_confidence`, at least one citation whose `source` parses, and (for a question with options) an `option` among their labels. Anything else falls back to the human with `answerer_notes`.
+- **Every path ends at the asker or a human.** The answer step's events (`agent.completed` from the answerer, `timer.fired`, `machine.lost`, `budget.exceeded`, a refusal) lead either to `input.provided` back to the asking state or to the question's own human target.
+
 ## Review and merge (ADR-0020)
 
 Semantics: [ADR-0020](../adr/0020-review-and-merge-flow.md). Frozen by M2r-T01; later M2r tasks report a needed change to the lead. Every addition is optional on the wire (absent ≡ none / `[]` / today's behaviour), so v1 / v2 definitions, pre-M2r cards, events and WS payloads parse unchanged. The contract points:

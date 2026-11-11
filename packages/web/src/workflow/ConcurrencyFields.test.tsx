@@ -11,7 +11,17 @@ import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConcurrencyFields } from './ConcurrencyFields.js';
 import { describeTransition, normalizeRequires, setRequires } from './transitions.js';
-import V6_DRAFT from '../../../../docs/design/workflows/conductor.v6.draft.json';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+// Read at run time, not imported: the deploy image has no docs/ (.dockerignore) and its
+// `tsc -b` typechecks tests, so a static import of a docs/ file breaks `pnpm build`.
+const V6_DRAFT: unknown = JSON.parse(
+  readFileSync(
+    join(import.meta.dirname, '../../../../docs/design/workflows/conductor.v6.draft.json'),
+    'utf8',
+  ),
+);
 
 // ADR-0037 P4 (T7): the "One at a time" section on an agent's transition (`requires.concurrency`),
 // round-tripped through validateWorkflow.

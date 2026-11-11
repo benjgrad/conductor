@@ -190,6 +190,8 @@ describe('/api/insights', () => {
       finished_sessions: 2,
       analysed_sessions: 0,
       frictions: [],
+      // R13: every session by default; no jobs yet, so nothing spent.
+      analyst: { mode: 'all', daily_cap: null, jobs: 0, cost_usd: 0, priced_jobs: 0 },
     });
     expect(off.note).toContain('Rust daemon');
 

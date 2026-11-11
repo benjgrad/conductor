@@ -418,6 +418,11 @@ export interface AccountRow {
   id: string;
   name: string;
   created_at: Date;
+  /**
+   * R13 (migration 1764100000000): null = the analyst analyses every finished session; a positive
+   * number = sample, at most that many analyst jobs per 24 h (`conductor-admin analyst-sample`).
+   */
+  analyst_daily_cap: number | null;
 }
 
 /** A signed-up person. `local` mode's LOCAL_USER_ID is virtual and has no row. */
@@ -648,6 +653,15 @@ export interface AssistantJobRow {
   idempotency_key: string;
   created_at: Date;
   finished_at: Date | null;
+  /**
+   * R13: 1, or 2 for the retry after a transport failure (MAX_ATTEMPTS). Attempt n > 1 has the key
+   * `insight:<session_id>:<schema_version>:<n>`.
+   */
+  attempt: number;
+  /** R13: the cost the daemon reported (numeric, as a string); null = not reported. */
+  cost_usd: string | null;
+  /** R13: how long the job ran, as the daemon reported it. */
+  duration_ms: number | null;
 }
 
 /** ADR-0033 P2: a validated analyst result (migration 1762500000000). Kept 180 days. */
@@ -772,7 +786,7 @@ export interface AttachmentContentRow {
 }
 
 /**
- * R11 (migration 1764100000000): an account's GitHub webhook signing secret. Plaintext, because
+ * R11 (migration 1764100000001): an account's GitHub webhook signing secret. Plaintext, because
  * HMAC needs the key (TD-222). One per account; rotating replaces it.
  */
 export interface GithubWebhookRow {

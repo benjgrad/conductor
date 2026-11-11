@@ -294,3 +294,39 @@ describe('unlock, revoke-sessions, disable, list-users', () => {
     expect((await run(['help'])).code).toBe(0);
   });
 });
+
+describe('analyst-sample (R13)', () => {
+  const capOf = async (accountId: string) =>
+    (
+      await db.pool.query<{ analyst_daily_cap: number | null }>(
+        'SELECT analyst_daily_cap FROM account WHERE id = $1',
+        [accountId],
+      )
+    ).rows[0]!.analyst_daily_cap;
+
+  it("sets and clears the user's accounts' sampling cap", async () => {
+    const u = await createUser(db.pool, { password: PASSWORD });
+    const other = await createUser(db.pool, { password: PASSWORD });
+    const on = await run(['analyst-sample', u.email, '20']);
+    expect(on.code).toBe(0);
+    expect(on.out).toContain('samples at most 20 sessions a day (1 account(s))');
+    expect(await capOf(u.accountId)).toBe(20);
+    expect(await capOf(other.accountId)).toBeNull();
+    const off = await run(['analyst-sample', u.email.toUpperCase(), 'off']);
+    expect(off.code).toBe(0);
+    expect(off.out).toContain('analyses every finished session');
+    expect(await capOf(u.accountId)).toBeNull();
+  });
+
+  it('a bad count is a usage error; an unknown email exits 1', async () => {
+    const u = await createUser(db.pool, { password: PASSWORD });
+    for (const argv of [
+      ['analyst-sample', u.email],
+      ['analyst-sample', u.email, '0'],
+      ['analyst-sample', u.email, 'x'],
+    ]) {
+      expect((await run(argv)).code).toBe(2);
+    }
+    expect((await run(['analyst-sample', 'nobody@example.com', '5'])).code).toBe(1);
+  });
+});

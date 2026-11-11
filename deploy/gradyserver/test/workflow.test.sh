@@ -63,6 +63,7 @@ i_deploy = next(i for i, s in enumerate(d["steps"]) if "ci-deploy.sh" in s.get("
 print("target_env=" + str(d["steps"][i_deploy].get("env", {}).get("TARGET")))
 print("head_before_deploy=" + str(i_head < i_deploy))
 print("deploy_gated_on_head=" + str("steps.head.outputs.deploy" in d["steps"][i_deploy].get("if", "")))
+print("deploy_continue_on_error=" + str(d.get("continue-on-error", False) or d["steps"][i_deploy].get("continue-on-error", False)))
 print("gates_secrets=" + str("secrets." in yaml.safe_dump(jobs["gates"])))
 dd = jobs["daemon-dist"]
 print("dist_uses=" + str(dd.get("uses")))
@@ -116,6 +117,9 @@ PY
   check "a running deploy is never cancelled" test "$(fact deploy_cancel)" = 'False'
   check "the head-of-main check comes before ci-deploy.sh" test "$(fact head_before_deploy)" = 'True'
   check "ci-deploy.sh runs only when the sha is still main's head" test "$(fact deploy_gated_on_head)" = 'True'
+  # R14 FR-4: a failed or rolled-back deploy (ci-deploy.sh exits non-zero) fails the job, visibly.
+  check "a failed ci-deploy.sh fails the deploy job (no continue-on-error)" \
+    test "$(fact deploy_continue_on_error)" = 'False'
   check "the gates job uses no secrets" test "$(fact gates_secrets)" = 'False'
 else
   echo "  skip  structural checks of ci.yml (python3 with PyYAML not installed)"

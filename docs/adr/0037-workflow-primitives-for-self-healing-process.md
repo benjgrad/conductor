@@ -339,11 +339,12 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
 - `in_review.request_changes` gets `presets: [resync_main]`.
 - `needs_input.watch`: an `age_below 2h` condition with `on_broken: {notify: escalate}` (the question SLA).
 
-**Saved (T9).** The live `conductor` v6 is this draft without `requires.concurrency`: [`conductor.v6.json`](../design/workflows/conductor.v6.json), checked by `conductor.v6.test.ts`. U-120 (are planning `files` reliable?) is undecided, so concurrency comes in a v7 edit once it passes.
+**Saved (T9).** The live `conductor` v6 is this draft without `requires.concurrency`: [`conductor.v6.json`](../design/workflows/conductor.v6.json), checked by `conductor.v6.test.ts`. U-120 (are planning `files` reliable?) is undecided, so concurrency comes in a v7 edit once it passes. It was saved on 2026-11-11 (change proposal 3185248c) with two edits from the workflow retrospective on top (R7, R8): `scope_changed` and `needs_product_context` tell the planner to plan a reasonable default under an 'Assumptions' heading instead of asking, and `personal_pr_ready_for_review` gained three reviewer items (every FR met, nothing out of scope, the summary is a hand-off and not a question).
 
 [`conductor.repo-checks.draft.json`](../design/workflows/conductor.repo-checks.draft.json) is the `set_repo_checks` payload for `github.com/benjgrad/conductor`:
-- setup: `pnpm install --frozen-lockfile && git fetch -q origin && git branch -f main origin/main`, which fixes 2.3's stale local `main`;
-- checks: typecheck, lint, test, build, and "Merges cleanly with main". The ticket template's promise that this check runs becomes true.
+- setup: `pnpm install --frozen-lockfile`, add `origin` if the checkout has none, `git fetch -q origin main && git branch -f main origin/main`, which fixes 2.3's stale local `main`;
+- checks: "Merges cleanly with main", typecheck, lint, and "Tests (affected tiers)" (`CONDUCTOR_CI_TIERED=1 pnpm test`). The ticket template's promise that the merge check runs becomes true. As set on 2026-11-11 there is no build check: CI builds.
+- These are the live checks (`get_repo_checks`) as of 2026-11-11.
 
 **Verification.** The draft can't go through `validateWorkflow` until T1 lands the schema. Until then, `packages/shared/src/workflow/conductor.v6-draft.test.ts` does two things:
 - it lowers every ADR-0037 field to today's spelling and checks that the result validates with the current `validateWorkflow`;

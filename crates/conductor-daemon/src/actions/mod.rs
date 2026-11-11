@@ -6,3 +6,4 @@ pub mod checkout;
 pub mod condition_cmd;
 pub mod conditions;
 pub mod open_pr;
+pub mod worktree_setup;

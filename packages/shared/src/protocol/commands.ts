@@ -92,6 +92,11 @@ export function commandPayloadForEffect(
       // the session (re-emits included) carries it. Absent or malformed = M1 clone path.
       const wc = WorkingCopySchema.safeParse(snapshot.context[WORKING_COPY_CONTEXT_KEY]);
       if (wc.success) payload.working_copy = wc.data;
+      // R2: a working agent's worktree setup is the repo's override setup; without an override
+      // the field is omitted and the daemon auto-detects from the lockfile.
+      if (effect.review !== true && effect.checkout === undefined && snapshot.repo_checks) {
+        payload.worktree_setup = snapshot.repo_checks.setup ?? null;
+      }
       return { kind: 'start_session', target, payload };
     }
     case 'send_input':

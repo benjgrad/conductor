@@ -61,7 +61,7 @@
         "scope_changed": {
           "goto": "needs_input",
           "title": "Scope changed",
-          "when": "A finding changes what the ticket can deliver and the milestone spec doesn't settle it. If the ticket only bundles several tasks ('finish the remaining work'), don't ask: plan the first task and put the rest in proposed_tickets.",
+          "when": "A finding changes what the ticket can deliver, the milestone spec doesn't settle it, and no reasonable default exists. If one does, don't ask: plan your recommended option, list it under an 'Assumptions' heading at the top of the plan, take plan_ready, and put the alternative in proposed_tickets. If the ticket only bundles several tasks ('finish the remaining work'), don't ask: plan the first task and put the rest in proposed_tickets. Before asking whether something already exists, search the repo for it and state what you found.",
           "question": true,
           "notify": "every"
         },
@@ -75,7 +75,7 @@
         "needs_product_context": {
           "goto": "needs_input",
           "title": "Needs product context",
-          "when": "You need more product context to plan the work.",
+          "when": "You need product context that neither the ticket, the repo's docs and ADRs, nor a reasonable default can supply. If a reasonable default exists, plan it, list it under 'Assumptions' at the top of the plan and take plan_ready instead.",
           "question": true,
           "notify": "every"
         }
@@ -260,6 +260,13 @@
                 "timeout": "10m"
               }
             ],
+            "review": {
+              "items": [
+                "Every functional requirement in the ticket body is met by the diff, or the summary says plainly which one is not and why.",
+                "The diff changes nothing the ticket's Out of scope section excludes; extra work is listed as proposed follow-ups instead of committed.",
+                "The summary is a hand-off of finished work, not a question for the reviewer: it asks Ben for no decision or information."
+              ]
+            },
             "actions": [
               "open_pr"
             ],

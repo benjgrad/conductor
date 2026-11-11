@@ -171,6 +171,35 @@ describe('InsightsPage', () => {
     ).toBeTruthy();
   });
 
+  it('R13: shows the analysed share, what the analysts cost, and when the account samples', async () => {
+    const api = createMockApi();
+    const real = await api.getProcessReport({ windowDays: 30 });
+    vi.spyOn(api, 'getProcessReport').mockResolvedValue({
+      ...real,
+      finished_sessions: 10,
+      analysed_sessions: 4,
+      analyst: {
+        mode: 'sample',
+        daily_cap: 5,
+        jobs: 6,
+        done: 4,
+        failed: 2,
+        dropped: 0,
+        open: 0,
+        cost_usd: 0.0123,
+        priced_jobs: 6,
+      },
+    });
+    setup(api);
+    expect(
+      await screen.findByText(
+        /4 of 10 finished sessions analysed \(40 %\) · 6 analyst jobs, about \$0\.01 · sampling: 5 a day/,
+        undefined,
+        { timeout: 5_000 },
+      ),
+    ).toBeTruthy();
+  });
+
   it('says when no machine runs analyst jobs, and pages findings', async () => {
     const api = createMockApi();
     const real = await api.getProcessReport({ windowDays: 30 });

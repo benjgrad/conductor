@@ -83,6 +83,25 @@ pub struct DriverStartOptions {
     /// a working agent runs with `--permission-mode bypassPermissions` instead of auto. Ignored for
     /// a reviewer (it keeps dontAsk).
     pub skip_permissions: bool,
+    /// R4: runs the agent's `run_gate` (the daemon gives a working agent one; the driver lists
+    /// the tool only when a transition runs checks, never for a reviewer).
+    pub run_gate: Option<RunGateHook>,
+}
+
+/// R4: the `run_gate` handler, compared by identity (the options are `PartialEq` for tests).
+#[derive(Clone)]
+pub struct RunGateHook(pub crate::claude::outcome_server::RunGateHandler);
+
+impl PartialEq for RunGateHook {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl std::fmt::Debug for RunGateHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RunGateHook")
+    }
 }
 
 impl DriverStartOptions {
@@ -113,6 +132,7 @@ impl DriverStartOptions {
             attach: None,
             publish_pages: false,
             skip_permissions: false,
+            run_gate: None,
         }
     }
 }

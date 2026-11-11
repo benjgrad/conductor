@@ -43,7 +43,7 @@ use crate::claude::edit_guard::write_edit_guard;
 use crate::claude::outcome_server::{
     ATTACH_FILE_TOOL, AttachFileHandler, AttachFileRequest, OUTCOME_TOOL_NAMES, OutcomeHandlers,
     OutcomeRegisterOptions, OutcomeRegistration, OutcomeServer, PERMISSION_TOOL, PUBLISH_PAGE_TOOL,
-    PublishPageHandler,
+    PublishPageHandler, RUN_GATE_TOOL, RunGateHandler, checked_transitions,
 };
 use crate::claude::stream_parser::{ParsedLine, parse_stream_line};
 use crate::platform::Platform;
@@ -555,6 +555,8 @@ pub fn build_claude_args(
         .chain(attach_tool(opts))
         // ADR-0038: and publish pages, for a state with the `pages` tool.
         .chain(publish_target(opts).map(|_| PUBLISH_PAGE_TOOL))
+        // R4: and run the gate's checks, when a transition runs any.
+        .chain(run_gate_handler(opts).map(|_| RUN_GATE_TOOL))
         .collect();
     args.extend([
         "--mcp-config".into(),
@@ -1162,7 +1164,12 @@ impl CliDriver {
             }),
         });
         let reg = self.server.register(
-            handlers(&shared, attach_target(&opts), publish_target(&opts)),
+            handlers(
+                &shared,
+                attach_target(&opts),
+                publish_target(&opts),
+                run_gate_handler(&opts),
+            ),
             OutcomeRegisterOptions {
                 transitions: opts.transitions.clone(),
             },
@@ -1321,6 +1328,13 @@ fn publish_target(opts: &DriverStartOptions) -> Option<AttachTarget> {
     attach_target(opts).filter(|_| opts.publish_pages)
 }
 
+/// R4: the session's `run_gate` handler: a working agent's (never a reviewer's), and only when
+/// an allowed transition runs checks, exactly when the outcome server lists the tool.
+fn run_gate_handler(opts: &DriverStartOptions) -> Option<RunGateHandler> {
+    let hook = opts.run_gate.as_ref().filter(|_| !opts.review)?;
+    (!checked_transitions(opts.transitions.as_deref()).is_empty()).then(|| hook.0.clone())
+}
+
 /// `publish_page`'s handler: posts to `target`'s orchestrator (ADR-0038).
 fn publish_handler(target: AttachTarget) -> PublishPageHandler {
     let client = reqwest::Client::builder()
@@ -1358,6 +1372,7 @@ fn handlers(
     shared: &Arc<Shared>,
     attach: Option<AttachTarget>,
     publish: Option<AttachTarget>,
+    run_gate: Option<RunGateHandler>,
 ) -> OutcomeHandlers {
     let (a, c, p) = (shared.clone(), shared.clone(), shared.clone());
     OutcomeHandlers {
@@ -1396,6 +1411,7 @@ fn handlers(
         })),
         on_attach_file: attach.map(attach_handler),
         on_publish_page: publish.map(publish_handler),
+        on_run_gate: run_gate,
     }
 }
 

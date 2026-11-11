@@ -33,11 +33,12 @@ use conductor_protocol::tool_policy::resolve_tool_policy;
 use conductor_protocol::{
     AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_AGENT_ATTACHMENTS,
     DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_PAGES, DAEMON_FEATURE_PERMISSION_MODE,
-    DAEMON_FEATURE_TICKET_ATTACHMENTS, DaemonToOrchestrator, EvaluateConditionsArgs, KillPayload,
-    NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS, OrchestratorToDaemon, PROTOCOL_VERSION,
-    PermissionDecisionPayload, RunActionPayload, RunActionPayloadAction, RunCmdPayload,
-    STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload, SendMessagePayload,
-    SessionEventPayload, StartSessionPayload, TranscriptPayload, auth::daemon_auth_header_value,
+    DAEMON_FEATURE_RUN_GATE, DAEMON_FEATURE_TICKET_ATTACHMENTS, DaemonToOrchestrator,
+    EvaluateConditionsArgs, KillPayload, NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS,
+    OrchestratorToDaemon, PROTOCOL_VERSION, PermissionDecisionPayload, RunActionPayload,
+    RunActionPayloadAction, RunCmdPayload, STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload,
+    SendMessagePayload, SessionEventPayload, StartSessionPayload, TranscriptPayload,
+    auth::daemon_auth_header_value,
 };
 use futures_util::FutureExt;
 use serde_json::{Value, json};
@@ -689,6 +690,8 @@ impl Core {
                 DAEMON_FEATURE_PAGES,
                 // ADR-0039: it honours `start_session.permission_mode` (skip permissions).
                 DAEMON_FEATURE_PERMISSION_MODE,
+                // R4: its outcome server has `run_gate`.
+                DAEMON_FEATURE_RUN_GATE,
             ],
         });
         // Local mode keeps M1's `enrollment_token: null`; an enrolled daemon authenticates on the
@@ -1512,6 +1515,12 @@ impl Core {
         });
         // ADR-0038: a state with the `pages` tool gets `publish_page` (posting to the same server).
         opts.publish_pages = p.tools.iter().any(|t| t == "pages");
+        // R4: a working agent gets `run_gate` (the driver lists it when a transition runs checks).
+        opts.run_gate = opts
+            .attach
+            .clone()
+            .filter(|_| !review)
+            .map(|t| self.run_gate_hook(sid, token, t));
         // ADR-0039: skip permissions, for a working agent only (the driver ignores it for a
         // reviewer, which keeps dontAsk).
         opts.skip_permissions =
@@ -3254,6 +3263,7 @@ impl Daemon {
     }
 }
 
+mod run_gate;
 mod updating;
 
 #[cfg(test)]

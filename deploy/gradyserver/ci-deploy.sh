@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # CI's deploy (runbook §12): runs ON gradyserver, in the conductor runner's checkout, as
 # bengrady4. It is deploy.sh without the ssh: the same release layout and the same server half,
-# plus what nobody is watching a CI deploy for: a rollback, and a Discord alert when it fails.
+# plus what nobody is watching a CI deploy for: a rollback, and a Discord alert, a board ticket and
+# a push when it fails.
 #
 #   deploy/gradyserver/ci-deploy.sh <git-ref>
 #
@@ -17,9 +18,15 @@
 #    SMOKE_EXPECT_SHA=<sha>;
 # 5. on any failure in 4: puts the previous orchestrator image back (no migrate, no rebuild unless
 #    the image is gone), re-points current at it, smokes it, and alerts Discord. Success is silent.
+# 6. on any failure (in 4, or one before it), also reports it to the board (R14): the sha, the step
+#    that failed and the last 50 log lines, piped as JSON into `conductor-admin deploy-failed` in
+#    the running orchestrator container, which opens (or, for a sha that failed before, updates)
+#    the ticket `Deploy of <short sha> failed: <step>` and sends a push. The docker socket is the
+#    credential: no deploy token exists. A report that can't be sent is logged, never fatal.
 #
 # DEPLOY_DRILL=1 fails the first smoke on purpose, so the rollback and the alert run end to end and
-# the alert says it is a drill. Do one after any change to this file.
+# the alert says it is a drill. Do one after any change to this file. A drill logs the board report
+# instead of sending it (it would queue a ticket, and an agent, for nothing).
 #
 # Env: CONDUCTOR_DAEMON_DIST (required: the daemon tarballs for <git-ref>),
 #      DEPLOY_DIR (deploy/conductor, relative to $HOME), SMOKE_URL
@@ -55,6 +62,11 @@ DIST="${CONDUCTOR_DAEMON_DIST:-}"
 
 exec 9>"$ROOT/.deploy.lock"
 flock -w 600 9 || die "another deploy held $ROOT/.deploy.lock for 10 minutes"
+
+# From here on, everything this script and its children print is also kept in DEPLOY_LOG, for the
+# board report's log tail. on_exit removes it.
+DEPLOY_LOG="$(mktemp)"
+exec > >(tee -a "$DEPLOY_LOG") 2> >(tee -a "$DEPLOY_LOG" >&2)
 
 # ---------------------------------------------------------------- alerting
 # Straight to the webhook with curl: when this has to speak, the orchestrator may be what's broken.
@@ -112,6 +124,69 @@ if [[ -n "${GITHUB_RUN_ID:-}" ]]; then
   RUN_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-benjgrad/conductor}/actions/runs/$GITHUB_RUN_ID"
 fi
 
+# ---------------------------------------------------------------- board report (R14)
+FAIL_STEP=""
+FAIL_TAIL=""
+# snapshot_failure [die]: the failed step (the last `==> ` line, ours or remote-deploy.sh's; with
+# `die`, the last `!!> ` line first: why a deploy stopped early) and the log's last 50 lines.
+snapshot_failure() {
+  sleep 0.2 # the tees write behind: let them catch up (the tail may still miss a last line)
+  FAIL_TAIL="$(tail -n 50 "$DEPLOY_LOG" 2>/dev/null || true)"
+  FAIL_STEP=""
+  if [[ "${1:-}" == die ]]; then
+    FAIL_STEP="$({ grep '^!!> ' "$DEPLOY_LOG" || true; } | tail -n 1 | sed 's/^!!> //')"
+  fi
+  if [[ -z "$FAIL_STEP" ]]; then
+    FAIL_STEP="$({ grep '^==> ' "$DEPLOY_LOG" || true; } | tail -n 1 | sed 's/^==> //')"
+  fi
+  [[ -n "$FAIL_STEP" ]] || FAIL_STEP="unknown step"
+}
+
+# report_failure <rolled_back|rollback_failed|did_not_run>, after snapshot_failure. Never fails.
+report_failure() {
+  local payload ids n out
+  payload="$(SHA="${SHA:-}" SUBJECT="${SUBJECT:-}" STEP="$FAIL_STEP" OUTCOME="$1" RUNNING="${PREV:-}" \
+    RUN_URL="$RUN_URL" REPO="github.com/${GITHUB_REPOSITORY:-benjgrad/conductor}" TAIL="$FAIL_TAIL" \
+    python3 -I - <<'PY'
+import datetime, json, os, re
+secret = re.compile(r"DISCORD_WEBHOOK_URL|POSTGRES_PASSWORD|VAPID_PRIVATE|discord(app)?\.com/api/webhooks", re.I)
+tail = "\n".join("[redacted]" if secret.search(l) else l for l in os.environ["TAIL"].split("\n"))
+running = os.environ["RUNNING"]
+print(json.dumps({
+    "sha": os.environ["SHA"],
+    "subject": os.environ["SUBJECT"],
+    "step": os.environ["STEP"],
+    "outcome": os.environ["OUTCOME"],
+    "running": running if re.fullmatch(r"[0-9a-f]{40}", running) else None,
+    "run_url": os.environ["RUN_URL"],
+    "repo": os.environ["REPO"],
+    "log_tail": tail,
+    "attempted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+}))
+PY
+  )" || {
+    echo "!!> [board report failed] could not build the report" >&2
+    return 0
+  }
+  if [[ "${DEPLOY_DRILL:-}" == 1 ]]; then
+    step "drill: board report not sent: $payload"
+    return 0
+  fi
+  ids="$(docker ps -q --filter label=com.docker.compose.project=conductor \
+    --filter label=com.docker.compose.service=orchestrator </dev/null 2>/dev/null || true)"
+  n="$(wc -w <<<"$ids" | tr -d ' ')"
+  if [[ "$n" != 1 ]]; then
+    echo "!!> [board report failed] expected one running orchestrator, found $n" >&2
+    return 0
+  fi
+  if out="$(docker exec -i "$ids" node dist/admin-cli.js deploy-failed <<<"$payload" 2>&1)"; then
+    step "reported on the board: $out"
+  else
+    echo "!!> [board report failed] $out" >&2
+  fi
+  return 0
+}
+
 # Anything that dies before the release starts has changed nothing that runs, but it is still a
 # deploy that didn't happen. The rollback path sends its own alert and sets ALERTED.
 ALERTED=0
@@ -119,10 +194,14 @@ PREV=""
 # shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap (SC2317 on shellcheck < 0.10)
 on_exit() {
   local code=$?
-  ((code == 0 || ALERTED == 1)) && return
-  alert "$AMBER" "Deploy did not run" \
-    "Stopped before touching production (exit $code); it is still on \`${PREV:0:7}\`. See the run log." \
-    "Commit" "${SHA:0:7}" "Run" "$RUN_URL"
+  if ((code != 0 && ALERTED == 0)); then
+    alert "$AMBER" "Deploy did not run" \
+      "Stopped before touching production (exit $code); it is still on \`${PREV:0:7}\`. See the run log." \
+      "Commit" "${SHA:0:7}" "Run" "$RUN_URL"
+    snapshot_failure die
+    report_failure did_not_run
+  fi
+  rm -f "$DEPLOY_LOG"
 }
 trap on_exit EXIT
 
@@ -166,6 +245,7 @@ smoke() { # smoke <sha>
     step "drill: failing this smoke test on purpose"
     "$HERE/smoke.sh" "http://127.0.0.1:9" || return 1
   fi
+  step "smoke test of ${1:0:7}"
   SMOKE_EXPECT_SHA="$1" "$HERE/smoke.sh" "$SMOKE_URL"
 }
 DRILL_PENDING=0
@@ -238,14 +318,17 @@ if release "$SHA"; then
 fi
 
 ALERTED=1
+snapshot_failure # before the rollback writes to the log: the tail shows the failure
 echo "!!> ${SHA:0:7} failed; rolling back to ${PREV:0:7}" >&2
 if rollback "$PREV"; then
   alert "$AMBER" "Deploy failed: rolled back" \
     "\`${SHA:0:7}\` did not come up healthy, so production is back on \`${PREV:0:7}\` and passing its smoke test. Nothing new shipped." \
     "Failed commit" "${SHA:0:7} $SUBJECT" "Running now" "${PREV:0:7}" "Run" "$RUN_URL"
+  report_failure rolled_back
 else
   alert "$RED" "Deploy failed and rollback failed: conductor may be down" \
     "\`${SHA:0:7}\` failed and \`${PREV:0:7}\` did not come back either. On gradyserver: \`cdc ps\`, \`cdc logs orchestrator\` (runbook §10)." \
     "Failed commit" "${SHA:0:7} $SUBJECT" "Run" "$RUN_URL"
+  report_failure rollback_failed
 fi
 exit 1

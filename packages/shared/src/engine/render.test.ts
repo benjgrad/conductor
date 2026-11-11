@@ -8,11 +8,13 @@ import {
 } from '../workflow/conductor.js';
 import { ROUTINE_V1_DEF } from '../workflow/routine.js';
 import {
+  ASK_BEFORE_HANDOFF_INSTRUCTION,
   HOW_TO_FINISH_HEADING,
   IMPLEMENT_SCOPE_INSTRUCTION,
   IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION,
   IMPLEMENT_TEMPLATE,
   IMPLEMENT_TESTS_INSTRUCTION,
+  PLAN_ASK_INSTRUCTION,
   PLAN_ASSUMPTIONS_HEADING,
   PLAN_FILES_INSTRUCTION,
   PLAN_HEADINGS_INSTRUCTION,
@@ -320,5 +322,45 @@ describe('process-review rules (ADR-0037 §4, C2)', () => {
     expect(p).not.toContain(IMPLEMENT_SCOPE_INSTRUCTION);
     expect(p).not.toContain(IMPLEMENT_TESTS_INSTRUCTION);
     expect(p).not.toContain(PLAN_SIZE_INSTRUCTION);
+    expect(p).not.toContain(ASK_BEFORE_HANDOFF_INSTRUCTION);
+    expect(p).not.toContain(PLAN_ASK_INSTRUCTION);
+  });
+});
+
+describe('asking questions: resolve unknowns before the PR hand-off', () => {
+  const implementing: AgentState = { type: 'agent', prompt: IMPLEMENT_TEMPLATE, tools: ['edit'] };
+  const planning: AgentState = { type: 'agent', prompt: PLAN_TEMPLATE, tools: ['read'] };
+
+  it('the implement template asks freely and hands off only when nothing is left to ask', () => {
+    for (const follow_ups of [undefined, { enabled: false, max: 3 }] as const) {
+      const p = renderPrompt({
+        stateName: 'implementing',
+        state: follow_ups ? { ...implementing, follow_ups } : implementing,
+        snapshot: SNAPSHOT_FIXTURE,
+      });
+      expect(p).toContain(ASK_BEFORE_HANDOFF_INSTRUCTION);
+      expect(p).not.toContain('never a commit in this PR');
+      expect(p).not.toContain('Do only what');
+    }
+    expect(ASK_BEFORE_HANDOFF_INSTRUCTION).toContain('`ask_user`');
+    expect(ASK_BEFORE_HANDOFF_INSTRUCTION).toContain('only when nothing is left to ask');
+  });
+
+  it('the scope paragraph is judgement-based and its two variants stay distinct', () => {
+    expect(IMPLEMENT_SCOPE_INSTRUCTION).toContain('use your judgement');
+    expect(IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION).toContain('use your judgement');
+    expect(IMPLEMENT_SCOPE_INSTRUCTION).not.toBe(IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION);
+  });
+
+  it('the plan template asks rather than guesses', () => {
+    const p = renderPrompt({ stateName: 'planning', state: planning, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).toContain(PLAN_ASK_INSTRUCTION);
+    expect(p).not.toContain(ASK_BEFORE_HANDOFF_INSTRUCTION);
+  });
+
+  it('ask_user is offered for information as well as decisions', () => {
+    const p = renderPrompt({ stateName: 'implement', state: template, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).toContain('If you need a decision or information from a human, call `ask_user`');
+    expect(p).not.toContain('blocked');
   });
 });

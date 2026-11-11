@@ -70,6 +70,16 @@ export const CHECK_STATUS_TEXT: Record<BoardCheckingItem['status'], string> = {
   skipped: 'not checked',
 };
 
+/** R3: a check the daemon skipped (no change matched its `paths`). */
+export const SKIPPED_CHECK_TEXT = 'Skipped: no matching changes';
+
+/** An item's status as words: a skipped check says why, a skipped condition "not checked". */
+export function checkItemStatusText(item: Pick<BoardCheckingItem, 'kind' | 'status'>): string {
+  return item.kind === 'check' && item.status === 'skipped'
+    ? SKIPPED_CHECK_TEXT
+    : CHECK_STATUS_TEXT[item.status];
+}
+
 const CHECK_ICONS: Record<BoardCheckingItem['status'], string> = {
   passed: '✓',
   failed: '✗',
@@ -108,11 +118,11 @@ export function checkingAnnouncement(card: CardStep): string {
   const items = checking.items ?? [];
   const cur = currentItem(checking);
   if (cur)
-    return `${cur.item.label}: ${CHECK_STATUS_TEXT[cur.item.status]} (${cur.n} of ${items.length})`;
+    return `${cur.item.label}: ${checkItemStatusText(cur.item)} (${cur.n} of ${items.length})`;
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]!;
     if (item.status !== 'todo') {
-      return `${item.label}: ${CHECK_STATUS_TEXT[item.status]} (${i + 1} of ${items.length})`;
+      return `${item.label}: ${checkItemStatusText(item)} (${i + 1} of ${items.length})`;
     }
   }
   return checkingSummary(card);
@@ -250,7 +260,7 @@ export function ConductorCheckBanner({
                     {CHECK_ICONS[item.status]}
                   </span>
                   <span className="check-label">{item.label}</span>
-                  <span className="check-status"> · {CHECK_STATUS_TEXT[item.status]}</span>
+                  <span className="check-status"> · {checkItemStatusText(item)}</span>
                   {error && <span className="check-error">: {error}</span>}
                 </li>
               );

@@ -240,13 +240,26 @@ export const PLAN_SIZE_NO_PROPOSALS_INSTRUCTION =
   'This ticket is sized L: unless its body says otherwise, ask with `ask_user` whether to split it before planning the whole thing.';
 
 /**
- * ADR-0037 §4 (C2): the implementing step's scope rule. The `_NO_PROPOSALS_` variant replaces it
- * in a state whose `follow_ups` are off.
+ * ADR-0037 §4 (C2): the implementing step's scope rule, judgement-based ("Asking questions"
+ * ticket, superseding R7's "do only what the ticket asks"). The `_NO_PROPOSALS_` variant replaces
+ * it in a state whose `follow_ups` are off. withHint swaps them by exact match: keep both distinct.
  */
 export const IMPLEMENT_SCOPE_INSTRUCTION =
-  "Do only what the ticket's Goal and Functional requirements ask. Anything else you notice (a fix, a refactor, a missing gate) becomes a `proposed_tickets` entry with a one-line why, never a commit in this PR. If a requirement cannot be met without an out-of-scope change, ask with `ask_user` and name the change.";
+  "Aim at the ticket's Goal and Functional requirements, and use your judgement on how to get there. If doing the job well needs a change the ticket didn't name (a small fix, a refactor, a missing test), make it when it directly serves the ticket and say so in your summary. Ask with `ask_user` when you're unsure whether something belongs here or it would grow the change noticeably. Separate, unrelated work goes in `proposed_tickets` with a one-line why.";
 export const IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION =
-  "Do only what the ticket's Goal and Functional requirements ask. Anything else you notice (a fix, a refactor, a missing gate) becomes a line under a `Follow-ups` heading in your summary, never a commit in this PR. If a requirement cannot be met without an out-of-scope change, ask with `ask_user` and name the change.";
+  "Aim at the ticket's Goal and Functional requirements, and use your judgement on how to get there. If doing the job well needs a change the ticket didn't name (a small fix, a refactor, a missing test), make it when it directly serves the ticket and say so in your summary. Ask with `ask_user` when you're unsure whether something belongs here or it would grow the change noticeably. Separate, unrelated work goes on a line under a `Follow-ups` heading in your summary.";
+
+/**
+ * "Asking questions" ticket: the implementing agent resolves its unknowns by asking (mid-session
+ * `ask_user` returns the answer to the same session) and hands the PR to a human only once nothing
+ * is left to ask.
+ */
+export const ASK_BEFORE_HANDOFF_INSTRUCTION =
+  "Resolve your unknowns before you hand off. Ask with `ask_user` whenever a requirement is unclear, a decision is the human's, or you'd otherwise be guessing; ask as many times as you need. Each answer comes back to you here and you carry on. Give your recommended answer with each question. Take a transition that hands the PR to a human only when nothing is left to ask: the PR is for reviewing finished work, and its summary must not contain questions.";
+
+/** "Asking questions" ticket: the planning agent asks rather than guesses. */
+export const PLAN_ASK_INSTRUCTION =
+  "If the ticket is unclear or a choice is the human's to make, ask rather than guess: use `ask_user` (the answer comes back to you and you keep planning), or a question transition below. Give your recommended answer with each question. Search the repo first for anything you can find out yourself.";
 
 /** ADR-0037 §4 (C2): update tests alongside each change, not in one batch at the end. */
 export const IMPLEMENT_TESTS_INSTRUCTION =
@@ -267,6 +280,7 @@ const PLAN_INSTRUCTIONS = [
   '',
   'Read the repository and work out how to do this ticket. Do not change any files, run builds or commit: this step only plans.',
   'Write a plan another agent can follow: the files to change, the approach, the tests to add or update, and anything risky or unclear.',
+  PLAN_ASK_INSTRUCTION,
   PLAN_HEADINGS_INSTRUCTION,
   PLAN_FILES_INSTRUCTION,
   PROPOSALS_HINT,
@@ -285,6 +299,7 @@ const IMPLEMENT_INSTRUCTIONS = [
   '',
   'Make the change, following the plan under Inputs (written in the planning step; adapt it where the code tells you otherwise).',
   IMPLEMENT_SCOPE_INSTRUCTION,
+  ASK_BEFORE_HANDOFF_INSTRUCTION,
   IMPLEMENT_TESTS_INSTRUCTION,
   'Add or update tests. Before you finish, commit everything on the current branch (`git add` and `git commit`) so that `git status` is clean: only committed changes are checked and pushed, and a worktree with uncommitted changes is sent back to you. Do not push. Conductor then checks that the build and the tests pass on your last commit, pushes it and opens the pull request itself.',
   CHECK_CONFIG_HINT,
@@ -356,7 +371,7 @@ function howToFinish(state: AgentState, transitions: readonly AgentTransitionOpt
       : 'a `result` object summarising what you did';
   const lines = transitions.map((t) => {
     const when =
-      t.when ?? (t.name === 'ask_user' ? 'You are blocked and need a human decision.' : null);
+      t.when ?? (t.name === 'ask_user' ? 'You need a decision or information from a human.' : null);
     const ask =
       (t.question ? ' Your `reason` is the question for the human.' : '') +
       defaultHint(state, t.name);
@@ -406,7 +421,7 @@ function finishSection(state: AgentState): string {
     '## When you are done',
     '',
     `When the work for this step is finished, ${result}, then stop.`,
-    'If you are blocked and need a human decision, call `ask_user` with one clear question (and `options` when the answer is one of a few choices) and end your turn.',
+    'If you need a decision or information from a human, call `ask_user` with one clear question (and `options` when the answer is one of a few choices) and end your turn.',
   ].join('\n');
 }
 

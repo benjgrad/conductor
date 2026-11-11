@@ -121,6 +121,18 @@ describe('toBoardCard / toInputRequestDto', () => {
     expect(card.input_request?.created_at).toBe('2026-10-22T12:04:00.000Z');
   });
 
+  it('carries the notify decision (ADR-0037 P6): a valid one, never a malformed or null one', () => {
+    const decision = { via: 'ask_user', mode: 'never', decision: 'silent' } as const;
+    expect(toInputRequestDto({ ...input, notify: decision }).notify).toEqual(decision);
+    expect('notify' in toInputRequestDto({ ...input, notify: null })).toBe(false);
+    expect('notify' in toInputRequestDto({ ...input, notify: { via: 1 } })).toBe(false);
+    expect('notify' in toInputRequestDto(input)).toBe(false);
+    const card = BoardCardSchema.parse(
+      toBoardCard(ticket, session, { ...input, notify: decision }, VIEW),
+    );
+    expect(card.input_request?.notify).toEqual(decision);
+  });
+
   it('badges the build-slot wait and drops an answered request', () => {
     const card = toBoardCard(
       ticket,

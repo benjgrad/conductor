@@ -32,6 +32,9 @@ describe('checkRunStatus', () => {
     expect(checkRunStatus({ exit_code: 2, timed_out: false, setup_failed: false })).toBe('fail');
     expect(checkRunStatus({ exit_code: null, timed_out: false, setup_failed: false })).toBe('fail');
     expect(checkRunStatus({ exit_code: 0, timed_out: false, setup_failed: false })).toBe('pass');
+    expect(
+      checkRunStatus({ exit_code: 0, timed_out: false, setup_failed: false, skipped: true }),
+    ).toBe('skipped');
   });
 });
 
@@ -123,5 +126,21 @@ describe('healthHint', () => {
     expect(healthHint(['fail'])).toBe('failing');
     expect(healthHint(['fail', 'pass', 'fail'])).toBe('flaky');
     expect(healthHint(['pass', 'fail'])).toBe('flaky');
+  });
+});
+
+describe('skipped checks (R3)', () => {
+  it('runsByCheck counts skips apart from runs and failures', () => {
+    const rows = [run(), run({ exit_code: 1 }), run({ skipped: true })];
+    const [c] = runsByCheck([{ name: 'Tests', cmd: 'npm test' }], rows, 5);
+    expect(c).toMatchObject({ runs_in_window: 2, failures_in_window: 1, skips_in_window: 1 });
+    expect(c!.runs.map((r) => r.status)).toContain('skipped');
+  });
+
+  it('repoHealth leaves skipped checks out, and healthHint ignores them', () => {
+    const [h] = repoHealth([run({ at: '2026-11-01T09:00:00.000Z' }), run({ skipped: true })]);
+    expect(h).toMatchObject({ runs: 1, failures: 0, recent: ['pass'] });
+    expect(healthHint(['skipped', 'pass', 'skipped'])).toBe('passing');
+    expect(healthHint(['skipped'])).toBe('none');
   });
 });

@@ -536,8 +536,19 @@ describe('tickets and board', () => {
     const low = await createTicket('low', { priority: 4 });
     const high = await createTicket('high', { priority: 1 });
     const running = await seedSession('running');
+    const busy = await seedSession('running');
     const waiting = await seedSession('needs_input', { input: true });
     const failed = await seedSession('lost');
+    // Agent columns sort by ticket age, not activity: `running` is the older ticket, so it stays
+    // first even though `busy`'s session was updated later.
+    await db.pool.query(
+      "UPDATE ticket SET created_at = now() - interval '10 minutes' WHERE id = $1",
+      [running.ticket.id],
+    );
+    await db.pool.query(
+      "UPDATE session SET updated_at = now() + interval '10 minutes' WHERE id = $1",
+      [busy.sessionId],
+    );
 
     const res = await get('/api/board');
     expect(res.status).toBe(200);
@@ -556,7 +567,9 @@ describe('tickets and board', () => {
     const queuedIds = col('queued').map((c) => c.ticket_id);
     expect(queuedIds.indexOf(high.id)).toBeLessThan(queuedIds.indexOf(low.id));
     // m1_basic's `implement` (agent) maps to Implementing by state type.
-    expect(col('implementing').map((c) => c.session_id)).toContain(running.sessionId);
+    const impl = col('implementing').map((c) => c.session_id);
+    expect(impl.indexOf(running.sessionId)).toBeGreaterThanOrEqual(0);
+    expect(impl.indexOf(running.sessionId)).toBeLessThan(impl.indexOf(busy.sessionId));
     const ni = col('needs_input').find((c) => c.session_id === waiting.sessionId)!;
     expect(ni.input_request?.id).toBe(waiting.inputId);
     const lost = col('done').find((c) => c.session_id === failed.sessionId)!;

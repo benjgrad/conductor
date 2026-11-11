@@ -1,4 +1,6 @@
 import {
+  CHECK_PATHS_MAX,
+  checkPathsProblem,
   AVAILABLE_CONDITION_TYPES,
   AVAILABLE_TRANSITION_ACTIONS,
   conditionEnabled,
@@ -401,6 +403,14 @@ export function checkListIssues(
     if (c.cmd.trim() === '') add(`checks.${i}.cmd`, `${row}: Command is required`);
     if (c.timeout !== undefined && durationProblem(c.timeout) !== null) {
       add(`checks.${i}.timeout`, `${row}: Timeout: ${DURATION_HINT}`);
+    }
+    // R3: `paths` (absent = always run; the field drops an empty list).
+    if (c.paths !== undefined) {
+      if (c.paths.length > CHECK_PATHS_MAX) {
+        add(`checks.${i}.paths`, `${row}: Paths: at most ${CHECK_PATHS_MAX} globs`);
+      }
+      const problem = c.paths.map(checkPathsProblem).find((p) => p !== null);
+      if (problem) add(`checks.${i}.paths`, `${row}: Paths: ${problem}`);
     }
   });
   if (setup !== undefined && checks.length === 0) {

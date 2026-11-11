@@ -454,7 +454,7 @@ describe('mock repo checks (ADR-0030)', () => {
     const shop = RepoCheckRunsResponseSchema.parse(
       await api.getRepoCheckRuns('github.com/Acme/Shop'),
     );
-    expect(shop.checks.map((c) => c.name)).toEqual(['Build', 'Tests']);
+    expect(shop.checks.map((c) => c.name)).toEqual(['Build', 'Tests', 'Cargo tests']);
     expect(shop.checks[1]!.runs[0]!.status).toBe('timed_out');
     const plain = RepoCheckRunsResponseSchema.parse(
       await api.getRepoCheckRuns('github.com/acme/api', 2),

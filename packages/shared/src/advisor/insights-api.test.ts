@@ -82,6 +82,7 @@ describe('DTOs', () => {
         sessions: 2,
         moves: 6,
         check_runs: 1,
+        check_skips: 0,
         questions: 0,
         handoffs: 0,
         stops: 0,
@@ -110,6 +111,7 @@ describe('DTOs', () => {
     const oldTotals: Record<string, unknown> = { ...report.totals };
     delete oldTotals.handoffs;
     delete oldTotals.stops;
+    delete oldTotals.check_skips;
     expect(ProcessReportResponseSchema.parse({ ...report, totals: oldTotals }).totals).toEqual(
       report.totals,
     );

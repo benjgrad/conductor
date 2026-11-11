@@ -278,6 +278,16 @@ describe('checkFailureRates', () => {
     });
     expect(stats[1]).toMatchObject({ check: 'npm run build', failures: 0, failure_rate: 0 });
   });
+
+  it('R3: counts skipped checks apart, never as runs or failures', () => {
+    const stats = checkFailureRates([
+      check('a', 'npm test', 1),
+      check('b', 'npm test', 0, { skipped: true }),
+      check('c', 'cargo test', 0, { skipped: true }),
+    ]);
+    expect(stats).toHaveLength(1);
+    expect(stats[0]).toMatchObject({ check: 'npm test', runs: 1, failures: 1, skips: 1 });
+  });
 });
 
 describe('inputStats', () => {
@@ -323,6 +333,27 @@ describe('permissionStats', () => {
   });
 });
 
+describe('processMetrics: skipped checks (R3)', () => {
+  it('counts a skipped check under check_skips, not check_runs or check_failures', () => {
+    const m = processMetrics(
+      {
+        ...EMPTY,
+        checks: [
+          check('a', 'npm test', 1),
+          check('a', 'cargo test', 0, { skipped: true }),
+          check('b', 'cargo test', 0, { skipped: true }),
+        ],
+      },
+      'check',
+    );
+    expect(ProcessMetricsSchema.parse(m)).toEqual(m);
+    expect(m.totals).toMatchObject({ check_runs: 1, check_skips: 2 });
+    const by = Object.fromEntries(m.groups.map((g) => [g.key, g]));
+    expect(by['npm test']).toMatchObject({ check_runs: 1, check_failures: 1, check_skips: 0 });
+    expect(by['cargo test']).toMatchObject({ check_runs: 0, check_failures: 0, check_skips: 2 });
+  });
+});
+
 describe('processMetrics', () => {
   const rows: AdvisorRows = {
     moves: [
@@ -354,6 +385,7 @@ describe('processMetrics', () => {
       sessions: 2,
       moves: 6,
       check_runs: 2,
+      check_skips: 0,
       questions: 1,
       handoffs: 0,
       stops: 0,

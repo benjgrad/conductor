@@ -103,12 +103,48 @@ export type RequirementsGate = z.infer<typeof RequirementsGateSchema>;
 /** ADR-0010: the one workflow's id. New tickets always run its latest version. */
 export const CONDUCTOR_WORKFLOW_ID = 'conductor';
 
+/** At most this many globs in a check's `paths` (R3). */
+export const CHECK_PATHS_MAX = 50;
+
+/**
+ * R3: why `glob` can't be a check's `paths` entry, or null when it can. Globs are repo-relative
+ * with forward slashes (`globToRegExp`: `**`, `*`, `?`, `{a,b}`), as git prints changed paths.
+ */
+export function checkPathsProblem(glob: string): string | null {
+  const g = glob.trim();
+  if (g === '') return 'a path glob is empty';
+  if (g.length > 200) return 'a path glob is longer than 200 characters';
+  if (g.includes('\0')) return `"${g}" contains a NUL character`;
+  if (g.includes('\\')) return `"${g}" contains a backslash: use forward slashes, as git does`;
+  if (g.startsWith('/')) return `"${g}" starts with "/": paths are relative to the repo root`;
+  if (g.split('/').includes('..')) return `"${g}" contains "..": paths are inside the repo`;
+  const open = g.lastIndexOf('{');
+  if (open !== -1 && g.indexOf('}', open) === -1) return `"${g}" has an unclosed "{"`;
+  return null;
+}
+
+/** R3: one `paths` glob of a check (`checkPathsProblem`). */
+export const CheckPathGlobSchema = z
+  .string()
+  .trim()
+  .superRefine((g, ctx) => {
+    const problem = checkPathsProblem(g);
+    if (problem !== null) ctx.addIssue({ code: 'custom', message: problem });
+  });
+
 /** A deterministic entry check: `cmd` runs in the session worktree and must exit 0 (ADR-0010). */
 export const EntryCheckSchema = z.strictObject({
   /** Shown on the board and in the "not met" feedback, e.g. "Build passes". */
   name: z.string().trim().min(1).max(200),
   cmd: z.string().min(1),
   timeout: DurationSchema.optional(),
+  /**
+   * R3: run the check only when the branch changes a path matching one of these globs since the
+   * commit it started at (the daemon records it when it creates the branch). Otherwise it is
+   * skipped (with the reason) and counts as passed. Anything unknown runs it: uncertainty runs
+   * more. Absent = always run.
+   */
+  paths: z.array(CheckPathGlobSchema).min(1).max(CHECK_PATHS_MAX).optional(),
 });
 export type EntryCheck = z.infer<typeof EntryCheckSchema>;
 

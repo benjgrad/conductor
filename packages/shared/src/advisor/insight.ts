@@ -111,13 +111,15 @@ export function digestLines(d: SessionDigest): string[] {
     out.push(`- ${m.to}: ${Math.round(mins * 10) / 10} min`);
   }
   for (const c of d.rows.checks) {
-    const res = c.setup_failed
-      ? 'setup failed'
-      : c.timed_out
-        ? 'timed out'
-        : checkFailed(c)
-          ? `exit ${c.exit_code ?? 'none'}`
-          : 'passed';
+    const res = c.skipped
+      ? 'skipped (no matching changes)'
+      : c.setup_failed
+        ? 'setup failed'
+        : c.timed_out
+          ? 'timed out'
+          : checkFailed(c)
+            ? `exit ${c.exit_code ?? 'none'}`
+            : 'passed';
     const name = c.name !== undefined && c.name !== c.cmd ? `${clip(c.name, 80)} ` : '';
     const role = c.role === 'setup' ? 'Setup' : 'Check';
     out.push(`${role} in ${c.state}: ${name}\`${clip(c.cmd, 120)}\` ${res}`);

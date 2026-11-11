@@ -46,8 +46,9 @@ use uuid::Uuid;
 
 use crate::actions::checkout::{
     BaseCheckoutInput, BaseProbeNext, FreshCheckout, FreshCheckoutInput, ProbeSetupInput,
-    SetupOnBase, detect_setup, fetch_budget, fresh_checkout, managed_command, missing_manager,
-    no_commits_ahead, prepare_base_probe, remove_checkout, sweep_private,
+    SetupOnBase, changed_since_default, detect_setup, fetch_budget, fresh_checkout,
+    managed_command, missing_manager, no_commits_ahead, prepare_base_probe, remove_checkout,
+    skip_reason, sweep_private,
 };
 use crate::actions::condition_cmd::{CmdContext, CmdExec, CmdExecResult};
 use crate::actions::conditions::{EvaluateConditionsInput, evaluate_conditions};
@@ -2068,6 +2069,9 @@ impl Core {
             if out.no_commits {
                 data["no_commits"] = json!(true);
             }
+            if let Some(why) = &out.skipped {
+                data["skipped"] = json!(why);
+            }
             let mut st = core.lock();
             if let Some(l) = st.live.get_mut(&sid) {
                 l.cmds.remove(&p.command_id);
@@ -2211,6 +2215,39 @@ impl Core {
             out.no_commits = true;
             out.not_run = Some(why.clone());
             return Ok(self.not_run(sid, token, &format!("{why}, so there is nothing to check")));
+        }
+        // R3: a check with `paths` runs only when the branch's diff from its merge base with
+        // origin's default branch touches one; anything unknown runs it. A skip makes no
+        // checkout and runs no setup; as the last check it still removes the gate's checkout.
+        if !co.paths.is_empty() {
+            let paths = co.paths.as_slice();
+            let changed = changed_since_default(&wt, &want, None).await;
+            let (base, files) = match &changed {
+                Some((b, f)) => (Some(b.as_str()), Some(f.as_slice())),
+                None => (None, None),
+            };
+            if let Some(why) = skip_reason(files, paths, base) {
+                self.debug_line(
+                    sid,
+                    token,
+                    &format!("conductor: skipped `{}`: {why}", p.cmd),
+                );
+                if co.last {
+                    let mut st = self.lock();
+                    let held = st.checkouts.get(&sid).filter(|h| h.sha == want).cloned();
+                    if let Some(h) = held {
+                        self.drop_checkout(&mut st, &sid, Some(&h));
+                    }
+                }
+                out.skipped = Some(why.clone());
+                return Ok(CommandResult {
+                    exit_code: Some(0),
+                    signal: None,
+                    timed_out: false,
+                    duration_ms: 0,
+                    output_tail: why,
+                });
+            }
         }
         let mut ok = false;
         // The checkout this run uses: its cleanup only ever removes this one.
@@ -2969,6 +3006,8 @@ struct RunOutcome {
     not_run: Option<String>,
     /// No commits ahead of origin's default branch (`cmd_exit.no_commits`).
     no_commits: bool,
+    /// R3: no change matched the check's `paths`, so it did not run: why (`cmd_exit.skipped`).
+    skipped: Option<String>,
 }
 
 impl Daemon {

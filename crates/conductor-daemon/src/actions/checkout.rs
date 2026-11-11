@@ -118,6 +118,97 @@ pub async fn no_commits_ahead(
     (anc.code == Some(0)).then_some(base)
 }
 
+// ---------------------------------------------------------------- diff-aware checks (R3)
+
+/// The paths `sha` changes since its merge base with origin's default branch, with that branch's
+/// short name (`origin/main`). None when it can't be told (no `origin/HEAD`, no merge base, any
+/// git error or an output over the buffer): the check then runs. Refs only, hooks off, no external
+/// diff, like [`no_commits_ahead`]. `--no-renames`: a rename touches its old and its new path.
+pub async fn changed_since_default(
+    worktree: &Path,
+    sha: &str,
+    env: Option<&[(String, String)]>,
+) -> Option<(String, Vec<String>)> {
+    if !exec::is_sha(sha) {
+        return None;
+    }
+    let git = |args: &[&str]| {
+        let mut a = no_hooks();
+        a.extend(sv(args));
+        async move { exec::run("git", &a, worktree, env).await }
+    };
+    let head = git(&[
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "refs/remotes/origin/HEAD",
+    ])
+    .await;
+    let base_name = head.stdout.trim().to_string();
+    if head.code != Some(0) || base_name.is_empty() {
+        return None;
+    }
+    let mb = git(&["merge-base", sha, "refs/remotes/origin/HEAD"]).await;
+    let base = mb.stdout.trim().to_string();
+    if mb.code != Some(0) || !exec::is_sha(&base) {
+        return None;
+    }
+    let diff = git(&[
+        "-c",
+        "core.quotepath=off",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--name-only",
+        "-z",
+        &base,
+        sha,
+    ])
+    .await;
+    if diff.code != Some(0) || diff.spawn_error.is_some() {
+        return None;
+    }
+    let changed = diff
+        .stdout
+        .split('\0')
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect();
+    Some((base_name, changed))
+}
+
+/// At most this many globs are named in a skip reason (the rest as "and N more").
+const SKIP_REASON_GLOBS: usize = 10;
+
+/// R3: why a check with `paths` is skipped, or None when it runs: it has no paths, the changes
+/// are unknown (`changed` None: uncertainty runs more, never less), or a changed path matches.
+/// `base`: the default branch the diff is against, for the reason.
+pub fn skip_reason(
+    changed: Option<&[String]>,
+    paths: &[String],
+    base: Option<&str>,
+) -> Option<String> {
+    if paths.is_empty() {
+        return None;
+    }
+    let changed = changed?;
+    if !conductor_protocol::screenshots::matching_paths(changed, paths).is_empty() {
+        return None;
+    }
+    let mut named = paths
+        .iter()
+        .take(SKIP_REASON_GLOBS)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if paths.len() > SKIP_REASON_GLOBS {
+        named.push_str(&format!(" and {} more", paths.len() - SKIP_REASON_GLOBS));
+    }
+    let against = base.map_or_else(String::new, |b| format!(" (diff against {b})"));
+    Some(format!("no changes match paths: {named}{against}"))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FreshCheckout {
     Ok {

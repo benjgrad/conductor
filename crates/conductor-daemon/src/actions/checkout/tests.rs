@@ -457,3 +457,69 @@ fn names_a_package_manager_missing_from_path() {
             .contains("`npm`")
     );
 }
+
+// ---------------------------------------------------------------- diff-aware checks (R3)
+
+fn paths(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn skip_reason_runs_without_paths_or_when_the_changes_are_unknown() {
+    let changed = paths(&["docs/a.md"]);
+    assert_eq!(skip_reason(Some(&changed), &[], Some("origin/main")), None);
+    assert_eq!(skip_reason(None, &paths(&["crates/**"]), None), None);
+}
+
+#[test]
+fn skip_reason_runs_when_a_change_matches_and_skips_when_none_does() {
+    let globs = paths(&["crates/**", "Cargo.*", "rust-toolchain.toml"]);
+    let rust = paths(&["docs/a.md", "Cargo.lock"]);
+    assert_eq!(skip_reason(Some(&rust), &globs, Some("origin/main")), None);
+    let docs = paths(&["docs/a.md", "packages/web/Cargo.toml"]);
+    assert_eq!(
+        skip_reason(Some(&docs), &globs, Some("origin/main")).as_deref(),
+        Some(
+            "no changes match paths: crates/**, Cargo.*, rust-toolchain.toml (diff against origin/main)"
+        )
+    );
+    // An empty diff matches nothing.
+    assert_eq!(
+        skip_reason(Some(&[]), &paths(&["src/**"]), None).as_deref(),
+        Some("no changes match paths: src/**")
+    );
+}
+
+#[test]
+fn skip_reason_names_at_most_ten_globs() {
+    let globs: Vec<String> = (0..12).map(|i| format!("d{i}/**")).collect();
+    let why = skip_reason(Some(&paths(&["x"])), &globs, None).unwrap();
+    assert!(why.contains("d9/**"), "{why}");
+    assert!(!why.contains("d10/**"), "{why}");
+    assert!(why.ends_with(" and 2 more"), "{why}");
+}
+
+#[tokio::test]
+async fn changed_since_default_lists_the_branch_changes_or_none_when_it_cannot_tell() {
+    // Real git: the merge base and the diff are git behaviour.
+    let f = Fx::new();
+    std::fs::create_dir_all(f.worktree.join("crates/x")).unwrap();
+    std::fs::write(f.worktree.join("crates/x/lib.rs"), "fn x() {}\n").unwrap();
+    git(&f.worktree, &["mv", "health.txt", "renamed.txt"]);
+    git(&f.worktree, &["add", "."]);
+    commit(&f.worktree, "rust");
+    let head = git(&f.worktree, &["rev-parse", "HEAD"]).trim().to_string();
+    let (base, mut changed) = changed_since_default(&f.worktree, &head, None)
+        .await
+        .unwrap();
+    changed.sort();
+    assert_eq!(base, "origin/main");
+    // health.txt was added on the branch, so its rename leaves only renamed.txt against the base.
+    assert_eq!(changed, ["crates/x/lib.rs", "renamed.txt"]);
+    assert_eq!(
+        changed_since_default(&f.worktree, "not-a-sha", None).await,
+        None
+    );
+    git(&f.clone, &["remote", "set-head", "origin", "--delete"]);
+    assert_eq!(changed_since_default(&f.worktree, &head, None).await, None);
+}

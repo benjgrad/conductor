@@ -818,7 +818,7 @@ describe('machine_health (R13)', () => {
       ...question(tickets[i % n]!, 'implementing', null),
       machine_id: machine,
       kind: 'engine_timeout',
-      class: 'stop' as InputClass,
+      class: 'stop',
     }));
     const [runs, fails] = o.checks ?? [0, 0];
     const checks = Array.from({ length: runs }, (_, i) =>

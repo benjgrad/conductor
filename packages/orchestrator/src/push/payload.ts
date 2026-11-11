@@ -113,6 +113,33 @@ export function watchEscalateTag(sessionId: string, state: string, visit: number
   return `watch_escalate:${sessionId}:${state}:${visit}`;
 }
 
+/**
+ * ADR-0041: conductor answered a question on a human's behalf. Always pushed, once per request:
+ * the tag (and idempotency key) is `default_taken:<input_request_id>`.
+ */
+export function defaultTakenPayload(p: {
+  ticketId: string;
+  ticketTitle: string;
+  after: string;
+  answer: string;
+  tag: string;
+}): PushNotification {
+  return {
+    title: clip(p.ticketTitle, PUSH_QUESTION_MAX),
+    body: clip(
+      `Conductor answered for you (no reply in ${p.after}): ${p.answer}`,
+      PUSH_QUESTION_MAX,
+    ),
+    url: `/#/?ticket=${p.ticketId}`,
+    tag: p.tag,
+  };
+}
+
+/** The `tag` of a default answer's notification: once per input request. */
+export function defaultTakenTag(inputRequestId: string): string {
+  return `default_taken:${inputRequestId}`;
+}
+
 /** The `tag` (and outbox idempotency key) of a transition notification. */
 export function transitionTag(eventId: number): string {
   return `transition:${eventId}`;

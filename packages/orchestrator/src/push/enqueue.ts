@@ -205,3 +205,28 @@ export async function enqueueWatchEscalatePush(
     now: p.now,
   });
 }
+
+/**
+ * ADR-0041: a default answer conductor took (`question.default_taken`). Same kind and fan-out as
+ * a transition notification; keyed by its per-request tag, so it is sent once.
+ */
+export async function enqueueDefaultTakenPush(
+  tx: Queryable,
+  p: {
+    accountId: string;
+    sessionId: string;
+    ticketId: string;
+    notification: PushNotification;
+    idempotencyKey: string;
+    now: Date;
+  },
+): Promise<number> {
+  return enqueuePush(tx, {
+    kind: 'push_transition',
+    accountId: p.accountId,
+    sessionId: p.sessionId,
+    payload: { ticket_id: p.ticketId, notification: p.notification, delivered: [] },
+    idempotencyKey: p.idempotencyKey,
+    now: p.now,
+  });
+}

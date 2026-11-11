@@ -34,8 +34,15 @@ import {
   enqueueNeedsInputPush,
   enqueueTransitionPush,
   enqueueWatchEscalatePush,
+  enqueueDefaultTakenPush,
 } from '../push/enqueue.js';
-import { transitionPayload, watchEscalatePayload, watchEscalateTag } from '../push/payload.js';
+import {
+  defaultTakenPayload,
+  defaultTakenTag,
+  transitionPayload,
+  watchEscalatePayload,
+  watchEscalateTag,
+} from '../push/payload.js';
 import { nudgeSameRepoWatches, nudgesWatches } from './watch-nudge.js';
 import { nudgeSameRepoHolds, releasesHolds, withHolders } from './concurrency.js';
 import { CardViews, MachineCardFields } from './board-view.js';
@@ -303,6 +310,41 @@ export class EngineServiceImpl implements EngineService {
         });
       }
     }
+    // ADR-0041: conductor answered on a human's behalf: close the request with its default.
+    if (event.type === 'default.fired') {
+      const closed = await tx.query<InputRequestRow>(
+        "UPDATE input_request SET answer = default_answer, answered_by = 'system', " +
+          'answered_at = $3 WHERE id = $2 AND session_id = $1 AND answer IS NULL RETURNING *',
+        [sessionId, event.input_request_id, now],
+      );
+      for (const row of closed.rows) {
+        drafts.push({
+          type: 'input.answered',
+          session_id: sessionId,
+          input_request_id: row.id,
+          answered_by: 'system',
+        });
+      }
+    }
+    // ADR-0041: a human overruled that answer (audit; the correction is the send_message or the
+    // pending answer apply wrote).
+    if (event.type === 'human.overrule') {
+      await tx.query(
+        'UPDATE input_request SET overruled_at = $3 WHERE id = $2 AND session_id = $1',
+        [sessionId, event.input_request_id, now],
+      );
+      await tx.query(
+        "INSERT INTO event (session_id, type, payload) VALUES ($1, 'question.overruled', $2)",
+        [
+          sessionId,
+          JSON.stringify({
+            input_request_id: event.input_request_id,
+            text: event.text,
+            actor: event.actor,
+          }),
+        ],
+      );
+    }
     for (const effect of res.effects) {
       switch (effect.type) {
         case 'start_session': {
@@ -336,8 +378,9 @@ export class EngineServiceImpl implements EngineService {
           break;
         case 'create_input_request': {
           const r = await tx.query<InputRequestRow>(
-            'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at, options, notify) ' +
-              'VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+            'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at, ' +
+              'options, notify, default_answer, default_at) ' +
+              'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *',
             [
               randomUUID(),
               sessionId,
@@ -349,6 +392,9 @@ export class EngineServiceImpl implements EngineService {
               effect.options === undefined ? null : JSON.stringify(effect.options),
               // ADR-0037 P6: the decision of the move that opened it (null in legacy mode).
               effect.notify_decision === undefined ? null : JSON.stringify(effect.notify_decision),
+              // ADR-0041: the recommended answer and when the sweep delivers it.
+              effect.default?.answer ?? null,
+              effect.default === undefined ? null : new Date(effect.default.at),
             ],
           );
           const row = r.rows[0]!;
@@ -521,6 +567,54 @@ export class EngineServiceImpl implements EngineService {
             }),
           ]);
           break;
+        case 'default_taken': {
+          // ADR-0041: audit, and always a push (an answer nobody gave must be visible), once per
+          // request (the tag is the idempotency key).
+          await tx.query(
+            "INSERT INTO event (session_id, type, payload) VALUES ($1, 'question.default_taken', $2)",
+            [
+              sessionId,
+              JSON.stringify({
+                input_request_id: effect.input_request_id,
+                state: effect.state,
+                to: effect.to,
+                answer: effect.answer,
+                after: effect.after,
+              }),
+            ],
+          );
+          const tag = defaultTakenTag(effect.input_request_id);
+          const notification = defaultTakenPayload({
+            ticketId: ticket.id,
+            ticketTitle: ticket.title,
+            after: effect.after,
+            answer: effect.answer,
+            tag,
+          });
+          if (this.deps.pushEnabled) {
+            const n = await enqueueDefaultTakenPush(tx, {
+              accountId: ticket.account_id,
+              sessionId,
+              ticketId: ticket.id,
+              notification,
+              idempotencyKey: tag,
+              now,
+            });
+            if (n > 0) wrotePush = true;
+          }
+          notices.push({
+            type: 'transition.notified',
+            session_id: sessionId,
+            ticket_id: ticket.id,
+            from: effect.state,
+            to: effect.to,
+            transition: 'default_taken',
+            title: notification.title,
+            body: notification.body,
+            tag: notification.tag,
+          });
+          break;
+        }
         case 'watch_escalated': {
           // ADR-0037 P1 / P6: a watch's `notify: escalate` always pushes (the user asked for it),
           // in legacy mode too; once per stay (the tag is the idempotency key).

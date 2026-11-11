@@ -100,6 +100,8 @@ export const API_PATHS = {
   sessionTransition: (id: string) => `/api/sessions/${id}/transition`,
   /** "Start fresh conversation…" (FreshConversationRequest; 10-contracts §Fresh conversation). */
   sessionFreshConversation: (id: string) => `/api/sessions/${id}/fresh-conversation`,
+  /** ADR-0041: overrule the answer conductor gave on a human's behalf. */
+  sessionOverrule: (id: string) => `/api/sessions/${id}/overrule`,
   /** ADR-0008: the session's history from Claude's own transcript on its machine. */
   sessionTranscript: (id: string) => `/api/sessions/${id}/transcript`,
   /** ADR-0008: reopen a finished ticket by resuming the same Claude conversation. */
@@ -482,6 +484,12 @@ export const InputRequestDtoSchema = z.object({
    * `ask_user` question. Absent or null ≡ none (type an answer).
    */
   options: QuestionOptionsSchema.nullable().optional(),
+  /**
+   * ADR-0041: the agent's recommended answer conductor delivers at `default_at` if no human
+   * answers first. Absent or null ≡ no default (the request waits for a human).
+   */
+  default_answer: z.string().nullable().optional(),
+  default_at: IsoDateTimeSchema.nullable().optional(),
 });
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
@@ -957,6 +965,14 @@ export const SessionDetailSchema = z.object({
   proposals: z.array(TicketProposalSchema).optional(),
   /** ADR-0038: the pages the session's agent states attached to their results. Absent ≡ []. */
   pages: z.array(TicketPageSchema).optional(),
+  /**
+   * ADR-0041: the answer conductor gave on a human's behalf that may still be overruled now
+   * (`canOverrule`: the agent is still on that visit and reachable). Absent or null ≡ none.
+   */
+  overrulable: z
+    .object({ input_request_id: UuidSchema, answer: z.string(), at: IsoDateTimeSchema })
+    .nullable()
+    .optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -988,6 +1004,19 @@ export const FreshConversationRequestSchema = z.object({
   text: z.string().trim().min(1).max(20_000),
 });
 export type FreshConversationRequest = z.infer<typeof FreshConversationRequestSchema>;
+
+/**
+ * POST /api/sessions/:id/overrule → 202 OkResponse (ADR-0041). Becomes `human.overrule
+ * {input_request_id, text, actor: 'ui'}`: the agent conductor answered on the human's behalf gets
+ * `text` as a correction (a live message, or after its pending answer). 409 `conflict` when apply
+ * ignored it (the agent moved on, asked again, is still starting, or another request); 404
+ * unknown session; 400 bad body.
+ */
+export const OverruleDefaultRequestSchema = z.object({
+  input_request_id: UuidSchema,
+  text: z.string().trim().min(1).max(20_000),
+});
+export type OverruleDefaultRequest = z.infer<typeof OverruleDefaultRequestSchema>;
 
 /** POST /api/sessions/:id/input → 202 `{ok: true}`; 409 if already answered / not pending. */
 export const AnswerInputRequestSchema = z.object({
@@ -1276,7 +1305,7 @@ export type ApiErrorCode = ApiError['error']['code'];
 
 /** The REST routes that call EngineService.applyEvent (T08). */
 export type EngineRoute =
-  'input' | 'approve' | 'cancel' | 'message' | 'transition' | 'fresh_conversation';
+  'input' | 'approve' | 'cancel' | 'message' | 'transition' | 'fresh_conversation' | 'overrule';
 
 /** Rejected (nothing written) → HTTP. Same for every route. */
 export const APPLY_REJECT_HTTP = {
@@ -1976,6 +2005,9 @@ export interface InputRequestLike {
   origin_cause?: string | null | undefined;
   /** Questions UX: the `options` jsonb. Absent or null ≡ none; malformed ≡ none. */
   options?: unknown;
+  /** ADR-0041: the default answer and its time. Absent or null ≡ none. */
+  default_answer?: string | null | undefined;
+  default_at?: Ts | null | undefined;
 }
 
 /**
@@ -2011,6 +2043,10 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
   if (row.options !== undefined && row.options !== null) {
     const parsed = QuestionOptionsSchema.safeParse(row.options);
     if (parsed.success) dto.options = parsed.data;
+  }
+  if (row.default_answer != null && row.default_at != null) {
+    dto.default_answer = row.default_answer;
+    dto.default_at = iso(row.default_at);
   }
   if (row.origin_transition === undefined && row.origin_from === undefined) return dto;
   // An engine route (requirements unmet, a step that failed, a fallback) records why under its own

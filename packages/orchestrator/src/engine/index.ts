@@ -123,7 +123,13 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
     pushEnabled: pushSender !== null,
     onPushWritten: () => wakePush?.(),
   });
-  const workerDeps = { db: deps.db, engine, boardBus: deps.boardBus, now };
+  const workerDeps = {
+    db: deps.db,
+    engine,
+    boardBus: deps.boardBus,
+    now,
+    ...(deps.outputBus ? { outputBus: deps.outputBus } : {}),
+  };
   const insightsOnce = async (): Promise<void> => {
     const at = now();
     const s = await scheduleInsightJobs(deps.db, at);

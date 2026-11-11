@@ -10,6 +10,7 @@ import {
   CreateTicketRequestSchema,
   DismissProposalRequestSchema,
   FreshConversationRequestSchema,
+  OverruleDefaultRequestSchema,
   ReopenSessionRequestSchema,
   ReorderQueueRequestSchema,
   ReopenTicketRequestSchema,
@@ -50,7 +51,7 @@ import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
 import { adoptDefaultWorkflow, defaultComparison, saveWorkflowDefinition } from './workflows.js';
 import { registerMachineRoutes } from './machines.js';
-import { provideAnswer, sendOperatorMessage } from './messages.js';
+import { overruleDefault, provideAnswer, sendOperatorMessage } from './messages.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
@@ -344,6 +345,31 @@ export const createApi = (({
         ? 'the session is not waiting on a human with an agent to return to; a fresh ' +
           `conversation can only start then (${result.reason})`
         : `${event.type}: ${result.reason}`;
+    return sendError(reply, status, code, message);
+  });
+
+  /**
+   * ADR-0041: overrule the answer conductor gave on the human's behalf → `human.overrule {input_request_id,
+   * text, actor: 'ui'}`; the text reaches the agent as a correction.
+   */
+  app.post<IdParams>(API_PATHS.sessionOverrule(':id'), async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(OverruleDefaultRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const result = await overruleDefault({ engine, outputBus }, id, {
+      type: 'human.overrule',
+      input_request_id: body.input_request_id,
+      text: body.text,
+      actor: UI_ACTOR,
+    });
+    if (result.status === 'applied') return reply.code(202).send(OK);
+    const { status, code } = httpForApplyResult('overrule', result);
+    const message =
+      result.status === 'ignored' && result.reason !== 'session_terminal'
+        ? 'the agent has moved on since conductor answered for you (or is still starting); ' +
+          'answer its new question or send it a message'
+        : `human.overrule: ${result.reason}`;
     return sendError(reply, status, code, message);
   });
 

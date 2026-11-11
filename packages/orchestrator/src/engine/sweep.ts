@@ -1,4 +1,4 @@
-import type { EngineService } from '../contracts.js';
+import type { EngineService, OutputBus } from '../contracts.js';
 import type { Db } from '../main.js';
 
 // Timeout sweep (M1-T04b; 10-contracts §Engine `timer.fired`). Finds sessions whose
@@ -7,6 +7,8 @@ import type { Db } from '../main.js';
 // ADR-0037 P1 (T6): the same for `watch_deadline` (a watched human / event state's next check),
 // fed as `watch.fired`. A merge or push on the same repo sets it to now (watch-nudge.ts), so the
 // next tick checks the watch at once.
+// ADR-0041: open input requests whose `default_at` passed, fed as `default.fired`: conductor
+// delivers the agent's recommended answer (the wrapper closes the request, answered_by system).
 
 export const SWEEP_BATCH = 100;
 
@@ -14,6 +16,8 @@ export interface SweepDeps {
   db: Db;
   engine: EngineService;
   now: () => Date;
+  /** ADR-0041: notes a default answer in the Messages thread (a `debug` chunk). */
+  outputBus?: OutputBus;
 }
 
 export interface SweepStats {
@@ -29,7 +33,58 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepStats> {
   const stats: SweepStats = { fired: 0, applied: 0, ignored: 0, errors: 0 };
   await sweepTimers(deps, 'state_deadline', stats);
   await sweepTimers(deps, 'watch_deadline', stats);
+  await sweepDefaults(deps, stats);
   return stats;
+}
+
+/**
+ * ADR-0041: each open request whose default is due, while its session still waits on a human.
+ * apply ignores a stale one (`stale_timer`: the session moved, or a newer visit); its
+ * `default_at` is then cleared, so it is not fired again.
+ */
+async function sweepDefaults(deps: SweepDeps, stats: SweepStats): Promise<void> {
+  const due = await deps.db.query<{
+    id: string;
+    session_id: string;
+    workflow_state: string;
+    default_at: Date;
+    default_answer: string | null;
+  }>(
+    'SELECT ir.id, ir.session_id, s.workflow_state, ir.default_at, ir.default_answer ' +
+      'FROM input_request ir JOIN session s ON s.id = ir.session_id ' +
+      'WHERE ir.answer IS NULL AND ir.default_at IS NOT NULL AND ir.default_at <= $1 ' +
+      "AND s.workflow_state IS NOT NULL AND s.status = 'needs_input' " +
+      'ORDER BY ir.default_at LIMIT $2',
+    [deps.now(), SWEEP_BATCH],
+  );
+  for (const row of due.rows) {
+    stats.fired++;
+    try {
+      const res = await deps.engine.applyEvent(row.session_id, {
+        type: 'default.fired',
+        state: row.workflow_state,
+        deadline: row.default_at.toISOString(),
+        input_request_id: row.id,
+      });
+      if (res.status === 'applied') {
+        stats.applied++;
+        deps.outputBus?.append(
+          row.session_id,
+          'debug',
+          `Conductor answered for you (no human answer in time): ${row.default_answer ?? ''}`,
+        );
+        continue;
+      }
+      stats.ignored++;
+      await deps.db.query(
+        'UPDATE input_request SET default_at = NULL WHERE id = $1 AND default_at = $2',
+        [row.id, row.default_at],
+      );
+    } catch (err) {
+      stats.errors++;
+      console.error(`[sweep] default ${row.id}:`, err instanceof Error ? err.message : err);
+    }
+  }
 }
 
 /** One kind of deadline: `state_deadline` → `timer.fired`, `watch_deadline` → `watch.fired`. */

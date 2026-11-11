@@ -1,4 +1,5 @@
 import {
+  canOverrule,
   SESSION_INPUT_REQUESTS_LIMIT,
   SESSION_MOVES_LIMIT,
   WorkflowDefinitionSchema,
@@ -74,6 +75,22 @@ export async function loadInputRequests(db: Queryable, id: string): Promise<Sess
     [id, SESSION_INPUT_REQUESTS_LIMIT],
   );
   return res.rows.reverse().map(toSessionInputRequest);
+}
+
+/** ADR-0041: the default answer a human may overrule now (the engine's own rule), or null. */
+function overrulableOf(session: SessionRow): SessionDetail['overrulable'] {
+  const split = splitStep(session.context);
+  const taken = canOverrule({
+    status: session.status,
+    workflow_state: session.workflow_state,
+    state_visits: session.state_visits,
+    context: split.context,
+    step: split.step,
+    agent_process_live: session.agent_process_live,
+  });
+  return taken === null
+    ? null
+    : { input_request_id: taken.input_request_id, answer: taken.answer, at: taken.at };
 }
 
 /** null = no such session. */
@@ -152,5 +169,6 @@ export async function loadSessionDetail(
     proposals,
     // ADR-0038: absent when no agent state attached pages (older readers ≡ []).
     ...(pages.length > 0 ? { pages } : {}),
+    overrulable: overrulableOf(session),
   };
 }

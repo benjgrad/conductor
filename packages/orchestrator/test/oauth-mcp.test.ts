@@ -1213,6 +1213,28 @@ describe('/mcp for conversational clients', () => {
     expect(engine.calls.at(-1)).toMatchObject({
       event: { type: 'input.provided', input_request_id: asked.inputId, answer: 'Yes' },
     });
+    // The answer shows in the Messages thread, like a live message.
+    expect(outputBus.snapshot(asked.sessionId).at(-1)).toMatchObject({
+      stream: 'user',
+      text: 'Yes',
+    });
+
+    const again = await seedAgentSession(a.user.accountId, {
+      status: 'needs_input',
+      question: 'Which one?',
+    });
+    const viaAnswer = await call(a.access, 'answer_input', {
+      ticket: again.ticketId,
+      answer: 'The second',
+    });
+    expect(viaAnswer.body).toEqual({ ok: true });
+    expect(engine.calls.at(-1)).toMatchObject({
+      event: { type: 'input.provided', input_request_id: again.inputId, answer: 'The second' },
+    });
+    expect(outputBus.snapshot(again.sessionId).at(-1)).toMatchObject({
+      stream: 'user',
+      text: 'The second',
+    });
 
     const done = await seedTicketSession(a.user.accountId, 'done');
     const late = await call(a.access, 'message_agent', { ticket: done.ticketId, text: 'More' });

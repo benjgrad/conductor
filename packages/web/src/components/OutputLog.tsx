@@ -40,8 +40,18 @@ export interface ToolCall {
 /** `ts` is the time of the entry's first chunk. */
 export type Entry =
   | { kind: 'text'; key: string; ts: string; text: string }
-  /** `ticket`: the conversation's opening message (the prompt with the ticket), UXR-38. */
-  | { kind: 'user'; key: string; ts: string; text: string; ticket?: boolean }
+  /**
+   * `ticket`: the conversation's opening message (the prompt with the ticket), UXR-38. `answer`:
+   * the human's answer to the agent's `ask_user` question just before it.
+   */
+  | {
+      kind: 'user';
+      key: string;
+      ts: string;
+      text: string;
+      ticket?: boolean;
+      answer?: { question: string };
+    }
   | { kind: 'tool'; key: string; ts: string; call: ToolCall; result: string | null }
   | { kind: 'stream'; key: string; ts: string; stream: 'stdout' | 'stderr'; text: string }
   | { kind: 'debug'; key: string; ts: string; text: string };
@@ -64,9 +74,15 @@ export function parseToolUse(text: string): ToolCall {
   return { name, input, raw };
 }
 
+const ASK_USER_TOOL = 'mcp__conductor__ask_user';
+
 export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
   const out: Entry[] = [];
   const waiting: ToolEntry[] = [];
+  // The agent's `ask_user` call still waiting for its answer. Chunks carry no request id, so an
+  // answer is paired by order: the next `user` chunk, unless the agent got back to work first (the
+  // question was settled some other way, e.g. a transition button, which adds no chunk).
+  let asked: ToolEntry | null = null;
   // Keyed by position: the list only grows at the end, and transcript history (ADR-0008) has its
   // own seq numbering, so seq alone is not unique once history precedes the ring's chunks.
   for (const [i, c] of chunks.entries()) {
@@ -90,6 +106,8 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
         };
         out.push(entry);
         waiting.push(entry);
+        if (entry.call.name === ASK_USER_TOOL) asked = entry;
+        else if (!entry.call.name.startsWith('mcp__conductor__')) asked = null;
         break;
       }
       case 'tool_result': {
@@ -113,6 +131,16 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
         // UXR-38: a user message before anything else is the prompt (the ticket), not a reply.
         if (!out.some((e) => e.kind !== 'debug')) {
           out.push({ kind: 'user', key, ts, text: c.text, ticket: true });
+        } else if (asked) {
+          const q = asked.call.input?.question;
+          out.push({
+            kind: 'user',
+            key,
+            ts,
+            text: c.text,
+            answer: { question: typeof q === 'string' ? q : '' },
+          });
+          asked = null;
         } else out.push({ kind: 'user', key, ts, text: c.text });
         break;
     }
@@ -197,7 +225,7 @@ export function describeTool(
       return { label: 'Update todos', arg: '' };
     case 'mcp__conductor__complete_state':
       return { label: 'Step complete', arg: '' };
-    case 'mcp__conductor__ask_user':
+    case ASK_USER_TOOL:
       return { label: 'Asked a human', arg: firstLine(s('question')) };
     default: {
       const label = call.name.replace(/^mcp__/, '').replace(/__/g, ' · ');
@@ -819,6 +847,19 @@ export function OutputLog({
               <div className="user-text">
                 <Markdown text={e.text} />
               </div>
+            </div>
+          );
+        }
+        if (e.answer) {
+          return (
+            <div key={e.key} className="user-msg answer-msg" role="group" aria-label="Your answer">
+              <span className="user-label">You answered</span>
+              {e.answer.question !== '' && (
+                <p className="user-answer-to" title={e.answer.question}>
+                  ↳ {firstLine(e.answer.question)}
+                </p>
+              )}
+              <p className="user-text">{e.text}</p>
             </div>
           );
         }

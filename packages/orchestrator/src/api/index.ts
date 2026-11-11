@@ -50,7 +50,7 @@ import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
 import { adoptDefaultWorkflow, defaultComparison, saveWorkflowDefinition } from './workflows.js';
 import { registerMachineRoutes } from './machines.js';
-import { sendOperatorMessage } from './messages.js';
+import { provideAnswer, sendOperatorMessage } from './messages.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
@@ -273,13 +273,17 @@ export const createApi = (({
     if (id === undefined) return reply;
     const body = parseBody(AnswerInputRequestSchema, req.body, reply);
     if (!body) return reply;
-    const event: EngineEvent = {
-      type: 'input.provided',
+    const event = {
+      type: 'input.provided' as const,
       input_request_id: body.input_request_id,
       answer: body.answer,
       ...(body.goto !== undefined ? { goto: body.goto } : {}),
     };
-    return applyFromRoute(reply, 'input', id, event, { actor: UI_ACTOR });
+    // As /messages: the answer shows in the Messages thread as a `user` chunk once applied.
+    const result = await provideAnswer({ engine, outputBus }, id, event, { actor: UI_ACTOR });
+    if (result.status === 'applied') return reply.code(202).send(OK);
+    const { status, code } = httpForApplyResult('input', result);
+    return sendError(reply, status, code, `${event.type}: ${result.reason}`);
   });
 
   /**

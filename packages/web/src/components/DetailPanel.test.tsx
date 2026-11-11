@@ -359,6 +359,13 @@ describe('composer', () => {
       { input_request_id: SEED_IDS.askNewer.input, answer: 'Postgres 16' },
     ]);
     expect(calls.messages).toEqual([]);
+    // The orchestrator appends the answer as a `user` chunk: it shows in the thread.
+    const log = panel.getByRole('log');
+    await waitFor(() =>
+      expect(
+        [...log.querySelectorAll('.user-msg .user-text')].map((el) => el.textContent),
+      ).toContain('Postgres 16'),
+    );
   });
 
   it('is disabled with a reason when the session is lost', async () => {

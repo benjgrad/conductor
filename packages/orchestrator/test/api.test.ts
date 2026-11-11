@@ -780,8 +780,18 @@ describe('engine routes', () => {
   it('POST /input → input.provided with the UI actor; 409 when already answered', async () => {
     const { sessionId, inputId } = await seedSession('needs_input', { input: true });
     const body = { input_request_id: inputId, answer: 'Postgres', goto: 'build' };
+    const seen: string[] = [];
+    const appliedFirst: boolean[] = [];
+    const unsubscribe = outputBus.subscribe(sessionId, (c) => {
+      appliedFirst.push(engine.calls.some((call) => call.sessionId === sessionId));
+      seen.push(`${c.stream}:${c.text}`);
+    });
     const res = await post(`/api/sessions/${sessionId}/input`, body);
+    unsubscribe();
     expect(res.status).toBe(202);
+    // The answer shows in the Messages thread, once the apply has committed (as /messages).
+    expect(seen).toEqual(['user:Postgres']);
+    expect(appliedFirst).toEqual([true]);
     expect(res.body).toEqual({ ok: true });
     expect(engine.calls).toEqual([
       {
@@ -799,6 +809,8 @@ describe('engine routes', () => {
     const again = await post(`/api/sessions/${sessionId}/input`, body);
     expect(again.status).toBe(409);
     expect((again.body.error as { code: string }).code).toBe('input_already_answered');
+    // A refused answer adds nothing.
+    expect(outputBus.snapshot(sessionId).map((c) => c.text)).toEqual(['Postgres']);
   });
 
   it('POST /input maps ignored to 409 input_not_pending and validates the body', async () => {
@@ -819,6 +831,7 @@ describe('engine routes', () => {
     });
     expect(res.status).toBe(409);
     expect((res.body.error as { code: string }).code).toBe('input_not_pending');
+    expect(outputBus.snapshot(sessionId)).toEqual([]);
 
     const bad = await post(`/api/sessions/${sessionId}/input`, { answer: '' });
     expect(bad.status).toBe(400);

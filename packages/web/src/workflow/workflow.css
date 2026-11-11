@@ -448,7 +448,7 @@ p.wf-version-warning {
 }
 .wf-notify-table th,
 .wf-notify-table td {
-  padding: 2px 6px;
+  padding: 2px var(--space-1);
   text-align: left;
 }
 .wf-notify-table th[scope='rowgroup'] {

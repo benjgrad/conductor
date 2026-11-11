@@ -76,7 +76,7 @@ describe('columns (ADR-0010: the conductor states, Queued first)', () => {
     expect(titles(col(boardOf(...cards), 'done'))).toEqual(['done']);
   });
 
-  it('sorts by kind: human by oldest question, queued by priority then age, others recent first', () => {
+  it('sorts by kind: human by oldest question, queued by priority then age, agent and event by age', () => {
     const t = (h: number) => `2026-10-22T${String(h).padStart(2, '0')}:00:00.000Z`;
     const ask = (title: string, askedAt: string, createdAt: string) =>
       card({
@@ -100,8 +100,21 @@ describe('columns (ADR-0010: the conductor states, Queued first)', () => {
       ask('a', t(11), t(10)),
       card({ title: 'q-old', created_at: t(1) }),
       card({ title: 'q-urgent', priority: 1, created_at: t(3) }),
-      card({ status: 'running', column: 'implementing', title: 'r-stale', updated_at: t(1) }),
-      card({ status: 'running', column: 'implementing', title: 'r-active', updated_at: t(5) }),
+      // Agent columns go by ticket age; a fresher updated_at must not win.
+      card({
+        status: 'running',
+        column: 'implementing',
+        title: 'r-new',
+        created_at: t(5),
+        updated_at: t(2),
+      }),
+      card({
+        status: 'running',
+        column: 'implementing',
+        title: 'r-old',
+        created_at: t(1),
+        updated_at: t(9),
+      }),
       card({
         status: 'waiting_external',
         column: 'waiting_external',
@@ -117,8 +130,26 @@ describe('columns (ADR-0010: the conductor states, Queued first)', () => {
     );
     expect(titles(col(s, 'needs_input'))).toEqual(['a', 'b']);
     expect(titles(col(s, 'queued'))).toEqual(['q-urgent', 'q-old']);
-    expect(titles(col(s, 'implementing'))).toEqual(['r-active', 'r-stale']);
+    expect(titles(col(s, 'implementing'))).toEqual(['r-old', 'r-new']);
     expect(titles(col(s, 'waiting_external'))).toEqual(['w-old', 'w-young']);
+  });
+
+  it('done: most recent activity first', () => {
+    const t = (h: number) => `2026-10-22T${String(h).padStart(2, '0')}:00:00.000Z`;
+    const s = boardOf(
+      card({ status: 'done', column: 'done', title: 'd-old', created_at: t(9), updated_at: t(1) }),
+      card({ status: 'done', column: 'done', title: 'd-new', created_at: t(1), updated_at: t(5) }),
+    );
+    expect(titles(col(s, 'done'))).toEqual(['d-new', 'd-old']);
+  });
+
+  it('agent columns: equal ages fall back to ticket_id, so the order is total', () => {
+    const at = '2026-10-22T10:00:00.000Z';
+    const a = card({ status: 'running', column: 'implementing', title: 'a', created_at: at });
+    const b = card({ status: 'running', column: 'implementing', title: 'b', created_at: at });
+    const [lo, hi] = a.ticket_id < b.ticket_id ? [a, b] : [b, a];
+    expect(titles(col(boardOf(hi, lo), 'implementing'))).toEqual([lo.title, hi.title]);
+    expect(titles(col(boardOf(lo, hi), 'implementing'))).toEqual([lo.title, hi.title]);
   });
 
   it('queued: hand-ordered cards first (06 §Queue order), then priority then age', () => {
@@ -212,6 +243,46 @@ describe('applyBoardEvent', () => {
     expect(s.notices).toHaveLength(NOTICES_MAX);
     // A replay is dropped.
     expect(applyBoardEvent(s, ev)).toBe(s);
+  });
+
+  it('activity on a card (status, upsert) does not reorder an agent column', () => {
+    const t = (h: number) => `2026-10-22T${String(h).padStart(2, '0')}:00:00.000Z`;
+    const older = card({
+      status: 'running',
+      column: 'implementing',
+      workflow_state: 'implementing',
+      session_id: SESSION,
+      title: 'older',
+      created_at: t(1),
+      updated_at: t(1),
+    });
+    const newer = card({
+      status: 'running',
+      column: 'implementing',
+      workflow_state: 'implementing',
+      title: 'newer',
+      created_at: t(2),
+      updated_at: t(2),
+    });
+    let s = boardOf(newer, older);
+    expect(titles(col(s, 'implementing'))).toEqual(['older', 'newer']);
+    s = applyBoardEvent(s, {
+      ...BOARD_SSE_FIXTURES['session.status'],
+      id: 500,
+      session_id: SESSION,
+      to: 'running',
+      workflow_state: 'implementing',
+      ts: t(20),
+    });
+    expect(s.cards.get(older.ticket_id)!.updated_at).toBe(t(20));
+    expect(titles(col(s, 'implementing'))).toEqual(['older', 'newer']);
+    s = applyBoardEvent(s, {
+      ...BOARD_SSE_FIXTURES['card.upserted'],
+      id: 501,
+      ticket_id: older.ticket_id,
+      card: { ...older, updated_at: t(21), badges: ['waiting_for_build_slot'] },
+    });
+    expect(titles(col(s, 'implementing'))).toEqual(['older', 'newer']);
   });
 
   it('drops replayed events at or below lastEventId', () => {

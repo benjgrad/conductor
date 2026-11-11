@@ -753,7 +753,7 @@ export const BoardCardSchema = z.object({
   /** Open input request (needs-input cards): the question badge. */
   input_request: InputRequestDtoSchema.nullable(),
   created_at: IsoDateTimeSchema,
-  /** Last activity (Running sort). */
+  /** Last activity (Done sort, the card's age label). */
   updated_at: IsoDateTimeSchema,
   /**
    * 06 §Queue order: the ticket's hand-set place in the queue (1 = picked up first). null / absent
@@ -802,8 +802,9 @@ export type BoardColumnDto = z.infer<typeof BoardColumnDtoSchema>;
 /**
  * GET /api/board. `columns` is ordered left to right (ADR-0010), built from the latest `conductor`
  * version: Queued (`id: 'queued'`) first. Each column is pre-sorted per 06 by its kind (queued:
- * priority then age; human: oldest open input_request first; event: oldest first; others: most
- * recent activity first; 06 §Queue order: queued is hand order first, then priority then age).
+ * priority then age; human: oldest open input_request first; event, agent, command, connector:
+ * oldest ticket first, a stable order; terminal: most recent activity first; 06 §Queue order:
+ * queued is hand order first, then priority then age).
  * `last_event_id` is where the SSE board stream should resume.
  */
 export const BoardResponseSchema = z.object({

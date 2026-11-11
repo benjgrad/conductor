@@ -144,7 +144,9 @@ export function applyBoardEvent(state: BoardState, ev: BoardSseEvent): BoardStat
   }
 }
 
-const byAge = (a: BoardCard, b: BoardCard) => a.created_at.localeCompare(b.created_at);
+/** Ticket age, oldest first; ticket_id breaks ties so the order is total and stable. */
+const byAge = (a: BoardCard, b: BoardCard) =>
+  a.created_at.localeCompare(b.created_at) || a.ticket_id.localeCompare(b.ticket_id);
 const byRecent = (a: BoardCard, b: BoardCard) => b.updated_at.localeCompare(a.updated_at);
 /** Oldest open input_request first; cards without one (stream lag) go last. */
 const byOldestQuestion = (a: BoardCard, b: BoardCard) => {
@@ -154,13 +156,17 @@ const byOldestQuestion = (a: BoardCard, b: BoardCard) => {
   return qa.localeCompare(qb);
 };
 
-/** Sort per 06 §Kanban columns, by the column's kind (ADR-0010). ISO timestamps sort as time. */
+/**
+ * Sort per 06 §Kanban columns, by the column's kind (ADR-0010). ISO timestamps sort as time.
+ * Live (agent / command / connector) columns sort by ticket age, a key that never changes, so a
+ * card stays put while status, badge and check events bump its `updated_at`.
+ */
 const SORT_BY_KIND: Record<BoardColumnInfo['kind'], (a: BoardCard, b: BoardCard) => number> = {
   // 06 §Queue order: hand order, then priority, then age (the claim's order).
   queued: compareQueued,
-  agent: byRecent,
-  command: byRecent,
-  connector: byRecent,
+  agent: byAge,
+  command: byAge,
+  connector: byAge,
   human: byOldestQuestion,
   event: byAge,
   terminal: byRecent,

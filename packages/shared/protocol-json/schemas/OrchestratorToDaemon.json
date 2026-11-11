@@ -789,6 +789,17 @@
         "permission_mode": {
           "type": "string",
           "const": "bypassPermissions"
+        },
+        "worktree_setup": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 2000
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

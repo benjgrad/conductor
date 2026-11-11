@@ -57,4 +57,21 @@ describe('conductor v7 draft (ADR-0039)', () => {
     expect(requiredCapabilitiesOf(hot, null)).toContain('cli:az:authed');
     expect(requiredCapabilitiesOf(hot, 'personal')).not.toContain('cli:az:authed');
   });
+
+  it("asks instead of guessing: no 'don't ask', and PR hand-offs wait for every answer", () => {
+    const def = WorkflowDefinitionSchema.parse(draft);
+    const when = (state: string, t: string): string => {
+      const st = def.states[state];
+      const on = st && 'on' in st ? (st.on as Record<string, { when?: string }>) : undefined;
+      return on?.[t]?.when ?? '';
+    };
+    for (const s of ['planning', 'implementing']) {
+      expect(when(s, 'ask_user')).toContain('decision or information from a human');
+      expect(when(s, 'ask_user')).not.toMatch(/don't ask/i);
+    }
+    expect(when('planning', 'scope_changed')).not.toMatch(/don't ask/i);
+    for (const t of ['pr_ready_for_review', 'personal_pr_ready_for_review']) {
+      expect(when('implementing', t)).toContain('every question you had is answered');
+    }
+  });
 });

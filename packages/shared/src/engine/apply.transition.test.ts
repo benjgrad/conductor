@@ -714,7 +714,7 @@ describe('prompts (conductor v2)', () => {
       - needs_approval_to_message: You are about to message a person and need approval of the text first. Your \`reason\` is the question for the human.
       - pr_ready_for_review: The work is done and you want the user to review the PR. Your \`reason\` is the question for the human.
       - ready_for_testing: The work is complete and should go to testing.
-      - ask_user: You are blocked and need a human decision.
+      - ask_user: You need a decision or information from a human.
 
       Call the \`complete_state\` tool once with \`transition\` set to its name, \`reason\` saying why in one or two sentences, and a \`result\` object summarising what you did, then stop.
       For a transition that asks a human, write the question in \`reason\`; the \`result\` may then be empty.
@@ -747,7 +747,7 @@ describe('prompts (conductor v2)', () => {
     expect(start.prompt).toContain(
       '- scope_changed: A new dependency or finding changes the scope of the ticket. Your `reason` is the question for the human.',
     );
-    expect(start.prompt).toContain('- ask_user: You are blocked and need a human decision.');
+    expect(start.prompt).toContain('- ask_user: You need a decision or information from a human.');
     expect(start.transitions?.map((t) => t.name)).toEqual([
       'plan_ready',
       'scope_changed',

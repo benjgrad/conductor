@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workflow retrospective · conductor vs n8n · 2026-11</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d2129; --muted: #5b6372; --line: #d9dde3; --panel: #f5f7fa;
+    --accent: #2f5bd3; --good: #1f8a4c; --warn: #b7791f; --bad: #c53030;
+    --bar: #2f5bd3; --bar2: #c53030; --bar3: #b7791f; --code: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --fg: #e3e6eb; --muted: #9aa3b2; --line: #2c323b; --panel: #1b1f26;
+      --accent: #7aa2ff; --good: #4cc38a; --warn: #f0b44c; --bad: #ff7b7b;
+      --bar: #7aa2ff; --bar2: #ff7b7b; --bar3: #f0b44c; --code: #20252d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 80px; }
+  h1 { font-size: 1.9em; margin: 0.2em 0 0.1em; }
+  h2 { font-size: 1.45em; margin-top: 2.2em; padding-top: 0.6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.12em; margin-top: 1.6em; }
+  .sub { color: var(--muted); margin: 0 0 1.2em; }
+  a { color: var(--accent); }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.86em; background: var(--code); border-radius: 4px; }
+  code { padding: 1px 4px; }
+  pre { padding: 10px 12px; overflow-x: auto; line-height: 1.4; }
+  table { border-collapse: collapse; width: 100%; margin: 0.8em 0 1.2em; font-size: 0.92em; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: var(--panel); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .wrap { overflow-x: auto; }
+  nav.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; margin: 1em 0; }
+  nav.toc ol { margin: 0.3em 0; padding-left: 1.3em; columns: 2; }
+  .callout { border-left: 4px solid var(--accent); background: var(--panel); padding: 10px 14px; margin: 1em 0; border-radius: 0 6px 6px 0; }
+  .callout.warn { border-color: var(--warn); }
+  .callout.bad { border-color: var(--bad); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } nav.toc ol { columns: 1; } }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--panel); }
+  .card h4 { margin: 0 0 0.4em; }
+  .y { color: var(--good); font-weight: 600; } .p { color: var(--warn); font-weight: 600; } .n { color: var(--bad); font-weight: 600; }
+  .bars { margin: 0.6em 0 1.2em; }
+  .bar-row { display: grid; grid-template-columns: 270px 1fr 90px; gap: 8px; align-items: center; margin: 3px 0; font-size: 0.9em; }
+  .bar-track { background: var(--panel); border: 1px solid var(--line); height: 16px; border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--bar); }
+  .bar-fill.h { background: var(--bar2); } .bar-fill.c { background: var(--bar3); }
+  @media (max-width: 760px) { .bar-row { grid-template-columns: 1fr; } }
+  .legend span { display: inline-block; margin-right: 14px; font-size: 0.85em; color: var(--muted); }
+  .sw { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: middle; }
+  svg text { fill: var(--fg); font: 11px system-ui, sans-serif; }
+  svg .box { fill: var(--panel); stroke: var(--line); }
+  svg .agent { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+  svg .human { fill: none; stroke: var(--bad); stroke-width: 1.5; }
+  svg .gate { fill: none; stroke: var(--warn); stroke-width: 1.5; }
+  svg .new { fill: none; stroke: var(--good); stroke-width: 2; stroke-dasharray: 5 3; }
+  svg .edge { stroke: var(--muted); fill: none; stroke-width: 1.2; }
+  svg .lbl { fill: var(--muted); font-size: 10px; }
+  .tag { display: inline-block; font-size: 0.75em; border: 1px solid var(--line); border-radius: 10px; padding: 0 7px; color: var(--muted); }
+  .small { font-size: 0.85em; color: var(--muted); }
+  details { margin: 0.5em 0; } summary { cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+<p class="small">conductor · docs/reports · ticket 0bbe880e "Workflow Retrospective"</p>
+<h1>Workflow retrospective: where tickets get stuck, and what to change</h1>
+<p class="sub">Data pulled 2026-11-11 for the 30-day window 2026-10-12 → 2026-11-11 (the 90-day window gives the same numbers: all recorded history fits in 30 days). Repo-scoped to <code>github.com/benjgrad/conductor</code> unless marked <em>account-wide</em>. This is a brainstorm: proposals ignore scope on purpose.</p>
+
+<nav class="toc">
+<strong>Contents</strong>
+<ol>
+  <li><a href="#summary">Executive summary</a></li>
+  <li><a href="#method">Method and data sources</a></li>
+  <li><a href="#n8n">Conductor's engine vs n8n</a></li>
+  <li><a href="#retro">Session retrospective</a></li>
+  <li><a href="#issues">Issues and impact</a></li>
+  <li><a href="#rice">RICE assessment</a></li>
+  <li><a href="#proposals">Proposed changes</a></li>
+  <li><a href="#appendix">Appendix</a></li>
+</ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="summary">1 · Executive summary</h2>
+
+<p>Across 152 tickets on this repo, tickets spent <strong>637 hours</strong> in workflow states. <strong>470 h (74 %) of that was waiting on Ben</strong>: 294 h in <em>Needs input</em> and 176 h in <em>In review</em>. Agents worked 57 h in <em>Implementing</em> and 15 h in <em>Planning</em>. The gate step that runs checks and waits on CI took 60 h. The workflow does not get stuck because agents are slow. It gets stuck because <strong>too much reaches a human, and once it reaches a human nothing moves it on</strong>.</p>
+
+<div class="grid2">
+<div class="card">
+<h4>Top 5 findings</h4>
+<ol>
+  <li><strong>Waiting on a human dominates.</strong> Needs input has a median wait of 12.7 min but a p90 of 7.3 h, with 101 re-entries across 81 tickets. Nothing escalates or times out a question in the live workflow (<a href="#i1">I-1</a>).</li>
+  <li><strong>The fixes are built but not switched on.</strong> ADR-0037's watch, notify policy, <code>handoff</code> and instructions are in code, and <code>conductor.v6.json</code> was committed on 2026-11-09. The live workflow is still v5 (<a href="#i10">I-10</a>).</li>
+  <li><strong>The PR gate has run checks that did not test the code.</strong> Until 2026-11-06 every PR ran <code>npm run build</code> and <code>npm test</code> on a pnpm and Cargo repo: 662 runs, with "Tests pass" failing 56 times (17 %). Rust and Windows breakage passed locally and failed in CI, three rounds in a row on <code>08e318fb</code>. The new pnpm repo checks run the full suite twice: once in conductor's checkout and again in GitHub CI, docs-only diffs included (<a href="#i3">I-3</a>, <a href="#i4">I-4</a>).</li>
+  <li><strong>Hand-offs double as questions.</strong> Agents put questions inside "PR ready for review" summaries ("could you send me that output…", "Is the 4-line case OK?"), so Ben has to read a review hand-off to find out it is really a blocker (<a href="#i2">I-2</a>).</li>
+  <li><strong>Simple things bounce to Ben.</strong> 67 questions came up in 30 days, 35 of them during planning. Some are scope questions the prompt already tells the planner not to ask: <code>515b97b4</code> waited 970 min to be told an existing feature covered the ticket. Environment problems (no <code>node_modules</code>, corepack, Docker pools) show up in 27 of the 64 analysed sessions (<a href="#i6">I-6</a>, <a href="#i7">I-7</a>).</li>
+</ol>
+</div>
+<div class="card">
+<h4>Top 5 proposals by RICE</h4>
+<ol>
+  <li><strong>R1 · Save <code>conductor</code> v6 live</strong>: mergeability watch on In review, a 2 h escalation on Needs input, hand-off vs question, and the notify policy. Score <strong>680</strong>.</li>
+  <li><strong>R14 · Alert when a <code>main</code> deploy fails</strong>: deploys rolled back silently for about three days. Score <strong>210</strong>.</li>
+  <li><strong>R2 · Install dependencies in the agent's worktree before it starts</strong>, reusing the repo checks' <code>setup</code>. Score <strong>102</strong>.</li>
+  <li><strong>R3 · Diff-aware gate with one source of truth</strong>: conductor runs fast, affected-only checks and GitHub CI stays the full gate. Docs-only diffs skip the tests. Score <strong>95</strong>.</li>
+  <li><strong>R8 · Requirements reviewer on personal PR hand-offs</strong>: the ADR-0009 reviewer already exists and only the <code>work</code> kind uses it. Score <strong>85</strong>.</li>
+</ol>
+<p class="small">On the ticket's main question, conductor-owned AI states: an <strong>"answerer" pass</strong> (R5a, score 54) is the cheap first step. A full <strong>triage state type</strong> (R5b, score 27) is worth it once R1–R4 have removed the noise it would otherwise spend its time triaging. See <a href="#q4">§4.4</a>.</p>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="method">2 · Method and data sources</h2>
+<ul>
+  <li><strong>Engine:</strong> <code>docs/design/05-workflow-engine.md</code>, <code>06-human-input.md</code>, <code>09-security-and-budgets.md</code>, ADR-0009/0010/0011/0030/0037, and the live definition from <code>get_workflow</code> (<code>conductor</code> v5, every state read in full). Also <code>get_repo_checks</code> for this repo, and <code>docs/design/workflows/conductor.v6.json</code>.</li>
+  <li><strong>n8n:</strong> current docs.n8n.io pages, linked where each feature is cited. The n8n half was written first, before any session data was read, as the ticket asked.</li>
+  <li><strong>Process data:</strong> conductor's own MCP analytics: <code>get_process_metrics</code> (grouped by state, check, machine and repo; 30 and 90 days), <code>get_process_report</code>, <code>list_findings</code> (25 findings), <code>get_insight</code> on 6 analysed sessions, and <code>get_ticket</code>/<code>get_ticket_artifacts</code> on 5 example tickets.</li>
+</ul>
+<div class="callout warn">
+<strong>Caveats.</strong>
+<ul>
+  <li>643 of 1,464 moves (44 %) predate ADR-0037's <code>cause</code> field, so loop attributions are partial.</li>
+  <li>Friction categories come from a Haiku analyst over 64 of 152 sessions (42 %) and are model-written. Each one used here was spot-checked against at least one ticket.</li>
+  <li>Check durations aren't recorded separately; the gate step's duration includes waiting on GitHub CI.</li>
+  <li>Spend per ticket isn't aggregated; three tickets were sampled.</li>
+  <li>The transition count for <code>personal_pr_ready_for_review</code> (556) counts both entering the move step (349 stays) and landing (207 hand-offs), so it is not 556 attempts.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="n8n">3 · Conductor's workflow engine vs n8n</h2>
+
+<h3>3.1 · Two different models</h3>
+<div class="grid2">
+<div class="card">
+<h4>conductor: a durable per-ticket state machine</h4>
+<ul>
+  <li>A workflow is versioned JSON. The engine is the pure function <code>apply(state, event) → (state', effects)</code>. Each event is persisted in one transaction with its outbox commands.</li>
+  <li>State types: <code>agent</code> (Claude Code on a daemon), <code>command</code> (a shell step on a daemon, which moves on its exit code), <code>event</code> (waits on named events or a timeout), <code>connector</code> (an orchestrator action), <code>human</code> (a board card with buttons), and <code>terminal</code>.</li>
+  <li><strong>Transitions only on outcomes</strong>: an agent names a transition through <code>complete_state</code>, and free text is never interpreted. Transitions can carry <code>requires</code>, which runs in order: a held phase (concurrency), checks in a fresh checkout, an AI requirements reviewer, actions (<code>open_pr</code>), and polled external conditions (<code>pr_checks_green</code>, <code>pr_mergeable</code>, <code>cmd</code>…). Their <code>on_unmet</code> loop is counted and bounded.</li>
+  <li>Every loop is bounded and every failure ends at a human state. Since ADR-0037 a state can <code>watch</code> its conditions while a ticket waits in it.</li>
+  <li>A ticket <em>is</em> one long-lived execution: days long, with a git worktree on a specific machine, a resumable Claude conversation, a board column, and analytics.</li>
+</ul>
+</div>
+<div class="card">
+<h4>n8n: a node graph that executes once per trigger</h4>
+<ul>
+  <li>A workflow is a graph of nodes. An execution starts from a trigger (webhook, form, schedule, app event) and passes <em>items</em> (JSON) from node to node.</li>
+  <li>Branching uses <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.merge">IF, Switch and Merge</a> on any expression over the data. <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.executeworkflow">Sub-workflows</a> provide reuse.</li>
+  <li>Long pauses use the <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.wait">Wait node</a>, which resumes on a time, on a per-execution <code>$execution.resumeUrl</code> webhook, or on a form submission. Human approval uses <a href="https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.slack/approvals">Send and Wait for Response</a> in Slack, Teams, Gmail, Telegram or Chat, with a "limit wait time" fallback.</li>
+  <li>Errors are handled with per-node <a href="https://docs.n8n.io/build/understand-workflows/workflow-components/work-with-nodes">Retry On Fail and On Error</a> (stop, continue, or a dedicated error output) and a workflow-level <a href="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.errortrigger">error workflow</a>.</li>
+  <li>The <a href="https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/tools-agent">AI Agent node</a> calls tools, and individual tools can be gated by <a href="https://docs.n8n.io/build/integrate-ai/ai-examples/human-in-the-loop-for-tools">human review</a>. n8n scales out with <a href="https://docs.n8n.io/hosting/scaling/queue-mode">queue mode</a>: Redis plus workers.</li>
+</ul>
+</div>
+</div>
+
+<h3>3.2 · Mock: the live <code>conductor</code> v5 workflow rebuilt in n8n</h3>
+<p>Importable mock: <a href="2026-11-workflow-retrospective/conductor-workflow.n8n.json"><code>conductor-workflow.n8n.json</code></a>, 20 nodes. <strong>It is a mock: it has never been imported or run.</strong> Credentials and user names are placeholders. Agents run as <code>claude -p</code> over the SSH node on a daemon host, because n8n's AI Agent node cannot run Claude Code inside a git worktree.</p>
+
+<div class="wrap">
+<svg viewBox="0 0 1100 330" width="100%" role="img" aria-label="n8n mock of the conductor workflow">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="color:#888"/></marker></defs>
+  <!-- row 1 -->
+  <rect class="box" x="10" y="135" width="95" height="44" rx="6"/><text x="18" y="153">Form Trigger</text><text x="18" y="168" class="lbl">new ticket</text>
+  <rect class="box" x="125" y="135" width="95" height="44" rx="6"/><text x="133" y="153">Set + SSH</text><text x="133" y="168" class="lbl">context, worktree</text>
+  <rect class="box agent" x="240" y="135" width="100" height="44" rx="6"/><text x="248" y="153">SSH: claude -p</text><text x="248" y="168" class="lbl">Planner</text>
+  <rect class="box" x="360" y="135" width="90" height="44" rx="6"/><text x="368" y="153">Code + Switch</text><text x="368" y="168" class="lbl">route outcome</text>
+  <rect class="box human" x="470" y="40" width="120" height="44" rx="6"/><text x="478" y="58">Slack send&amp;wait</text><text x="478" y="73" class="lbl">approval, 2h limit</text>
+  <rect class="box human" x="470" y="240" width="120" height="44" rx="6"/><text x="478" y="258">Slack send&amp;wait</text><text x="478" y="273" class="lbl">needs input, free text</text>
+  <rect class="box agent" x="610" y="135" width="105" height="44" rx="6"/><text x="618" y="153">SSH: claude -p</text><text x="618" y="168" class="lbl">Implementer</text>
+  <rect class="box gate" x="735" y="135" width="105" height="44" rx="6"/><text x="743" y="153">SSH: gate checks</text><text x="743" y="168" class="lbl">error output</text>
+  <rect class="box" x="735" y="240" width="105" height="44" rx="6"/><text x="743" y="258">IF retries ≤ 3</text><text x="743" y="273" class="lbl">Code: attach output</text>
+  <rect class="box" x="860" y="135" width="100" height="44" rx="6"/><text x="868" y="153">HTTP: open PR</text><text x="868" y="168" class="lbl">Wait: CI webhook</text>
+  <rect class="box human" x="980" y="135" width="110" height="44" rx="6"/><text x="988" y="153">Slack form</text><text x="988" y="168" class="lbl">In review → Switch</text>
+  <rect class="box" x="980" y="40" width="110" height="34" rx="6"/><text x="988" y="61">No-op: Done</text>
+  <!-- edges -->
+  <path class="edge" d="M105,157 H125" marker-end="url(#ar)"/>
+  <path class="edge" d="M220,157 H240" marker-end="url(#ar)"/>
+  <path class="edge" d="M340,157 H360" marker-end="url(#ar)"/>
+  <path class="edge" d="M450,150 L470,70" marker-end="url(#ar)"/><text class="lbl" x="420" y="100">needs approval</text>
+  <path class="edge" d="M450,165 L470,255" marker-end="url(#ar)"/><text class="lbl" x="420" y="220">question</text>
+  <path class="edge" d="M450,157 H610" marker-end="url(#ar)"/><text class="lbl" x="500" y="152">plan_ready</text>
+  <path class="edge" d="M590,62 L615,135" marker-end="url(#ar)"/>
+  <path class="edge" d="M470,275 C300,320 290,200 290,180" marker-end="url(#ar)"/><text class="lbl" x="300" y="310">answer → back to agent</text>
+  <path class="edge" d="M715,157 H735" marker-end="url(#ar)"/>
+  <path class="edge" d="M787,179 V240" marker-end="url(#ar)"/><text class="lbl" x="792" y="215">fail</text>
+  <path class="edge" d="M735,262 C690,262 680,200 665,180" marker-end="url(#ar)"/><text class="lbl" x="640" y="215">retry</text>
+  <path class="edge" d="M735,275 H590" marker-end="url(#ar)"/><text class="lbl" x="620" y="290">exhausted</text>
+  <path class="edge" d="M840,157 H860" marker-end="url(#ar)"/>
+  <path class="edge" d="M960,157 H980" marker-end="url(#ar)"/>
+  <path class="edge" d="M1035,135 V74" marker-end="url(#ar)"/><text class="lbl" x="1040" y="105">merged</text>
+  <path class="edge" d="M1035,179 C1035,300 860,300 840,275" marker-end="url(#ar)"/><text class="lbl" x="930" y="300">request changes</text>
+</svg>
+</div>
+<p class="small">Blue: agent steps. Red: human steps. Amber: gate. Agent steps resume the same Claude conversation with <code>--resume</code>, which the mock reads back from a datastore.</p>
+
+<h3>3.3 · What the mock had to fake</h3>
+<p>Rebuilding v5 in n8n mostly means re-implementing things conductor already does:</p>
+<ul>
+  <li><strong>Per-ticket durable state.</strong> An n8n execution holds its state only while it lives. Retry counters, the Claude session id, the plan and the PR URL would need a datastore (n8n Data Tables or Postgres), and every agent node would read and write it.</li>
+  <li><strong>"Back to the agent that asked."</strong> <code>$return_to</code> needs a lookup and a Switch per caller. In the mock, the Needs input reply always goes to the Planner, which is wrong for implementing questions.</li>
+  <li><strong>Machine placement and worktrees.</strong> One SSH credential is hard-wired. Routing by capability and repo exclusivity (ADR-0013), concurrency holds and a lost machine would each be hand-built.</li>
+  <li><strong>The gate step.</strong> Checks pinned to a commit, a fresh checkout, setup triage ("is it the branch or the base?"), then <code>open_pr</code> with the exact SHA. n8n has the pieces but none of the guarantees.</li>
+  <li><strong>Bounded loops.</strong> n8n will happily run an unbounded loop. Every IF counter in the mock is hand-written, and nothing validates that one exists.</li>
+  <li><strong>A board.</strong> n8n has an executions list, not a kanban of "what needs me".</li>
+</ul>
+
+<h3>3.4 · Capability matrix</h3>
+<p><span class="y">✔</span> first-class · <span class="p">◐</span> partial or hand-built · <span class="n">✘</span> missing</p>
+<div class="wrap">
+<table>
+<thead><tr><th>Capability</th><th>conductor (v5 engine)</th><th>n8n</th></tr></thead>
+<tbody>
+<tr><td>Visual editor</td><td><span class="p">◐</span> Workflow view edits transitions, gates, watches, bases; states are columns, no free canvas</td><td><span class="y">✔</span> canvas, drag nodes, partial executions</td></tr>
+<tr><td>Branch on data / expressions</td><td><span class="p">◐</span> only on named outcomes, condition results and a fixed set of guards; no expressions over context, by design ("outcomes, not opinions")</td><td><span class="y">✔</span> IF / Switch on any JS expression</td></tr>
+<tr><td>Parallel branches + join</td><td><span class="n">✘</span> one state per session; one gate step at a time</td><td><span class="y">✔</span> fan-out from any output, Merge node joins</td></tr>
+<tr><td>Sub-workflows / reuse</td><td><span class="p">◐</span> <code>instructions</code> map (P5) reuses text; child tickets and ticket deps (ADR-0018), but no callable sub-flow</td><td><span class="y">✔</span> Execute Sub-workflow, sync or fire-and-forget, typed inputs</td></tr>
+<tr><td>Deterministic (non-AI) steps</td><td><span class="p">◐</span> <code>command</code> state and <code>cmd</code> conditions on a daemon; <code>connector</code> limited to <code>open_pr</code>/<code>merge_pr</code> (Jira/Slack refused until M5)</td><td><span class="y">✔</span> Code, HTTP, 400+ app nodes, Execute Command/SSH</td></tr>
+<tr><td>Bounded loops</td><td><span class="y">✔</span> counted <code>retries</code>/<code>else</code>, validator refuses unbounded cycles</td><td><span class="n">✘</span> hand-built counters; nothing validates</td></tr>
+<tr><td>Long waits with resume</td><td><span class="y">✔</span> human/event states park for days; polled conditions; <code>watch</code></td><td><span class="y">✔</span> Wait node (time, resume webhook, form)</td></tr>
+<tr><td>Inbound webhooks / app triggers</td><td><span class="p">◐</span> MCP <code>create_ticket</code>, schedules (ADR-0032); GitHub state is polled, never pushed</td><td><span class="y">✔</span> Webhook + hundreds of trigger nodes</td></tr>
+<tr><td>Human-in-the-loop channels</td><td><span class="p">◐</span> board card + PWA push; Slack answering not built (U-007)</td><td><span class="y">✔</span> send-and-wait in Slack, Teams, Gmail, Telegram, Chat, forms; restrict approvers; <code>respondedAt</code></td></tr>
+<tr><td>Timeout with a default decision</td><td><span class="p">◐</span> state <code>timeout</code> → a human; v6 <code>watch age_below</code> escalates, never auto-decides</td><td><span class="y">✔</span> "Limit wait time" resumes the branch</td></tr>
+<tr><td>Error handling</td><td><span class="p">◐</span> every failure → a human (guaranteed); no error-handler flow, no time backoff</td><td><span class="y">✔</span> retry-on-fail with delay, error output, error workflow</td></tr>
+<tr><td>AI agent steps</td><td><span class="y">✔</span> full Claude Code in a worktree, resumable conversation, MCP inheritance, permission prompts on the board</td><td><span class="p">◐</span> AI Agent node with LLM tools; no coding agent with a filesystem</td></tr>
+<tr><td>AI as a judge / reviewer</td><td><span class="y">✔</span> ADR-0009 fresh read-only reviewer on a transition, verdict per item</td><td><span class="p">◐</span> an AI Agent node + Switch; hand-built</td></tr>
+<tr><td>Human gating of agent tool calls</td><td><span class="y">✔</span> permission prompts through conductor (ADR-0023)</td><td><span class="y">✔</span> human review per tool</td></tr>
+<tr><td>Durable per-entity state + audit</td><td><span class="y">✔</span> event-sourced session, outbox, move records with <code>cause</code></td><td><span class="p">◐</span> per execution; cross-execution state needs a datastore</td></tr>
+<tr><td>Versioning in-flight runs</td><td><span class="y">✔</span> sessions pin a version; parked sessions repin</td><td><span class="p">◐</span> running executions keep the old graph; no migration</td></tr>
+<tr><td>Machine placement / worktrees / build slots</td><td><span class="y">✔</span> capability routing, repo exclusivity, concurrency holds</td><td><span class="n">✘</span> workers are interchangeable</td></tr>
+<tr><td>Budgets (cost / time)</td><td><span class="p">◐</span> declared, <strong>not enforced</strong> (TD-015, TD-022)</td><td><span class="n">✘</span> execution timeout only</td></tr>
+<tr><td>Debugging</td><td><span class="p">◐</span> transcripts, results, reopen with a fresh conversation</td><td><span class="y">✔</span> past executions, copy data into the editor, pinned/mock data, re-run</td></tr>
+<tr><td>Process analytics</td><td><span class="y">✔</span> per-state metrics, loops, findings, model-written frictions, change proposals</td><td><span class="p">◐</span> execution counts/insights</td></tr>
+<tr><td>Kanban / "what needs me"</td><td><span class="y">✔</span> board, <code>waiting_on</code>, notify policy</td><td><span class="n">✘</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>3.5 · Possible in n8n, not in ours</h3>
+<ul>
+  <li><strong>Fan-out and join.</strong> Run a reviewer, the Windows leg and a docs check at the same time, then Merge. Conductor's single-state session can't express "these three in parallel, continue when all report". It approximates it inside one gate step by running checks in sequence.</li>
+  <li><strong>A timeout that chooses a branch.</strong> Send-and-wait with a time limit resumes on its own and takes a default. Conductor's timeouts always land on a human; v6's watch can escalate but never decide.</li>
+  <li><strong>Answering where the human already is.</strong> Approve or reply inside Slack or Teams, with the approver restricted and recorded.</li>
+  <li><strong>Event-driven resumption.</strong> A GitHub <code>check_run</code> or <code>pull_request</code> webhook resumes the flow. Conductor polls every 1–15 min, which is fine, but slower and harder to reason about.</li>
+  <li><strong>Calling a reusable sub-flow</strong>, for example one "fix-CI" routine used by both PR transitions and the watch.</li>
+  <li><strong>A dedicated error flow</strong> that runs on any failure: page someone, open a ticket, try an automatic remedy.</li>
+  <li><strong>Replay with pinned data.</strong> Re-run one node of a past execution with its recorded input while editing the workflow.</li>
+</ul>
+
+<h3>3.6 · Easier in n8n than in ours</h3>
+<ul>
+  <li><strong>Adding a small deterministic step.</strong> In n8n you drop in an HTTP or Code node. In conductor you write a <code>cmd</code> condition or a <code>command</code> state that must run on a daemon, or a code change for a new <code>connector</code> action.</li>
+  <li><strong>Routing on a value.</strong> "If the diff only touches <code>docs/</code>, skip the tests" is one IF node. In conductor it needs a new condition type or a check that exits 0 early.</li>
+  <li><strong>Trying a change.</strong> n8n runs a partial execution on pinned data. A conductor workflow edit is a new version that only shows its effect on the next real tickets.</li>
+  <li><strong>Integrations.</strong> Jira, Slack, Linear and email are a credential and a node away. Conductor's are milestone M5.</li>
+</ul>
+
+<h3>3.7 · What ours does that n8n doesn't (and why we shouldn't move)</h3>
+<ul>
+  <li>One execution per ticket for days, with a worktree, a resumable conversation and machine affinity. This is the hard part of agentic coding, and n8n has no model for it.</li>
+  <li>Validated guarantees: loops are bounded, every failure path ends at a human, and state changes are exactly-once with idempotent side effects. n8n leaves all of these to the author.</li>
+  <li>Gate steps pinned to a commit (check, then review, then <code>open_pr</code> on the same SHA) and setup triage.</li>
+  <li>The board, and analytics that know what a "rework loop" or a "question" is.</li>
+</ul>
+<div class="callout"><strong>Conclusion:</strong> borrow n8n's <em>primitives</em> and keep conductor's model. The gaps that matter for the problems in §4 are a <strong>default-on-timeout</strong> for questions, <strong>routing on cheap facts</strong> (diff paths), <strong>parallel gate legs</strong>, <strong>answering in Slack</strong>, and an <strong>error/triage flow</strong> that runs before a human is paged.</div>
+
+<!-- ============================================================ -->
+<h2 id="retro">4 · Session retrospective</h2>
+
+<h3>4.0 · Volume</h3>
+<table>
+<tr><th>Metric (30 d, this repo)</th><th class="num">Value</th><th>Account-wide</th></tr>
+<tr><td>Tickets / sessions</td><td class="num">152 / 154</td><td>195 / 197 over 9 repos</td></tr>
+<tr><td>Moves</td><td class="num">1,464</td><td>2,071</td></tr>
+<tr><td>Check runs (failures)</td><td class="num">811 (75)</td><td>1,040</td></tr>
+<tr><td>Agent questions</td><td class="num">67 (35 planning, 32 implementing)</td><td>143</td></tr>
+<tr><td>Hand-offs to review</td><td class="num">207</td><td>263</td></tr>
+<tr><td>Session stops</td><td class="num">57</td><td>90</td></tr>
+<tr><td>Permission prompts</td><td class="num">0</td><td>21</td></tr>
+<tr><td><code>request_changes</code> / In review stays</td><td class="num">36 / 144 (25 %)</td><td></td></tr>
+<tr><td><code>fresh_conversation</code></td><td class="num">13</td><td>19</td></tr>
+<tr><td><code>budget_exceeded</code> moves</td><td class="num">0</td><td>0</td></tr>
+</table>
+
+<h3 id="q1">4.1 · Where does work get stuck?</h3>
+<p>Total hours by state. Red bars are waiting on Ben, amber is checks and CI, blue is agents.</p>
+<div class="bars">
+  <div class="bar-row"><span>needs_input (human)</span><div class="bar-track"><div class="bar-fill h" style="width:100%"></div></div><span class="num">293.7 h</span></div>
+  <div class="bar-row"><span>in_review (human)</span><div class="bar-track"><div class="bar-fill h" style="width:60.1%"></div></div><span class="num">176.4 h</span></div>
+  <div class="bar-row"><span>gate: personal_pr_ready_for_review</span><div class="bar-track"><div class="bar-fill c" style="width:20.4%"></div></div><span class="num">60.0 h</span></div>
+  <div class="bar-row"><span>implementing (agent)</span><div class="bar-track"><div class="bar-fill" style="width:19.3%"></div></div><span class="num">56.6 h</span></div>
+  <div class="bar-row"><span>waiting_external (2 tickets)</span><div class="bar-track"><div class="bar-fill h" style="width:8.9%"></div></div><span class="num">26.0 h</span></div>
+  <div class="bar-row"><span>planning (agent)</span><div class="bar-track"><div class="bar-fill" style="width:5.1%"></div></div><span class="num">15.1 h</span></div>
+  <div class="bar-row"><span>other gates + plan_review</span><div class="bar-track"><div class="bar-fill c" style="width:3.3%"></div></div><span class="num">9.6 h</span></div>
+</div>
+<div class="wrap">
+<table>
+<thead><tr><th>State</th><th class="num">Tickets</th><th class="num">Stays</th><th class="num">Median min</th><th class="num">p90 min</th><th class="num">Re-entries</th></tr></thead>
+<tbody>
+<tr><td>needs_input</td><td class="num">81</td><td class="num">178</td><td class="num">12.7</td><td class="num">439.3</td><td class="num">101</td></tr>
+<tr><td>in_review</td><td class="num">85</td><td class="num">144</td><td class="num">14.0</td><td class="num">89.3</td><td class="num">58</td></tr>
+<tr><td>implementing.personal_pr_ready_for_review (gate)</td><td class="num">136</td><td class="num">349</td><td class="num">10.5</td><td class="num">17.1</td><td class="num">213</td></tr>
+<tr><td>implementing</td><td class="num">146</td><td class="num">414</td><td class="num">4.1</td><td class="num">22.1</td><td class="num">269</td></tr>
+<tr><td>planning</td><td class="num">152</td><td class="num">196</td><td class="num">2.5</td><td class="num">6.3</td><td class="num">43</td></tr>
+<tr><td>plan_review</td><td class="num">4</td><td class="num">5</td><td class="num">7.2</td><td class="num">147.6</td><td class="num">1</td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+  <li><strong>The human tail is the problem, not the median.</strong> Half of the questions are answered within 13 minutes. The p90 of 7.3 h comes from overnight and meeting gaps, when nothing nudges, defaults or escalates.</li>
+  <li><strong>Re-entry counts are high everywhere.</strong> 146 tickets entered Implementing 414 times, and the PR gate 349 times for 207 hand-offs, so about 40 % of gate attempts did not land in review on the first try.</li>
+  <li><strong>One machine stands out.</strong> <code>ea6d442e</code> ran 6 tickets with 21 stops, 3 of 3 check failures and a p90 of 103 min. The other two machines have a p90 of 21–33 min. Nothing alerted on it.</li>
+</ul>
+
+<h3 id="q2">4.2 · Are checks run when they make no sense?</h3>
+<p><strong>Yes, in three ways.</strong></p>
+<ol>
+  <li><strong>Wrong commands (until 2026-11-06).</strong> The workflow default ran <code>npm run build</code> and <code>npm test</code> on every repo. On this pnpm and Cargo repo, "Build passes" ran 334 times (6 failures) and "Tests pass" ran 328 times (56 failures, 17 %). They never covered Rust: <code>08e318fb</code> (MR-T12) passed them three times while the Windows <code>daemon-rust</code> leg failed after each hand-off. The analyst flagged this mismatch 31 times (19 + 12 sessions). The repo checks override that has existed since 2026-11-06 fixed the commands: Typecheck, Lint, Tests, Build and "Merges cleanly", with 4 failures in 137 runs.</li>
+  <li><strong>The same gate runs twice.</strong> The override runs <code>pnpm typecheck</code>, <code>pnpm lint</code>, the full <code>pnpm test</code> (30 min timeout) and <code>pnpm build</code> in a fresh checkout. Then <code>pr_checks_green</code> waits on GitHub's <code>gates</code> job, which runs <code>scripts/ci.sh</code>, the same suite plus Rust and e2e, on the same commit. Conductor's run is the <em>less</em> selective one: it doesn't set <code>CONDUCTOR_CI_TIERED=1</code>, so a PR runs every test tier locally while CI runs only the tiers the diff reaches.</li>
+  <li><strong>The gate doesn't look at the diff.</strong> This ticket only adds two files under <code>docs/reports/</code>, which no gate lints or tests, and it will still pay the full local gate and the full CI wait. The gate step averages 10.5 min a pass. About 142 of 349 passes did not reach review, roughly <strong>25 h of gate time spent on attempts that bounced</strong> (an estimate: median × non-landing passes).</li>
+</ol>
+
+<h3 id="q3">4.3 · Do simple tasks fail and bounce to the user?</h3>
+<p>Partly. Most questions are legitimate, but four patterns produce avoidable ones.</p>
+<div class="wrap">
+<table>
+<thead><tr><th>Pattern</th><th>Evidence</th><th>Avoidable?</th></tr></thead>
+<tbody>
+<tr><td><strong>Scope questions the prompt says not to ask</strong></td><td><code>515b97b4</code>: planning took 0.6 min, then a <code>scope_changed</code> question ("machine.repo_exclusive already covers it") waited 970 min. <code>a907fc99</code>: a stopgap vs full auto-update question waited 53 min. Analyst: unclear_requirements in planning, 12 sessions.</td><td>Mostly. Both had a recommended answer the agent could have taken, with the alternative proposed as a follow-up.</td></tr>
+<tr><td><strong>Questions hidden in hand-offs</strong></td><td><code>0ca2aa8b</code>: "could you send me that output from the next run's <code>gates</code> log (or tell me to read it with <code>gh</code>)". The agent has <code>gh</code>. <code>d0f8e9aa</code>: "Is the 4-line … case OK?" inside a PR hand-off, and Ben answered "The PR checks are still failing".</td><td>Yes. The agent could read CI itself, and the gate should not hand off a red PR.</td></tr>
+<tr><td><strong>Environment failures surfaced as rework</strong></td><td>27 of 64 analysed sessions: no <code>node_modules</code> (<code>tsc: not found</code>), corepack trying to download pnpm, Docker address pool exhausted, <code>cargo-nextest</code> missing. "Repo setup" failed 6 of 6 on 3 tickets.</td><td>Yes. Install once, before the agent starts.</td></tr>
+<tr><td><strong>Human and agent racing</strong></td><td><code>4568a293</code>: Ben resolved a conflict on GitHub while the agent merged locally, and needed a hand-written answer to reconcile. ADR-0037 already describes the merge-conflict recipe Ben types repeatedly.</td><td>Yes. v6's mergeability watch and the <code>resync_main</code> preset exist for this.</td></tr>
+<tr><td>Genuine decisions</td><td>Plan approval for ADR reversals and money (<code>plan_review</code>: 4 tickets), one-time deploy setup (<code>0ca2aa8b</code>).</td><td>No, and these are rare.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="q4">4.4 · Should conductor own states run by dedicated AI agents?</h3>
+<p><strong>Yes, as a filter in front of Ben.</strong> The data suggests three roles, from cheapest to most ambitious:</p>
+<ol>
+  <li><strong>Reviewer on hand-off</strong> (exists): the ADR-0009 reviewer, a fresh read-only session that judges a checklist against the diff, already runs on <code>work</code>-kind PR transitions. Personal PRs, which are every ticket on this repo, skip it, and 25 % of reviews end in <code>request_changes</code>.</li>
+  <li><strong>Answerer</strong> (new, small): before an <code>agent_question</code> opens on the board, a fresh session with read access to the repo, the ADRs, the ticket, earlier answers on the ticket and <code>gh</code> tries to answer it. If it is confident, the answer goes back to the asking agent marked "answered by conductor" and Ben is told, not asked. If not, the question goes to Ben with the answerer's findings attached. In n8n terms this is an AI Agent node plus a Switch in front of Send-and-Wait.</li>
+  <li><strong>Triage</strong> (new state type, larger): on <code>check_failed</code>, <code>condition_unmet</code>, <code>retries_exhausted</code> and <code>setup</code> failures it decides between <em>send back with a precise instruction</em>, <em>retry or rerun a flaky job</em>, <em>fix the environment</em> (a command), or <em>escalate with a diagnosis</em>. This is n8n's error workflow made into an AI agent.</li>
+</ol>
+<p>The invariants still hold: the AI only picks among declared transitions, each loop through it is counted, and it ends at a human. The risk is <strong>an AI confidently answering a question only Ben can answer</strong>, such as product intent or money. Two mitigations: the answerer may only answer from cited sources, and certain transition kinds (<code>plan_needs_approval</code>, <code>needs_approval_to_message</code>) are never routed to it.</p>
+
+<h3 id="q5">4.5 · Other insights</h3>
+<ul>
+  <li><strong>Budgets are decorative.</strong> v5 declares $5 and 240 min, yet there were 0 <code>budget_exceeded</code> moves across 2,071 moves. The sampled tickets spent $6.43 (<code>0ca2aa8b</code>), $8.29 (<code>d0f8e9aa</code>) and $21.04 (<code>4568a293</code>, a navigation cleanup). Nothing emits <code>budget.exceeded</code> (TD-015), and the daemon ignores <code>max_budget_usd</code> (TD-022).</li>
+  <li><strong>Deploys failed silently.</strong> <code>ade0e150</code>'s implementer found that every deploy of <code>main</code> from 2026-11-06 16:03 UTC until its fix had failed and rolled back, because <code>.dockerignore</code> dropped workflow JSON that tests import. No one was told.</li>
+  <li><strong>Scope creep in implementing.</strong> The analyst reported unclear_requirements (15) and other (14) in implementing. <code>7811f19d</code> grew from a quarantine script into Rust daemon changes, CI, a runbook and design docs.</li>
+  <li><strong>Agents improvise their edit tooling.</strong> Python <code>str.replace</code> edits that silently didn't apply (<code>a68f92b5</code>, <code>7811f19d</code>) account for 19 tool_error frictions.</li>
+  <li><strong>Planning has no shell.</strong> <code>planning.tools = ["read"]</code>, so the planner can't run <code>git log</code> or <code>gh</code>, and some sessions waste a turn trying to (<code>515b97b4</code>).</li>
+  <li><strong>Analytics coverage.</strong> The analyst sees 42 % of sessions. 44 % of moves predate cause recording, so the loop tables will only become reliable from here on.</li>
+  <li><strong>Plan over-escalation was already fixed.</strong> The 2026-11-04 analysis behind <code>6b386e59</code> found 16 plan approvals in 37 tickets, about half answered with a canned "Plan approved". v5 and the CLAUDE.md change made additive schema changes routine. Since then only 4 tickets have stayed in <code>plan_review</code> (27 <code>plan_needs_approval</code> records over the window, mostly from before). The planning waits that remain come from <code>scope_changed</code> and <code>needs_product_context</code>: the same fix, applied to those two.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="issues">5 · Issues and impact</h2>
+<div class="wrap">
+<table>
+<thead><tr><th>ID</th><th>Issue</th><th>Evidence</th><th>Impact (30 d)</th><th>States</th></tr></thead>
+<tbody>
+<tr id="i1"><td>I-1</td><td>Questions and reviews wait with no SLA, default or escalation</td><td>needs_input p90 439 min, 101 re-entries; in_review 176 h; analyst waiting_on_human 25 + 10 + 7 sessions</td><td>470 h of ticket time; ~15 interrupts a week</td><td>needs_input, in_review</td></tr>
+<tr id="i2"><td>I-2</td><td>PR hand-off is also a question channel; red PRs reach review</td><td><code>question: true</code> on the PR transitions in v5; <code>0ca2aa8b</code>, <code>d0f8e9aa</code></td><td>Ben reads hand-offs to find blockers; extra round trips</td><td>implementing → in_review</td></tr>
+<tr id="i3"><td>I-3</td><td>Gate checks didn't match the repo, and still don't cover Rust</td><td>662 npm runs, 62 failures; <code>08e318fb</code> 3 rounds; override has no cargo</td><td>False greens → CI failures after hand-off</td><td>PR gate</td></tr>
+<tr id="i4"><td>I-4</td><td>The gate duplicates CI and ignores the diff</td><td>Override runs full pnpm test (not tiered) and then waits on CI's <code>gates</code></td><td>60 h in the gate; ≈ 25 h on bounced attempts</td><td>PR gate</td></tr>
+<tr id="i5"><td>I-5</td><td>Rework loops: agents hand off before running the gate themselves</td><td>213 gate re-entries; rework 26 sessions; "I couldn't run the gates locally"</td><td>~1.7 gate passes per hand-off</td><td>implementing, PR gate</td></tr>
+<tr id="i6"><td>I-6</td><td>Agent worktrees start without dependencies</td><td>Environment friction 27 of 64; setup 6 of 6 failures</td><td>Minutes per session; false rework</td><td>implementing</td></tr>
+<tr id="i7"><td>I-7</td><td>Planner asks scope questions it could settle</td><td>35 planning questions; <code>515b97b4</code> 970 min; <code>a907fc99</code> 53 min</td><td>Hours of idle tickets per question</td><td>planning → needs_input</td></tr>
+<tr id="i8"><td>I-8</td><td>Budgets not enforced</td><td>0 <code>budget_exceeded</code>; $21 ticket vs a $5 budget; TD-015, TD-022</td><td>Unbounded spend per ticket</td><td>all agent states</td></tr>
+<tr id="i9"><td>I-9</td><td>Weak signals: machine health, analyst coverage, causes</td><td><code>ea6d442e</code> 21 stops; 42 % analysed; 44 % moves uncaused</td><td>Problems found late, by hand</td><td>—</td></tr>
+<tr id="i10"><td>I-10</td><td>Improvements shipped in code but not activated</td><td>v6 committed 2026-11-09; live still v5; T9 needed Ben's <code>save_workflow</code></td><td>All of ADR-0037's benefit deferred</td><td>in_review, needs_input</td></tr>
+<tr id="i11"><td>I-11</td><td>Silent deploy failures on <code>main</code></td><td><code>ade0e150</code>: ~3 days of rolled-back deploys</td><td>Merged work not live; nobody knew</td><td>after done</td></tr>
+<tr id="i12"><td>I-12</td><td>Scope creep and improvised edit tooling</td><td>unclear_requirements 15, other 14, tool_error 19</td><td>Bigger diffs, more review and rework</td><td>implementing</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="rice">6 · RICE assessment</h2>
+<p>Score = Reach × Impact × Confidence ÷ Effort. Sorted by score.</p>
+<div class="wrap">
+<table>
+<thead><tr><th>#</th><th>Proposal</th><th>Fixes</th><th class="num">Reach<br><span class="small">tickets/mo</span></th><th class="num">Impact</th><th class="num">Conf.</th><th class="num">Effort<br><span class="small">pw</span></th><th class="num">Score</th></tr></thead>
+<tbody>
+<tr><td>R1</td><td>Save <code>conductor</code> v6 live</td><td>I-1, I-2, I-10, I-11*</td><td class="num">85</td><td class="num">1</td><td class="num">80 %</td><td class="num">0.1</td><td class="num"><strong>680</strong></td></tr>
+<tr><td>R14</td><td>Alert on failed <code>main</code> deploy (push + a board ticket)</td><td>I-11</td><td class="num">150</td><td class="num">1</td><td class="num">70 %</td><td class="num">0.5</td><td class="num"><strong>210</strong></td></tr>
+<tr><td>R2</td><td>Repo setup runs in the agent worktree before the agent starts</td><td>I-6</td><td class="num">64</td><td class="num">1</td><td class="num">80 %</td><td class="num">0.5</td><td class="num"><strong>102</strong></td></tr>
+<tr><td>R3</td><td>Diff-aware gate; CI is the full gate</td><td>I-3, I-4</td><td class="num">136</td><td class="num">1</td><td class="num">70 %</td><td class="num">1</td><td class="num"><strong>95</strong></td></tr>
+<tr><td>R8</td><td>Requirements reviewer on personal PR hand-offs</td><td>I-2, I-12</td><td class="num">85</td><td class="num">0.5</td><td class="num">50 %</td><td class="num">0.25</td><td class="num"><strong>85</strong></td></tr>
+<tr><td>R7</td><td>Planner: decide-and-propose policy, read-only shell, "existing mechanism" check</td><td>I-7</td><td class="num">35</td><td class="num">1</td><td class="num">60 %</td><td class="num">0.25</td><td class="num"><strong>84</strong></td></tr>
+<tr><td>R4</td><td>Agent-callable <code>run_gate</code> tool + pre-hand-off self-check</td><td>I-5, I-3</td><td class="num">60</td><td class="num">2</td><td class="num">60 %</td><td class="num">1</td><td class="num"><strong>72</strong></td></tr>
+<tr><td>R9</td><td>Enforce budgets (TD-015, TD-022)</td><td>I-8</td><td class="num">152</td><td class="num">0.5</td><td class="num">80 %</td><td class="num">1</td><td class="num"><strong>61</strong></td></tr>
+<tr><td>R5a</td><td>Answerer pass before a question reaches Ben</td><td>I-1, I-7</td><td class="num">81</td><td class="num">2</td><td class="num">50 %</td><td class="num">1.5</td><td class="num"><strong>54</strong></td></tr>
+<tr><td>R13</td><td>Signals: machine-health alert, analyse 100 % of sessions</td><td>I-9</td><td class="num">152</td><td class="num">0.5</td><td class="num">60 %</td><td class="num">1</td><td class="num"><strong>46</strong></td></tr>
+<tr><td>R6</td><td>Question default-on-timeout ("proceed with my recommendation unless vetoed")</td><td>I-1, I-7</td><td class="num">50</td><td class="num">2</td><td class="num">60 %</td><td class="num">1.5</td><td class="num"><strong>40</strong></td></tr>
+<tr><td>R5b</td><td><code>triage</code> state type (send back / rerun / fix env / escalate)</td><td>I-4, I-5, I-6</td><td class="num">81</td><td class="num">2</td><td class="num">50 %</td><td class="num">3</td><td class="num"><strong>27</strong></td></tr>
+<tr><td>R12</td><td>Answer questions and approve in Slack (U-007)</td><td>I-1</td><td class="num">81</td><td class="num">1</td><td class="num">50 %</td><td class="num">2</td><td class="num"><strong>20</strong></td></tr>
+<tr><td>R11</td><td>GitHub webhooks wake conditions and watches (keep polling as a backstop)</td><td>I-4</td><td class="num">136</td><td class="num">0.5</td><td class="num">50 %</td><td class="num">3</td><td class="num"><strong>11</strong></td></tr>
+<tr><td>R16</td><td>Time-backoff retries for transient failures (network, <code>gh</code> rate limits)</td><td>I-6</td><td class="num">10</td><td class="num">0.5</td><td class="num">50 %</td><td class="num">1</td><td class="num"><strong>2.5</strong></td></tr>
+<tr><td>R10</td><td>Parallel legs in a gate step / fan-out states</td><td>I-4</td><td class="num">30</td><td class="num">1</td><td class="num">30 %</td><td class="num">6</td><td class="num"><strong>1.5</strong></td></tr>
+<tr><td>R15</td><td>Reusable sub-flows and an error-handler flow</td><td>—</td><td class="num">20</td><td class="num">0.5</td><td class="num">40 %</td><td class="num">4</td><td class="num"><strong>1</strong></td></tr>
+<tr><td>R17</td><td>Dry-run a workflow version against recorded tickets</td><td>I-10</td><td class="num">10</td><td class="num">1</td><td class="num">40 %</td><td class="num">4</td><td class="num"><strong>1</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p class="small"><strong>Assumptions.</strong> Reach counts tickets on this repo per 30 days that pass through the affected state, taken from §4: 85 reach in_review, 136 take the PR gate, 81 hit needs_input, 35 planning questions, and 64 is 42 % of 152 for the environment friction share. R14 reaches every merge to <code>main</code>. Impact uses Intercom's scale: 3 massive, 2 high, 1 medium, 0.5 low, 0.25 minimal. Effort is a rough guess in person-weeks of agent-plus-review time, not calendar time. *R1 doesn't fix I-11 itself; it ships the notify policy that R14 would use. Confidence is lower wherever the gain depends on model behaviour (R5, R6, R8).</p>
+
+<!-- ============================================================ -->
+<h2 id="proposals">7 · Proposed changes</h2>
+
+<h3>7.1 · Target shape of the workflow</h3>
+<div class="wrap">
+<svg viewBox="0 0 1100 300" width="100%" role="img" aria-label="Proposed workflow shape">
+  <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker></defs>
+  <rect class="agent" x="10" y="120" width="115" height="48" rx="6"/><text x="20" y="140">Planning</text><text x="20" y="156" class="lbl">read-only shell (R7)</text>
+  <rect class="agent" x="170" y="120" width="120" height="48" rx="6"/><text x="180" y="140">Implementing</text><text x="180" y="156" class="lbl">deps ready (R2)</text>
+  <rect class="gate" x="345" y="120" width="140" height="48" rx="6"/><text x="355" y="140">Gate: affected checks</text><text x="355" y="156" class="lbl">diff-aware R3, reviewer R8</text>
+  <rect class="gate" x="540" y="120" width="128" height="48" rx="6"/><text x="550" y="140">CI green, mergeable</text><text x="550" y="156" class="lbl">webhook wake (R11)</text>
+  <rect class="human" x="720" y="120" width="125" height="48" rx="6"/><text x="730" y="140">In review</text><text x="730" y="156" class="lbl">mergeable watch R1</text>
+  <rect class="box" x="900" y="125" width="80" height="38" rx="6"/><text x="912" y="148">Done</text>
+  <rect class="new" x="300" y="225" width="150" height="48" rx="6"/><text x="310" y="245">Triage agent (R5b)</text><text x="310" y="261" class="lbl">send back · rerun · fix env</text>
+  <rect class="new" x="170" y="20" width="150" height="48" rx="6"/><text x="180" y="40">Answerer (R5a)</text><text x="180" y="56" class="lbl">answers from sources</text>
+  <rect class="human" x="520" y="20" width="150" height="48" rx="6"/><text x="530" y="40">Needs input</text><text x="530" y="56" class="lbl">escalate R1, default R6</text>
+  <path class="edge" d="M125,144 H170" marker-end="url(#ar2)"/>
+  <path class="edge" d="M290,144 H345" marker-end="url(#ar2)"/>
+  <path class="edge" d="M485,144 H540" marker-end="url(#ar2)"/>
+  <path class="edge" d="M665,144 H720" marker-end="url(#ar2)"/>
+  <path class="edge" d="M845,144 H900" marker-end="url(#ar2)"/>
+  <path class="edge" d="M60,120 C60,60 120,44 170,44" marker-end="url(#ar2)"/><text class="lbl" x="40" y="80">question</text>
+  <path class="edge" d="M230,120 V68" marker-end="url(#ar2)"/>
+  <path class="edge" d="M320,44 H520" marker-end="url(#ar2)"/><text class="lbl" x="380" y="38">not confident</text>
+  <path class="edge" d="M260,68 C280,95 280,110 270,120" marker-end="url(#ar2)"/><text class="lbl" x="285" y="100">answered</text>
+  <path class="edge" d="M415,168 V225" marker-end="url(#ar2)"/><text class="lbl" x="420" y="200">fail</text>
+  <path class="edge" d="M600,168 C600,250 500,250 450,250" marker-end="url(#ar2)"/><text class="lbl" x="520" y="240">CI red</text>
+  <path class="edge" d="M300,250 C240,250 230,200 230,168" marker-end="url(#ar2)"/><text class="lbl" x="200" y="215">send back</text>
+  <path class="edge" d="M450,235 C520,200 560,100 580,68" marker-end="url(#ar2)"/><text class="lbl" x="582" y="108">escalate</text>
+</svg>
+</div>
+<p class="small">Green dashed: new conductor-owned agent states. Everything else is the existing v5/v6 shape with the proposals noted in each box.</p>
+
+<h3>7.2 · Workflow edits (no engine change)</h3>
+
+<h4>R1 · Save <code>conductor</code> v6 live</h4>
+<p>The file is ready (<code>docs/design/workflows/conductor.v6.json</code>, validated by <code>conductor.v6.test.ts</code>). Ben runs <code>save_workflow</code>; it's admin-only, so an agent can't do it. It brings:</p>
+<pre>"in_review":  { "watch": { "poll": "2m", "conditions": [{ "type": "pr_mergeable" }],
+                 "on_broken": { "goto": "implementing", "instruction": "$instructions.resync_main",
+                                "return_to": "$self", "retries": 3, "else": "needs_input" } } },
+"needs_input": { "watch": { "poll": "5m", "conditions": [{ "type": "age_below", "max": "2h" }],
+                 "on_broken": { "notify": "escalate" } } },
+"notify": { "default": "once", "engine_moves": "never", "coalesce": "15m" }
+// PR-ready transitions: "question": true  →  "handoff": true</pre>
+<p><strong>Risk:</strong> low. Every primitive is off until the definition sets it, and the T9 ticket diffed v5 against the draft. <strong>ADR:</strong> none (ADR-0037).</p>
+
+<h4>R8 · Reviewer on personal PR hand-offs</h4>
+<p>Copy the <code>work</code> transition's <code>requires.review</code> onto <code>personal_pr_ready_for_review</code>, with items taken from the ticket template:</p>
+<pre>"requires": { "review": { "items": [
+  "Every functional requirement in the ticket body is met by the diff, or the summary says why not.",
+  "The diff changes nothing the ticket's Out of scope section excludes; extras are proposed tickets.",
+  "The summary does not ask Ben a question; a question would have used ask_user."
+] }, ... }</pre>
+<p><strong>Risk:</strong> about 1–3 min and some cost per hand-off. It could fail reasonable PRs, but <code>on_unmet</code> gives the agent the verdict and the loop is already bounded. <strong>ADR:</strong> none.</p>
+
+<h4>R7 · Planner policy</h4>
+<ul>
+  <li>Change the <code>scope_changed</code> and <code>needs_product_context</code> <code>when</code> text to: "Only when no reasonable default exists. Otherwise plan your recommended option, list it under 'Assumptions' at the top of the plan, and propose the alternative as a follow-up ticket."</li>
+  <li>Add to the plan template: "Existing mechanisms checked: …" (a grep for similar concepts before proposing a new table or tool).</li>
+  <li><code>planning.tools</code>: <code>["read", "bash:readonly"]</code> for <code>git log</code>, <code>gh pr view</code> and <code>gh run view</code>. This needs a read-only Bash allow-list like the reviewer's <code>REVIEW_GIT_COMMANDS</code>, which is a small engine change.</li>
+</ul>
+
+<h3>7.3 · Tooling</h3>
+<h4>R2 · Dependencies before the agent starts</h4>
+<p>When the daemon creates a ticket worktree, it runs the repo's repo-check <code>setup</code> there (for this repo: <code>pnpm install --frozen-lockfile</code> and the <code>main</code> fetch) before <code>start_session</code>. A failure is reported as a setup failure with the same "whose problem is it" triage, not as agent rework. Also set <code>COREPACK_ENABLE_DOWNLOAD_PROMPT=0</code> in the agent environment. <strong>Schema:</strong> optionally a <code>repo_checks.worktree_setup</code> column when it should differ from the check setup.</p>
+
+<h4>R3 · Diff-aware gate; CI is the full gate</h4>
+<ul>
+  <li>Repo checks for this repo become: "Merges cleanly", <code>pnpm typecheck</code>, <code>pnpm lint</code>, and <code>CONDUCTOR_CI_TIERED=1 pnpm test</code> (affected tiers only). <code>pnpm build</code> is dropped because CI builds. <code>pr_checks_green</code> remains the authority.</li>
+  <li>Engine: an optional <code>paths</code> filter on a check, so it runs only when the diff from the merge base touches those globs:
+<pre>{ "name": "Tests", "cmd": "CONDUCTOR_CI_TIERED=1 pnpm test", "paths": ["packages/**", "crates/**", "e2e/**", "scripts/**"] }</pre>
+  A docs-only diff then runs only "Merges cleanly". This is n8n's IF node, kept declarative.</li>
+  <li>For Rust, add <code>cargo clippy</code> and <code>nextest</code> checks with <code>paths: ["crates/**", "Cargo.*"]</code>. The Windows leg stays CI-only and is covered by <code>pr_checks_green</code>.</li>
+</ul>
+
+<h4>R4 · Let the agent run the gate itself</h4>
+<p>Add an MCP tool <code>run_gate</code> for worker agents. It runs the transition's effective checks (repo override included) in a fresh checkout of the agent's HEAD on the same daemon, and returns pass or fail per check with output tails. The implementing prompt then says: "Run <code>run_gate</code> until it passes before choosing a PR-ready transition." This removes the guesswork of "which command is the gate" (tool_error 19, flaky_check 14) and moves failures into the agent's own loop, where they cost no round trip. <strong>Risk:</strong> it uses more build slots; it shares the existing semaphore.</p>
+
+<h4>R14 · Deploy-failure alert</h4>
+<p><code>deploy/gradyserver/deploy.sh</code>'s rollback path calls conductor's API to push a notification and open a ticket on this repo ("Deploy of &lt;sha&gt; failed: &lt;step&gt;"). Alternatively, a recurring schedule (ADR-0032) checks the deployed SHA against <code>origin/main</code> every hour.</p>
+
+<h4>R9 · Enforce budgets</h4>
+<p>Pay TD-015 (emit <code>budget.exceeded</code> from accumulated spend and wall time) and TD-022 (pass <code>--max-budget-usd</code>). First set realistic numbers from the data, about $15 and 240 min: the declared $5 would stop many normal tickets today.</p>
+
+<h4>R13 · Signals</h4>
+<ul>
+  <li>A per-machine health finding when stops or check failures exceed 2× the account median over 7 days (<code>ea6d442e</code>).</li>
+  <li>Analyse every finished session, not 42 %; at Haiku prices this is cents.</li>
+  <li>Add an "auto-answer rate" metric once R5a lands.</li>
+</ul>
+
+<h3>7.4 · Engine capabilities (inspired by n8n)</h3>
+
+<h4>R5a · Answerer pass <span class="tag">n8n: AI Agent → Switch → Send-and-wait</span></h4>
+<p>A workflow-level <code>answerer</code> block, reusing ADR-0009's reviewer machinery (fresh session, read-only tools, <code>dontAsk</code>):</p>
+<pre>"answerer": {
+  "applies_to": ["ask_user", "scope_changed", "needs_product_context"],   // never plan_needs_approval
+  "model": "sonnet",
+  "sources": ["repo", "adr", "ticket", "prior_answers", "gh_read"],
+  "min_confidence": "high"
+}</pre>
+<p>Its verdict is <code>{answer, confidence, citations[]}</code>. With high confidence and at least one citation, the answer goes to the asker as <code>input.provided</code> with <code>answered_by: conductor</code>, and Ben gets a push he can veto ("Overrule" re-opens the question). Otherwise the question opens as today, with the answerer's notes attached. <strong>Needs an ADR</strong>: it changes who may answer a question (06-human-input).</p>
+
+<h4>R6 · Default on timeout <span class="tag">n8n: send-and-wait "Limit wait time"</span></h4>
+<pre>"ask_user": { "goto": "needs_input", "default": { "after": "2h", "answer": "$recommended" } }</pre>
+<p>The agent's <code>complete_state</code> already carries a recommended answer (the prompt requires one). After <code>after</code> with no human reply, the engine delivers it as the answer, records <code>cause: default_taken</code> and notifies. This is bounded and visible, and Ben can still overrule it. <strong>Needs an ADR</strong>: it is the first engine move that answers on a human's behalf.</p>
+
+<h4>R5b · <code>triage</code> state type <span class="tag">n8n: error workflow</span></h4>
+<pre>"triage": { "type": "agent", "role": "triage", "tools": ["read", "bash:readonly", "gh_read"],
+  "on": {
+    "send_back":  { "goto": "$return_to", "attach": "output", "retries": 2, "else": "needs_input" },
+    "rerun":      { "goto": "$gate", "retries": 1, "else": "needs_input" },
+    "fix_env":    { "goto": "env_fix", "retries": 1, "else": "needs_input" },
+    "escalate":   { "goto": "needs_input", "question": true }
+}}
+// and on the PR gate:  "on_unmet": { "goto": "triage", ... }</pre>
+<p>Engine changes: an agent state may be an <code>on_unmet.goto</code> target that resolves <code>$return_to</code> (today only human states use it), and a <code>$gate</code> ref meaning "retry the move that failed". The verdict is still a declared transition, so the validator's loop analysis applies unchanged. <strong>Needs an ADR.</strong></p>
+
+<h4>R10 · Parallel legs <span class="tag">n8n: fan-out + Merge</span></h4>
+<p>Inside a move step: <code>requires.parallel: [[checks…], [review], [cmd: windows leg]]</code>. The legs run at once on suitable machines, all must pass, and the first failure reports. This is far cheaper than general fork/join states, which would break "one state per session". <strong>Needs an ADR.</strong></p>
+
+<h4>R11, R12, R15–R17</h4>
+<ul>
+  <li><strong>R11</strong> GitHub webhooks set <code>watch_deadline = now</code> or <code>state_deadline = now</code>, like ADR-0037's internal nudge. Polling remains the backstop.</li>
+  <li><strong>R12</strong> Slack answering (U-007): send-and-wait style buttons for <code>$return_to</code> answers and plan approval.</li>
+  <li><strong>R15</strong> Reusable fragments: named <code>requires</code> blocks referenced as <code>$gates.pr</code>, the way <code>$instructions</code> works.</li>
+  <li><strong>R16</strong> <code>retry_after</code> with exponential delay on <code>setup</code> and <code>action_failed</code> before counting a retry.</li>
+  <li><strong>R17</strong> <code>simulate_workflow(version, ticket_ids)</code>: replay recorded event streams through <code>apply()</code> against a draft version and diff the routes. <code>apply</code> is pure, so this is n8n's pinned-data debugging, but for a whole process.</li>
+</ul>
+
+<h3>7.5 · Suggested order</h3>
+<ol>
+  <li>This week: <strong>R1</strong> (Ben saves v6), <strong>R14</strong>, the <strong>R3</strong> repo-checks edit (no engine change), <strong>R8</strong> and the <strong>R7</strong> prompt edits.</li>
+  <li>Next: <strong>R2</strong>, <strong>R4</strong>, <strong>R9</strong>, <strong>R13</strong>. Re-measure with this report's tables after two weeks.</li>
+  <li>Then the ADR-level bets: <strong>R5a</strong> → <strong>R6</strong> → <strong>R5b</strong>, then <strong>R10</strong>, <strong>R11</strong>, <strong>R12</strong>.</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="appendix">8 · Appendix</h2>
+
+<h3>8.1 · Example tickets</h3>
+<div class="wrap">
+<table>
+<thead><tr><th>Ticket</th><th>Title</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><code>515b97b4</code></td><td>Per-repo machine pinning</td><td>Scope question, 970 min wait (I-7)</td></tr>
+<tr><td><code>a907fc99</code></td><td>Daemon auto-upgrade instructions</td><td>Scope question 53 min; no node_modules; Docker pool (I-6, I-7)</td></tr>
+<tr><td><code>08e318fb</code></td><td>MR-T12</td><td>npm checks green, Windows CI red ×3 (I-3)</td></tr>
+<tr><td><code>0ca2aa8b</code></td><td>CI/CD</td><td>Question inside a hand-off; $6.43 (I-2, I-8)</td></tr>
+<tr><td><code>d0f8e9aa</code></td><td>M2-T18b · Contracts: daemon auto-update</td><td>Red PR handed off; npm test 3 of 3 failed; $8.29 (I-2, I-3)</td></tr>
+<tr><td><code>4568a293</code></td><td>UI: navigation cleanup (UXR-27/28)</td><td>Human and agent racing on a merge; $21.04 (I-8, I-11)</td></tr>
+<tr><td><code>7811f19d</code></td><td>WF-T05 quarantine</td><td>98 min question; scope creep (I-1, I-12)</td></tr>
+<tr><td><code>6b386e59</code></td><td>WF-T01: Narrow CLAUDE.md's "ask Ben" rule</td><td>Docs-only ticket with a 6 min question (I-1)</td></tr>
+<tr><td><code>a68f92b5</code></td><td>Conductor Checks Collapsible</td><td>corepack/pnpm environment friction (I-6)</td></tr>
+<tr><td><code>ade0e150</code></td><td>ADR-0037 T9: save workflow v6</td><td>v6 committed, not live; deploys silently failing (I-10, I-11)</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>8.2 · Check runs by check (30 d)</h3>
+<div class="wrap">
+<table>
+<thead><tr><th>Check</th><th>Source</th><th class="num">Tickets</th><th class="num">Runs</th><th class="num">Failures</th><th class="num">Fail %</th></tr></thead>
+<tbody>
+<tr><td>Build passes (<code>npm run build</code>)</td><td>workflow default</td><td class="num">127</td><td class="num">334</td><td class="num">6</td><td class="num">1.8</td></tr>
+<tr><td>Tests pass (<code>npm test</code>)</td><td>workflow default</td><td class="num">126</td><td class="num">328</td><td class="num">56</td><td class="num">17.1</td></tr>
+<tr><td>setup: Repo setup</td><td>repo override</td><td class="num">3</td><td class="num">6</td><td class="num">6</td><td class="num">100</td></tr>
+<tr><td>npm test / npm run build (as names)</td><td>older gate</td><td class="num">1</td><td class="num">6</td><td class="num">3</td><td class="num">50</td></tr>
+<tr><td>Merges cleanly with main</td><td>repo override</td><td class="num">16</td><td class="num">29</td><td class="num">1</td><td class="num">3.4</td></tr>
+<tr><td>Typecheck</td><td>repo override</td><td class="num">16</td><td class="num">28</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>Lint</td><td>repo override</td><td class="num">16</td><td class="num">28</td><td class="num">1</td><td class="num">3.6</td></tr>
+<tr><td>Tests</td><td>repo override</td><td class="num">16</td><td class="num">27</td><td class="num">2</td><td class="num">7.4</td></tr>
+<tr><td>Build</td><td>repo override</td><td class="num">16</td><td class="num">25</td><td class="num">0</td><td class="num">0</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>8.3 · By machine (30 d, this repo)</h3>
+<table>
+<thead><tr><th>Machine</th><th class="num">Tickets</th><th class="num">Stays</th><th class="num">Median min</th><th class="num">p90 min</th><th class="num">Check runs (fail)</th><th class="num">Questions</th><th class="num">Stops</th></tr></thead>
+<tbody>
+<tr><td><code>2cfee65a</code></td><td class="num">106</td><td class="num">875</td><td class="num">6.8</td><td class="num">32.7</td><td class="num">521 (48)</td><td class="num">58</td><td class="num">19</td></tr>
+<tr><td><code>9d87b570</code></td><td class="num">40</td><td class="num">383</td><td class="num">4.8</td><td class="num">21.0</td><td class="num">287 (24)</td><td class="num">8</td><td class="num">17</td></tr>
+<tr><td><code>ea6d442e</code></td><td class="num">6</td><td class="num">52</td><td class="num">29.7</td><td class="num">102.7</td><td class="num">3 (3)</td><td class="num">1</td><td class="num">21</td></tr>
+</tbody>
+</table>
+
+<h3>8.4 · Analyst frictions (64 of 152 sessions, model-written)</h3>
+<table>
+<thead><tr><th>Category</th><th>State</th><th class="num">Sessions</th><th>Most frequent suggestion</th></tr></thead>
+<tbody>
+<tr><td>environment</td><td>implementing</td><td class="num">27</td><td>Dependency-install step before the agent starts</td></tr>
+<tr><td>rework</td><td>implementing</td><td class="num">26</td><td>Lint/typecheck changed files before declaring done</td></tr>
+<tr><td>waiting_on_human</td><td>implementing</td><td class="num">25</td><td>Question SLA, or proceed with a stated default</td></tr>
+<tr><td>failing_check</td><td>implementing</td><td class="num">19</td><td>Typecheck and targeted tests in the check set</td></tr>
+<tr><td>tool_error</td><td>implementing</td><td class="num">19</td><td>A standard changed-files lint command</td></tr>
+<tr><td>unclear_requirements</td><td>implementing</td><td class="num">15</td><td>In scope / out of scope lines</td></tr>
+<tr><td>flaky_check</td><td>implementing</td><td class="num">14</td><td>Known-flaky list; path-filter CI</td></tr>
+<tr><td>other</td><td>implementing</td><td class="num">14</td><td>Change only what the acceptance criteria name</td></tr>
+<tr><td>failing_check</td><td>PR gate</td><td class="num">12</td><td>Require the CI matrix, or the repo's real test command</td></tr>
+<tr><td>unclear_requirements</td><td>planning</td><td class="num">12</td><td>Repo or component sanity check at intake</td></tr>
+<tr><td>waiting_on_human</td><td>in_review</td><td class="num">10</td><td>Reminder/timeout on review</td></tr>
+<tr><td>rework</td><td>in_review</td><td class="num">9</td><td>Run CI's lint/typecheck before PR-ready</td></tr>
+</tbody>
+</table>
+<p class="small">The analyst reported 726 wasted minutes in total. 82 smaller friction groups are not listed.</p>
+
+<h3>8.5 · Live workflow at the time of writing</h3>
+<p><code>conductor</code> v5: planning (agent, 60 min) → plan_review (human) → implementing (agent, 2 h) → [gate: repo checks, <code>open_pr</code>, <code>pr_checks_green</code> with 5 min no-CI grace, 2 h timeout, 3 retries] → in_review (human) → done. needs_input and waiting_external are reachable from both agent states. Budget: $5, 240 min, 3 loop retries.</p>
+
+</main>
+</body>
+</html>

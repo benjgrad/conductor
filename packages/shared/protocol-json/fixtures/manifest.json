@@ -42,6 +42,20 @@
     "array": true
   },
   {
+    "file": "CHECK_PATHS_WS_FIXTURES.cmd_exit_skipped.json",
+    "export": "CHECK_PATHS_WS_FIXTURES",
+    "key": "cmd_exit_skipped",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "CHECK_PATHS_WS_FIXTURES.run_cmd_paths.json",
+    "export": "CHECK_PATHS_WS_FIXTURES",
+    "key": "run_cmd_paths",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
     "file": "DAEMON_FIXTURES.alert.json",
     "export": "DAEMON_FIXTURES",
     "key": "alert",

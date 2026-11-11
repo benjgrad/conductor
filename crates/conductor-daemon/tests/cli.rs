@@ -146,7 +146,9 @@ async fn run_registers_and_exits_0_on_sigterm() {
             "agent_attachments",
             "pages",
             // ADR-0039: it honours start_session.permission_mode.
-            "permission_mode"
+            "permission_mode",
+            // R4: its agents can run_gate.
+            "run_gate"
         ]),
         "{register}"
     );

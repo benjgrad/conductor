@@ -55,6 +55,7 @@ async fn fake_claude_completes_a_state_against_the_rust_server() {
             on_permission_request: None,
             on_attach_file: None,
             on_publish_page: None,
+            on_run_gate: None,
         },
         OutcomeRegisterOptions::default(),
     );

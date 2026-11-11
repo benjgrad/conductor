@@ -15,6 +15,7 @@ import {
   presetUses,
   processMetrics,
   pushCounts,
+  selfCheckCounts,
   ProcessMetricsSchema,
   rankFindings,
   stateDurations,
@@ -825,6 +826,32 @@ describe('queued: concurrency holds (ADR-0037 P4, T7)', () => {
     expect(
       out.find((sp) => sp.session_id === 's-b' && sp.state === 'implementing.pr_ready')!.minutes,
     ).toBe(190);
+  });
+});
+
+describe('selfCheckCounts (R4)', () => {
+  it('nothing without runs', () => {
+    expect(selfCheckCounts([])).toEqual({});
+  });
+
+  it('counts runs, outcomes, tickets and runs per transition', () => {
+    const r = selfCheckCounts([
+      { session_id: 's1', ticket_id: 't1', transition: 'pr_ready', passed: false },
+      { session_id: 's1', ticket_id: 't1', transition: 'pr_ready', passed: true },
+      { session_id: 's2', ticket_id: 't2', transition: 'done', passed: null },
+    ]).self_checks!;
+    expect(r).toEqual({
+      runs: 3,
+      passed: 1,
+      failed: 1,
+      unfinished: 1,
+      tickets: 2,
+      by_transition: [
+        { transition: 'pr_ready', runs: 2, passed: 1 },
+        { transition: 'done', runs: 1, passed: 0 },
+      ],
+    });
+    expect(ProcessMetricsSchema.shape.self_checks.parse(r)).toEqual(r);
   });
 });
 

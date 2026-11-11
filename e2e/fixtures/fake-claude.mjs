@@ -261,7 +261,8 @@ async function callTool(name, args) {
     },
     parent_tool_use_id: null,
   });
-  const r = await mcp.callTool({ name, arguments: args });
+  // R4: run_gate waits for a whole gate run, longer than the SDK's 60 s default.
+  const r = await mcp.callTool({ name, arguments: args }, undefined, { timeout: 600_000 });
   const resultText = (Array.isArray(r.content) ? r.content : [])
     .map((b) => (typeof b?.text === 'string' ? b.text : ''))
     .join('');

@@ -36,6 +36,7 @@ mod permissions;
 mod reopen_transcript;
 mod run_action;
 mod run_cmd_kill;
+mod run_gate;
 mod send_message;
 mod start_session;
 mod transitions;

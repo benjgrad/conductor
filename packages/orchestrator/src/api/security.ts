@@ -163,6 +163,9 @@ const DAEMON_POSTS: ReadonlySet<string> = new Set([
   API_PATHS.daemonSessionAttachments(':id'),
   // ADR-0038: the daemon publishing its agent's page (JSON).
   API_PATHS.daemonSessionPages(':id'),
+  // R4: the daemon's run_gate spec request and its outcome (JSON).
+  API_PATHS.daemonSessionGate(':id'),
+  API_PATHS.daemonSessionGateResult(':id'),
   // R11: a GitHub webhook delivery, authenticated by the HMAC of its body (no cookie, no Origin).
   API_PATHS.githubWebhookDelivery(':id'),
 ]);

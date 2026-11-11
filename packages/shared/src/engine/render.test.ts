@@ -25,6 +25,7 @@ import {
   PROPOSALS_HINT,
   READONLY_SHELL_HEADING,
   renderPrompt,
+  RUN_GATE_INSTRUCTION,
   TICKET_TEMPLATE,
   WORK_REPOSITORY_HEADING,
 } from './render.js';
@@ -303,6 +304,22 @@ describe('process-review rules (ADR-0037 §4, C2)', () => {
     expect(p).toContain(IMPLEMENT_TESTS_INSTRUCTION);
     expect(IMPLEMENT_SCOPE_INSTRUCTION).toContain('`proposed_tickets`');
     expect(IMPLEMENT_SCOPE_INSTRUCTION).toContain('`ask_user`');
+  });
+
+  it('R4: the implement template tells the agent to run_gate before taking a checked transition', () => {
+    const p = renderPrompt({
+      stateName: 'implementing',
+      state: implementing,
+      snapshot: SNAPSHOT_FIXTURE,
+    });
+    expect(p).toContain(RUN_GATE_INSTRUCTION);
+    expect(RUN_GATE_INSTRUCTION).toContain('`run_gate`');
+    const plan = renderPrompt({
+      stateName: 'planning',
+      state: planning,
+      snapshot: SNAPSHOT_FIXTURE,
+    });
+    expect(plan).not.toContain(RUN_GATE_INSTRUCTION);
   });
 
   it('with follow-ups off, out-of-scope work goes to the summary, not proposed_tickets', () => {

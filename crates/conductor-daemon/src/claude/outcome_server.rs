@@ -31,6 +31,12 @@
 //! tool alias). Its bounds are checked here; the call waits for the orchestrator and returns the
 //! page URL. Refused after complete_state, like attach_file.
 //!
+//! R4 (Rust only): `run_gate({transition})` is listed only when the registration has an
+//! `on_run_gate` handler (the daemon gives one to a working agent) and at least one allowed
+//! transition runs checks (`AgentTransitionOption.checks`). The call waits for the checks (the
+//! handler's own budget) and returns their outcome. Refused after complete_state, and while another
+//! run_gate of the registration is running.
+//!
 //! ADR-0023: a third tool, `permission`, is Claude's `--permission-prompt-tool`
 //! (`mcp__conductor__permission`). The call is HELD: the registration hands the request to the
 //! driver (`on_permission_request`, which the daemon sends as a durable `permission_request`) and
@@ -87,6 +93,8 @@ pub const OUTCOME_TOOL_NAMES: [&str; 2] = [COMPLETE_STATE_TOOL, ASK_USER_TOOL];
 pub const ATTACH_FILE_TOOL: &str = "mcp__conductor__attach_file";
 /// ADR-0038: added to `--allowedTools` when the session's state has the `pages` tool alias.
 pub const PUBLISH_PAGE_TOOL: &str = "mcp__conductor__publish_page";
+/// R4: added to `--allowedTools` when the session gets `run_gate`.
+pub const RUN_GATE_TOOL: &str = "mcp__conductor__run_gate";
 
 /// The transition `complete_state` takes when it names none (old prompts, ADR-0011).
 pub const DEFAULT_TRANSITION: &str = "done";
@@ -244,6 +252,29 @@ pub fn ask_user_description() -> String {
 }
 pub const ATTACH_FILE_AFTER_COMPLETE: &str = "Not attached: complete_state was already recorded for this state. Attach files before you call complete_state. End your turn now.";
 const ATTACH_FILE_DESCRIPTION: &str = "Attach a screenshot, GIF or short screen recording you captured to the ticket, so the human sees it on the board (e.g. before/after evidence of a UI change, or images the human asked for). A file you only save to disk is not visible to the human. The file must be inside your worktree or the system temp directory (copy it there first otherwise). PNG, JPEG, GIF, WebP, MP4 or WebM; images up to 10 MB, videos up to 50 MB. Give a caption saying what it shows (e.g. \"Before: delete is blocked\"). Returns whether the upload worked.";
+pub const RUN_GATE_AFTER_COMPLETE: &str =
+    "Not run: complete_state was already recorded for this state. End your turn now.";
+pub const RUN_GATE_ALREADY_RUNNING: &str =
+    "Not run: a run_gate is already running for you. Wait for its result.";
+
+/// The run_gate tool description, naming the transitions that run checks.
+pub fn run_gate_description(checked: &[&str]) -> String {
+    format!(
+        "Run the checks conductor runs when you take a transition (the repo's setup, then each check, in a fresh checkout of your last commit, the way the gate does), and get pass/fail per check with the output of what failed. Commit first: uncommitted changes are refused. Call it with the transition you intend to take and fix what fails (commit each fix) until it passes, then take the transition. It can take several minutes. Transitions that run checks: {}.",
+        checked.join(", ")
+    )
+}
+
+/// The transitions of `transitions` that run checks (`AgentTransitionOption.checks`).
+pub fn checked_transitions(transitions: Option<&[AgentTransitionOption]>) -> Vec<&str> {
+    transitions
+        .unwrap_or(&[])
+        .iter()
+        .filter(|t| t.checks == Some(true))
+        .map(|t| t.name.as_str())
+        .collect()
+}
+
 pub const PUBLISH_PAGE_AFTER_COMPLETE: &str = "Not published: complete_state was already recorded for this state. Publish pages before you call complete_state. End your turn now.";
 const PUBLISH_PAGE_DESCRIPTION: &str = "Publish one rendered HTML page (a mockup, a diagram, a data walkthrough) for the human, hosted by conductor; it is never committed to the repository. `html` is one self-contained document: inline <style> and <script> only, images as data: URLs; anything external (scripts, stylesheets, fonts, fetch) is blocked. At most 2 MB. It expires after `ttl_days` (default 7, at most 30). `share: true` also returns a link that opens without signing in (off by default). Returns the page URL: add it to your result's `pages` so the human can open it from the card.";
 const PERMISSION_DESCRIPTION: &str = "Conductor's permission prompt tool: Claude Code calls it when a tool call needs a human's approval. Do not call it yourself.";
@@ -552,6 +583,20 @@ pub type PublishPageHandler = Arc<
         + Send
         + Sync,
 >;
+/// R4: what `run_gate` was called with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunGateRequest {
+    pub transition: String,
+}
+/// Runs the checks: Ok(the outcome text for the agent, pass or fail) or Err(why nothing ran).
+pub type RunGateHandler = Arc<
+    dyn Fn(
+            RunGateRequest,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>>
+        + Send
+        + Sync,
+>;
 /// Err = the prompt could not be forwarded (the TS handler threw): the call is denied at once.
 pub type PermissionHandler = Arc<dyn Fn(PermissionPrompt) -> Result<(), String> + Send + Sync>;
 
@@ -568,6 +613,8 @@ pub struct OutcomeHandlers {
     pub on_attach_file: Option<AttachFileHandler>,
     /// ADR-0038: publishes a `publish_page`. None → the tool isn't listed.
     pub on_publish_page: Option<PublishPageHandler>,
+    /// R4: runs a `run_gate`. None (or no transition with checks) → the tool isn't listed.
+    pub on_run_gate: Option<RunGateHandler>,
 }
 
 /// `register` options.
@@ -613,6 +660,8 @@ struct Entry {
     decided: HashSet<String>,
     /// Unregistered: a new prompt is denied at once.
     closed: bool,
+    /// R4: a run_gate is running (one at a time).
+    gate_running: bool,
 }
 
 type SharedEntry = Arc<Mutex<Entry>>;
@@ -872,6 +921,47 @@ impl Outcome {
         }
     }
 
+    async fn run_gate(&self, args: &Map<String, Value>) -> CallToolResult {
+        let transition = match args.get("transition") {
+            Some(Value::String(t)) if (1..=TRANSITION_NAME_MAX).contains(&js_len(t.trim())) => {
+                t.trim().to_string()
+            }
+            _ => {
+                return invalid(format!(
+                    "transition: expected the name of a transition (1..={TRANSITION_NAME_MAX} characters)"
+                ));
+            }
+        };
+        let handler = {
+            let mut e = lock(&self.entry);
+            if e.completed {
+                return text(RUN_GATE_AFTER_COMPLETE);
+            }
+            if e.gate_running {
+                return text(RUN_GATE_ALREADY_RUNNING);
+            }
+            let Some(h) = e.handlers.on_run_gate.clone() else {
+                return CallToolResult::error(vec![ContentBlock::text(
+                    "Not run: this conductor daemon can't run gates for you.",
+                )]);
+            };
+            e.gate_running = true;
+            h
+        };
+        /// Clears `gate_running` however the call ends (a dropped request included).
+        struct Running(SharedEntry);
+        impl Drop for Running {
+            fn drop(&mut self) {
+                lock(&self.0).gate_running = false;
+            }
+        }
+        let _running = Running(self.entry.clone());
+        match handler(RunGateRequest { transition }).await {
+            Ok(t) => text(t),
+            Err(why) => CallToolResult::error(vec![ContentBlock::text(format!("Not run: {why}"))]),
+        }
+    }
+
     async fn permission(&self, args: &Map<String, Value>) -> CallToolResult {
         let tool = match args.get("tool_name") {
             Some(Value::String(t)) if !t.is_empty() => t.clone(),
@@ -968,12 +1058,19 @@ impl ServerHandler for Outcome {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let (description, can_attach, can_publish) = {
+        let (description, can_attach, can_publish, gate) = {
             let e = lock(&self.entry);
+            let checked = checked_transitions(e.transitions.as_deref());
             (
                 complete_state_description(e.transitions.as_deref()),
                 e.handlers.on_attach_file.is_some(),
                 e.handlers.on_publish_page.is_some(),
+                (e.handlers.on_run_gate.is_some() && !checked.is_empty()).then(|| {
+                    (
+                        run_gate_description(&checked),
+                        checked.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                    )
+                }),
             )
         };
         let mut tools = vec![
@@ -1088,6 +1185,25 @@ impl ServerHandler for Outcome {
                 .with_meta(always_load()),
             );
         }
+        if let Some((description, names)) = gate {
+            tools.push(
+                Tool::new(
+                    "run_gate",
+                    description,
+                    schema(json!({
+                        "type": "object",
+                        "properties": {
+                            "transition": {
+                                "type": "string", "minLength": 1, "maxLength": TRANSITION_NAME_MAX,
+                                "description": format!("The transition you intend to take: one of {}", names.join(", ")),
+                            },
+                        },
+                        "required": ["transition"],
+                    })),
+                )
+                .with_meta(always_load()),
+            );
+        }
         Ok(ListToolsResult::with_all_items(tools))
     }
 
@@ -1103,6 +1219,7 @@ impl ServerHandler for Outcome {
             "permission" => self.permission(&args).await,
             "attach_file" => self.attach_file(&args).await,
             "publish_page" => self.publish_page(&args).await,
+            "run_gate" => self.run_gate(&args).await,
             other => {
                 return Err(ErrorData::invalid_params(
                     Cow::Owned(format!("Tool {other} not found")),
@@ -1270,6 +1387,7 @@ impl OutcomeServer {
             decided_order: VecDeque::new(),
             decided: HashSet::new(),
             closed: false,
+            gate_running: false,
         }));
         let config = StreamableHttpServerConfig::default()
             // Stateless + JSON replies, as the TS server (`enableJsonResponse`, no session id).
@@ -1521,6 +1639,7 @@ mod tests {
             }),
             on_attach_file: None,
             on_publish_page: None,
+            on_run_gate: None,
         }
     }
 
@@ -1833,6 +1952,133 @@ mod tests {
                 },
             ]
         );
+        s.close().await;
+    }
+
+    fn gated(names: &[(&str, bool)]) -> Vec<AgentTransitionOption> {
+        names
+            .iter()
+            .map(|(n, checks)| {
+                let mut v = json!({"name": n, "when": null, "question": false});
+                if *checks {
+                    v["checks"] = json!(true);
+                }
+                serde_json::from_value(v).unwrap()
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn run_gate_is_listed_with_a_handler_and_a_checked_transition_one_call_at_a_time() {
+        let s = server().await;
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        // The first call waits on `release` so a second one can arrive while it runs.
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let release = Arc::new(Mutex::new(Some(rx)));
+        let handler: RunGateHandler = {
+            let (seen, release) = (seen.clone(), release.clone());
+            Arc::new(move |req: RunGateRequest| {
+                seen.lock().unwrap().push(req.transition.clone());
+                let wait = release.lock().unwrap().take();
+                Box::pin(async move {
+                    if let Some(rx) = wait {
+                        let _ = rx.await;
+                    }
+                    if req.transition == "boom" {
+                        Err("the conductor server is down".to_string())
+                    } else {
+                        Ok(format!("run_gate {}: PASSED", req.transition))
+                    }
+                })
+            })
+        };
+        let reg_with = |transitions: Vec<AgentTransitionOption>, h: Option<RunGateHandler>| {
+            let calls = Calls::default();
+            let mut hs = handlers(&calls, None);
+            hs.on_run_gate = h;
+            s.register(
+                hs,
+                OutcomeRegisterOptions {
+                    transitions: Some(transitions),
+                },
+            )
+        };
+        // No handler, or no transition with checks: not listed.
+        let none = connect(reg_with(gated(&[("ship", true)]), None).url()).await;
+        assert!(
+            !none
+                .list_tools()
+                .await
+                .iter()
+                .any(|t| t["name"] == "run_gate")
+        );
+        let unchecked = reg_with(gated(&[("done", false)]), Some(handler.clone()));
+        let unchecked = connect(unchecked.url()).await;
+        assert!(
+            !unchecked
+                .list_tools()
+                .await
+                .iter()
+                .any(|t| t["name"] == "run_gate")
+        );
+
+        let reg = reg_with(
+            gated(&[("ship", true), ("boom", true), ("ask_user", false)]),
+            Some(handler),
+        );
+        let c = Arc::new(connect(reg.url()).await);
+        let tools = c.list_tools().await;
+        let tool = tools.iter().find(|t| t["name"] == "run_gate").unwrap();
+        assert_eq!(tool["_meta"], json!({"anthropic/alwaysLoad": true}));
+        assert_eq!(tool["inputSchema"]["required"], json!(["transition"]));
+        let d = tool["description"].as_str().unwrap();
+        assert!(
+            d.contains("Transitions that run checks: ship, boom."),
+            "{d}"
+        );
+        assert!(d.contains("Commit first"));
+
+        // Invalid input is refused before the handler.
+        assert!(c.call("run_gate", json!({})).await.1);
+        assert!(c.call("run_gate", json!({"transition": ""})).await.1);
+
+        // One at a time: a second call while the first runs is refused.
+        let first = {
+            let c = c.clone();
+            tokio::spawn(async move { c.text("run_gate", json!({"transition": "ship"})).await })
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while seen.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            c.text("run_gate", json!({"transition": "ship"})).await,
+            RUN_GATE_ALREADY_RUNNING
+        );
+        tx.send(()).unwrap();
+        assert_eq!(first.await.unwrap(), "run_gate ship: PASSED");
+        // An error result frees it too.
+        assert_eq!(
+            c.call("run_gate", json!({"transition": "boom"})).await,
+            ("Not run: the conductor server is down".to_string(), true)
+        );
+        assert_eq!(
+            c.text("run_gate", json!({"transition": " ship "})).await,
+            "run_gate ship: PASSED"
+        );
+        c.text(
+            "complete_state",
+            json!({"result": {}, "transition": "ship"}),
+        )
+        .await;
+        assert_eq!(
+            c.text("run_gate", json!({"transition": "ship"})).await,
+            RUN_GATE_AFTER_COMPLETE
+        );
+        assert_eq!(*seen.lock().unwrap(), vec!["ship", "boom", "ship"]);
         s.close().await;
     }
 

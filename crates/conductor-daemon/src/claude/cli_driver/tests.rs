@@ -300,6 +300,38 @@ fn base_opts() -> DriverStartOptions {
     opts_in(Path::new("/w"), json!([]))
 }
 
+/// R4: `--allowedTools` gets run_gate only with a handler and a transition that runs checks, and
+/// never for a reviewer: exactly when the outcome server lists it.
+#[test]
+fn allows_run_gate_only_with_a_handler_and_a_checked_transition() {
+    use crate::claude::driver::RunGateHook;
+    let allowed = |o: &DriverStartOptions| {
+        let args = build_claude_args(o, "{}", "/tmp/s/settings.json", &PermissionArgs::Host);
+        let i = args.iter().position(|a| a == "--allowedTools").unwrap();
+        args[i + 1].clone()
+    };
+    let option = |name: &str, checks: bool| -> AgentTransitionOption {
+        let mut v = json!({"name": name, "when": null, "question": false});
+        if checks {
+            v["checks"] = json!(true);
+        }
+        serde_json::from_value(v).unwrap()
+    };
+    let hook = RunGateHook(std::sync::Arc::new(|_| {
+        Box::pin(async { Ok(String::new()) })
+    }));
+    let mut o = base_opts();
+    o.transitions = Some(vec![option("ship", true)]);
+    assert!(!allowed(&o).contains(RUN_GATE_TOOL));
+    o.run_gate = Some(hook);
+    assert!(allowed(&o).contains(RUN_GATE_TOOL));
+    o.review = true;
+    assert!(!allowed(&o).contains(RUN_GATE_TOOL));
+    o.review = false;
+    o.transitions = Some(vec![option("done", false)]);
+    assert!(!allowed(&o).contains(RUN_GATE_TOOL));
+}
+
 /// ADR-0038: `--allowedTools` gets publish_page only for a state with the `pages` tool, and only
 /// with an attach target (the orchestrator to post to); a reviewer gets neither.
 #[test]
@@ -1667,6 +1699,7 @@ fn noop_handlers() -> OutcomeHandlers {
         on_permission_request: None,
         on_attach_file: None,
         on_publish_page: None,
+        on_run_gate: None,
     }
 }
 

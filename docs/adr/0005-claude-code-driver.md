@@ -13,7 +13,7 @@ The M1-T00 spike ([spikes/claude-driver](../../spikes/claude-driver/README.md)) 
 - `claude -p --input-format stream-json --output-format stream-json --verbose` is a long-lived, bidirectional NDJSON session. After each turn's `result` the process idles until the next user message on stdin, and it exits 0 when stdin closes. A message written after a 20 s idle gap continued the same session.
 - The session id can be **pre-assigned** with `--session-id <uuid>`. `system/init` confirms it, but only after the first user message, and it repeats on every turn.
 - `--resume <id>` keeps the id and the context, and works from any cwd **on the same machine** (it needs the local transcript).
-- `result.total_cost_usd` is **cumulative per Claude session, including across `--resume`**. `usage` is per turn.
+- `result.total_cost_usd` is **cumulative per Claude session, including across `--resume`**. `usage` is per turn. `--max-budget-usd`, however, caps what **one process** spends: a resume is not charged the conversation's earlier spend (U-018, tested 2026-11-11 on 2.1.321), so the daemon passes the session's remaining budget on every start.
 - MCP tools served by the daemon over HTTP are called reliably. A **blocking** tool call **times out after 60 s**, so `ask_user` cannot hold the call open while a human answers.
 - `--permission-mode dontAsk` + `--permission-prompts none` + `--allowedTools` denies anything not pre-approved, without prompting. Bare `Write`/`Edit` rules **escape the worktree**; `Write(./**)`/`Edit(./**)` do not.
 - The Agent SDK is a typed wrapper over the same CLI protocol, plus private `control_request` messages. It works, but without `strictMcpConfig` it attached the user's claude.ai connectors (119 tools) to the agent.

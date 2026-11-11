@@ -180,7 +180,7 @@ Every state may have `title` (its board column title) and `entry`: `{checks?: [{
 - An entry step is entered only from a real state. The routes to a human (fallback, budget, `on_unmet`) and a passed entry step enter their target directly.
 
 ### `needs_input` semantics
-`needs_input` is a `human` state. On entry the engine writes an `input_request` with `kind` set to the reason (`agent_question`, `retries_exhausted`, `budget_exceeded`, `timeout`) and remembers `return_to` (the state that sent it there). When the answer arrives, the engine returns to `return_to` with the answer attached. The UI can also offer "abort" (→ `failed`) or "skip to <state>".
+`needs_input` is a `human` state. On entry the engine writes an `input_request` with `kind` set to the reason (`agent_question`, `retries_exhausted`, `budget_exceeded`, `timeout`) and remembers `return_to` (the state that sent it there). A `budget_exceeded` request offers "Raise budget by X and continue" and "Stop" ([09 §Budgets](09-security-and-budgets.md#budgets)). When the answer arrives, the engine returns to `return_to` with the answer attached. The UI can also offer "abort" (→ `failed`) or "skip to <state>".
 
 ### Lost machines ([U-068](../tracking/UNKNOWNS.md), M2-T06)
 The orchestrator sends `machine.lost {machine_id, reason}` when a session's machine is gone (M2-T20: a lease past its grace, a revoke, a pinned machine offline too long). The status × event table, the questions and the human's options are in [10-contracts §Machines protocol v2, "Lost machines"](10-contracts.md#machines-protocol-v2); `planMachineLost` (`engine/machine-lost.ts`) implements the table row for row, and apply carries it out. How apply reads it:

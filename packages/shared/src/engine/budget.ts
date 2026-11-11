@@ -195,7 +195,8 @@ export function budgetVerdict(
   const limit = effectiveBudget(def, s.context);
   if (s.spend_usd >= limit.usd) return { dimension: 'usd', spent: s.spend_usd, limit: limit.usd };
   const minutes = liveWallSeconds(def, s, now) / 60;
-  if (minutes >= limit.minutes) return { dimension: 'minutes', spent: minutes, limit: limit.minutes };
+  if (minutes >= limit.minutes)
+    return { dimension: 'minutes', spent: minutes, limit: limit.minutes };
   return null;
 }
 

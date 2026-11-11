@@ -1085,7 +1085,11 @@ function onBudgetAnswer(
   const rest = { ...s.context };
   delete rest[BUDGET_EXCEEDED_KEY];
   s.context = rest;
-  if (mark.at !== s.workflow_state || mark.visit !== s.state_visits[mark.at] || e.goto !== undefined) {
+  if (
+    mark.at !== s.workflow_state ||
+    mark.visit !== s.state_visits[mark.at] ||
+    e.goto !== undefined
+  ) {
     return undefined;
   }
   const decision = budgetDecision(st.def, mark.dimension, e.answer);

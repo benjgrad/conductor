@@ -137,7 +137,10 @@ describe('the answer', () => {
     const s = h.snap;
     h.snap = {
       ...s,
-      context: { ...s.context, [BUDGET_EXCEEDED_KEY]: { dimension: 'usd', at: 'needs_input', visit: 0 } },
+      context: {
+        ...s.context,
+        [BUDGET_EXCEEDED_KEY]: { dimension: 'usd', at: 'needs_input', visit: 0 },
+      },
     };
     const r = h.run({ type: 'input.provided', input_request_id: h.newId(), answer: 'Stop' });
     expect(r.snapshot.status).not.toBe('failed');
@@ -158,9 +161,9 @@ describe('wall time and the queue (TD-042)', () => {
     });
     expect(h.snap).toMatchObject({ status: 'queued', wall_seconds: 600 });
     h.advance(3600); // an hour in the queue
-    expect(h.run({ type: 'budget.exceeded', dimension: 'minutes', spent: 70, limit: 60 }).ignored).toBe(
-      'within_budget',
-    );
+    expect(
+      h.run({ type: 'budget.exceeded', dimension: 'minutes', spent: 70, limit: 60 }).ignored,
+    ).toBe('within_budget');
     h.claimAndStart();
     h.advance(300);
     const r = h.complete();

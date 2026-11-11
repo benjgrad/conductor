@@ -8,6 +8,7 @@ import {
   SessionStatusSchema,
   UuidSchema,
 } from '../domain.js';
+import { NotifyDecisionSchema } from '../workflow/schema.js';
 import { BoardCardSchema } from './rest.js';
 
 export { OutputChunkSchema, type OutputChunk } from './output.js';
@@ -69,6 +70,11 @@ export const BoardSseEventSchema = z.discriminatedUnion('type', [
     kind: InputRequestKindSchema,
     question: z.string(),
     created_at: IsoDateTimeSchema,
+    /**
+     * ADR-0037 P6: the notify policy's decision (`input_request.notify`); a `silent` request opens
+     * no in-tab notification. Absent ≡ legacy mode or an older server.
+     */
+    notify: NotifyDecisionSchema.optional(),
   }),
   z.object({
     type: z.literal('input.answered'),

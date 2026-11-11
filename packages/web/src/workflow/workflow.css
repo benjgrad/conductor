@@ -436,6 +436,26 @@ p.wf-version-warning {
   gap: 6px 8px;
   align-items: center;
 }
+/* The Notifications section's per-transition table (NotifyPolicyEditor). */
+.wf-notify-heading {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+}
+.wf-notify-table {
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  width: 100%;
+}
+.wf-notify-table th,
+.wf-notify-table td {
+  padding: 2px var(--space-1);
+  text-align: left;
+}
+.wf-notify-table th[scope='rowgroup'] {
+  color: var(--muted);
+  font-weight: normal;
+  padding-top: var(--space-2);
+}
 .wf-unmet label {
   color: var(--muted);
   font-size: var(--text-sm);

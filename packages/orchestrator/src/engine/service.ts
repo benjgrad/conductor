@@ -370,6 +370,8 @@ export class EngineServiceImpl implements EngineService {
             kind: row.kind,
             question: row.question,
             created_at: row.created_at.toISOString(),
+            // ADR-0037 P6: the tab skips a silent request's notification, like Web Push.
+            ...(effect.notify_decision !== undefined ? { notify: effect.notify_decision } : {}),
           });
           break;
         }

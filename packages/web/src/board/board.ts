@@ -114,6 +114,7 @@ export function applyBoardEvent(state: BoardState, ev: BoardSseEvent): BoardStat
             answer: null,
             answered_by: null,
             answered_at: null,
+            ...(ev.notify !== undefined ? { notify: ev.notify } : {}),
           },
         },
         ev.id,

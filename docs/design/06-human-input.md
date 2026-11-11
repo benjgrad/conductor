@@ -30,7 +30,8 @@ sequenceDiagram
 - **Compute release**: a session parked in `needs_input` keeps its process alive but idle. After `park_release_after` (default **15 min**) the daemon checkpoints. That means the worktree is committed and pushed to the session branch and the `claude_session_id` is saved. Then the reservation is released. Answers that arrive after that go through the resume path.
 - **Unmet requirements** ([ADR-0009](../adr/0009-transition-requirements-review.md), [05](05-workflow-engine.md#requirements-gates-adr-0009)). A gate's `on_unmet.else` is always a human state. It is entered with kind `retries_exhausted` and the question "Requirements for "implement" → "build" were not met after 3 reviews (retry limit 2):", one `- <item>: <reason>` line per unmet item, then "Retry, skip, or abort?". A review that produced no verdict uses `retries_exhausted` ("…produced no verdict (…)"), a review that timed out uses `timeout` ("…timed out (review timed out after 10m)"). No new kind: `input_request_kind` is a Postgres enum. `return_to` is the gate's source state, so an answer resumes the **worker's** Claude conversation with the answer (never the reviewer's); finishing that state goes through the gate again, and since the counter is already at its limit an unmet verdict comes straight back here. "Skip to <state>" bypasses the gate.
 - Answering is idempotent per `input_request_id`. A second answer to the same request is rejected.
-- `answered_by` records a UI user, or `slack:<id>` once Slack answering exists ([U-007](../tracking/UNKNOWNS.md)).
+- `answered_by` records a UI user, `slack:<id>` once Slack answering exists ([U-007](../tracking/UNKNOWNS.md)), or `system` when conductor closed the request itself (a watch moved the ticket, or a [default answer](#default-answers-and-overrule) was delivered).
+- **Default answers** ([ADR-0041](../adr/0041-question-default-on-timeout.md)): an agent question whose transition declares `default` and whose agent gave a recommended answer carries it (`default_answer`, `default_at`). If no human answers by then, conductor delivers it ([§Default answers and overrule](#default-answers-and-overrule)).
 
 ## Check-config failures and agent-proposed repo checks
 
@@ -52,6 +53,23 @@ An agent's `ask_user` may list the answers it expects, the way Claude Code's own
 - **Permission prompts on the card**: a card whose agent waits on a permission prompt (`sub_status: needs_permission`) shows **Allow once** for the oldest pending request. Deny, Allow always and the deny note are in the panel, which the card's title opens (UXR-33: one action per card).
 - **One action per card** (UXR-33): a card shows at most one button or link, in this order: a review request's **Review pull request ↗**, **Approve plan**, the first agent option (or **Answer…**), **Allow once**, the first human transition (`cardAction`, `web/src/components/card-action.ts`). Everything else is in the session panel.
 - **Requests by kind** (UXR-35, [11-web-ui §Requests](11-web-ui.md#requests)): every request that waits on a human in the panel has a heavy left border and a chip naming its kind, coloured by kind: a question (and a plan to approve) blue, a review green, a permission prompt violet, a failure red. Only failures are red.
+
+## Default answers and overrule
+
+[ADR-0041](../adr/0041-question-default-on-timeout.md): a non-critical question doesn't hold a ticket overnight. A question transition can declare `default: {after, answer: "$recommended"}` (05 §Default answers; validator rule 29; never `plan_needs_approval` or `needs_approval_to_message`).
+
+- **The recommended answer.** It is `result.recommended` of the agent's `complete_state`, or the first option of a single-select `ask_user` tool call (the tool already lists the recommended choice first). Without one, the question waits for a human as before. The agent's "How to finish" tells it so for each transition that has a default.
+- **While it waits.** The pending request shows a quiet line under the question: "If nobody answers by <weekday, time>, conductor answers: “<answer>”". Answering, a transition button or anything else that moves the ticket cancels the default.
+- **When it fires.** The sweep finds the request still open at `default_at`. Conductor then:
+  - delivers the answer to the asking agent as an answer would be delivered (to the live parked process, else a resume), telling the agent it was given on the human's behalf and may be overruled;
+  - closes the request with `answered_by: system`, and records the move as cause `default_taken`, actor `system`;
+  - always pushes "Conductor answered for you (no reply in 8h): <answer>", once per request, whatever the notify policy says;
+  - notes it in Messages as a quiet line.
+  Defaults are bounded: after `budget.max_loop_retries` of them from the same state, its next question waits for a human.
+- **Overrule.** The Details timeline shows the move as **Conductor answered for you: <answer>**, with **Overrule…** while the overrule can still reach the agent (`SessionDetail.overrulable`). That means the agent is on the same visit and is queued (the correction joins its pending answer) or running with a live process (a live message).
+  - The text box asks "What should the agent do instead?" and posts `POST /api/sessions/:id/overrule {input_request_id, text}`.
+  - The agent gets "A human overruled the answer conductor gave on their behalf (…). Use this instead: <text>". The text shows in Messages like a sent message, and `input_request.overruled_at` is set.
+  - Once the agent has moved on or asked again (or for the moment it is still starting), the route answers 409 and the button is gone: answer its new question, or send it a message.
 
 ## Live messages to a running agent
 

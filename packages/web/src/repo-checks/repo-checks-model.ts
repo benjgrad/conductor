@@ -107,7 +107,12 @@ export function sameSpec(a: Spec, b: Spec): boolean {
   if (a.checks.length !== b.checks.length) return false;
   return a.checks.every((c, i) => {
     const d = b.checks[i]!;
-    return c.name === d.name && c.cmd === d.cmd && (c.timeout ?? '') === (d.timeout ?? '');
+    return (
+      c.name === d.name &&
+      c.cmd === d.cmd &&
+      (c.timeout ?? '') === (d.timeout ?? '') &&
+      (c.paths ?? []).join('\u0000') === (d.paths ?? []).join('\u0000')
+    );
   });
 }
 

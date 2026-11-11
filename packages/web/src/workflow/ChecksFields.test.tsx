@@ -2,7 +2,13 @@
 import type { EntryCheck } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ChecksFields, MAX_CHECKS, type ChecksIssue, type ChecksValue } from './ChecksFields.js';
+import {
+  ChecksFields,
+  MAX_CHECKS,
+  parsePaths,
+  type ChecksIssue,
+  type ChecksValue,
+} from './ChecksFields.js';
 
 afterEach(cleanup);
 
@@ -81,5 +87,37 @@ describe('ChecksFields (UXR-61)', () => {
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Add check' }).disabled).toBe(
       true,
     );
+  });
+});
+
+describe('ChecksFields: paths (R3)', () => {
+  it('parses globs separated by commas or new lines, dropping blanks', () => {
+    expect(parsePaths(' crates/**, Cargo.*,\nrust-toolchain.toml, ')).toEqual([
+      'crates/**',
+      'Cargo.*',
+      'rust-toolchain.toml',
+    ]);
+    expect(parsePaths(' , ')).toEqual([]);
+  });
+
+  it('sets a check’s paths, keeps the text as typed, and clearing it removes the key', () => {
+    const { onChange } = renderFields([{ name: 'Cargo', cmd: 'cargo test', paths: ['crates/**'] }]);
+    const input = screen.getByLabelText<HTMLInputElement>('Check 1 paths');
+    expect(input.value).toBe('crates/**');
+    fireEvent.change(input, { target: { value: 'crates/**, Cargo.*,' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      checks: [{ name: 'Cargo', cmd: 'cargo test', paths: ['crates/**', 'Cargo.*'] }],
+      setup: undefined,
+    });
+    fireEvent.change(input, { target: { value: '' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      checks: [{ name: 'Cargo', cmd: 'cargo test' }],
+      setup: undefined,
+    });
+  });
+
+  it('shows a paths problem under its row', () => {
+    renderFields(TWO, [{ suffix: 'checks.1.paths', message: 'Check 2: Paths: bad' }]);
+    expect(screen.getByRole('alert').textContent).toBe('Check 2: Paths: bad');
   });
 });

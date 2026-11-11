@@ -1,6 +1,6 @@
 import type { ChecksGate, RepoChecksDto, WorkflowDefinition } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
-import { compareRows, gateCountText, gateTitle, repoRows } from './repo-checks-model.js';
+import { compareRows, gateCountText, gateTitle, repoRows, sameSpec } from './repo-checks-model.js';
 
 const dto = (repo: string): RepoChecksDto => ({
   repo,
@@ -134,4 +134,14 @@ it('gateCountText', () => {
   expect(gateCountText(3)).toBe('Runs at all 3 check gates');
   expect(gateCountText(1)).toBe('Runs at the one check gate');
   expect(gateCountText(0)).toMatch(/no gate/);
+});
+
+describe('sameSpec: paths (R3)', () => {
+  const c = { name: 'Cargo', cmd: 'cargo test' };
+  it('a change to a check’s paths is a change', () => {
+    const a = { setup: null, checks: [{ ...c, paths: ['crates/**'] }] };
+    expect(sameSpec(a, { setup: null, checks: [{ ...c, paths: ['crates/**'] }] })).toBe(true);
+    expect(sameSpec(a, { setup: null, checks: [{ ...c, paths: ['Cargo.*'] }] })).toBe(false);
+    expect(sameSpec(a, { setup: null, checks: [c] })).toBe(false);
+  });
 });

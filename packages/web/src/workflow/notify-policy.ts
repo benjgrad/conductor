@@ -1,9 +1,15 @@
-import type {
-  NotifyMode,
-  NotifyPolicy,
-  TransitionObject,
-  WorkflowDefinition,
+import {
+  RETURN_TO,
+  transitionActor,
+  transitionTitle,
+  type NotifyMode,
+  type NotifyPolicy,
+  type TransitionActor,
+  type TransitionObject,
+  type WorkflowDefinition,
 } from '@conductor/shared';
+import { columnTitle } from './columns.js';
+import { getTransitionObject, patchTransition, transitionNames } from './transitions.js';
 
 // ADR-0037 P6 (T4) in the designer: a transition's notify select and the workflow's notify policy.
 
@@ -81,4 +87,69 @@ export function setNotifyPolicy(
     states[name] = { ...state, on };
   }
   return { ...rest, states };
+}
+
+/**
+ * The notify select's options for this definition: every mode under a policy (Inherit names the
+ * workflow default), only the legacy boolean's choices without one (rule 23).
+ */
+export function notifyOptions(def: WorkflowDefinition): { value: NotifyChoice; text: string }[] {
+  const policy = def.notify;
+  if (policy === undefined) return [...LEGACY_NOTIFY_CHOICES];
+  return NOTIFY_CHOICES.map(({ value, text }) => ({
+    value,
+    text: value === '' ? `${text} (${NOTIFY_MODE_TEXT[policy.default].toLowerCase()})` : text,
+  }));
+}
+
+/** One row of the Notifications section's per-transition table. */
+export interface NotifyRow {
+  from: string;
+  name: string;
+  title: string;
+  fromTitle: string;
+  toTitle: string;
+  actor: TransitionActor;
+  choice: NotifyChoice;
+}
+
+/** Every transition of the workflow, by column then definition order, with its notify choice. */
+export function notifyRows(def: WorkflowDefinition): NotifyRow[] {
+  const rows: NotifyRow[] = [];
+  for (const [from, state] of Object.entries(def.states)) {
+    if (state.type === 'terminal') continue;
+    for (const name of transitionNames(def, from)) {
+      const raw = state.on?.[name];
+      const t = getTransitionObject(def, from, name);
+      if (raw === undefined || t === null) continue;
+      rows.push({
+        from,
+        name,
+        title: transitionTitle(name, raw),
+        fromTitle: columnTitle(def, from),
+        toTitle: t.goto === RETURN_TO ? 'The column that asked' : columnTitle(def, t.goto),
+        actor: transitionActor(def, from, name, raw),
+        choice: notifyChoice(t.notify),
+      });
+    }
+  }
+  return rows;
+}
+
+/** How a choice reads in a count: the workflow default for Inherit, legacy Inherit is never. */
+export function effectiveMode(def: WorkflowDefinition, choice: NotifyChoice): NotifyMode {
+  if (choice !== '') return choice;
+  return def.notify?.default ?? 'never';
+}
+
+/** Set transition `name` out of `from` to `choice` (a mode under a policy, else the boolean). */
+export function setTransitionNotify(
+  def: WorkflowDefinition,
+  from: string,
+  name: string,
+  choice: NotifyChoice,
+): WorkflowDefinition {
+  return patchTransition(def, from, name, {
+    notify: notifyValue(choice, def.notify !== undefined),
+  });
 }

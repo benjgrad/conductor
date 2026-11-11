@@ -30,14 +30,7 @@ import { columnStates, columnTitle, humanStates, type ColumnIssue } from './colu
 import { EditorHead, type Crumb } from './EditorHead.js';
 import { InstructionField } from './InstructionField.js';
 import { instructionsOf, setPresets } from './instructions.js';
-import {
-  LEGACY_NOTIFY_CHOICES,
-  NOTIFY_CHOICES,
-  NOTIFY_MODE_TEXT,
-  notifyChoice,
-  notifyValue,
-  type NotifyChoice,
-} from './notify-policy.js';
+import { notifyChoice, notifyOptions, notifyValue, type NotifyChoice } from './notify-policy.js';
 import { RepoOverridesHint } from './RepoOverridesHint.js';
 import {
   ACTION_SHORT,
@@ -453,11 +446,9 @@ function TransitionForm({
             value={notifyChoice(t.notify)}
             onChange={(e) => patch({ notify: notifyValue(e.target.value as NotifyChoice, policy) })}
           >
-            {(policy ? NOTIFY_CHOICES : LEGACY_NOTIFY_CHOICES).map(({ value, text }) => (
+            {notifyOptions(definition).map(({ value, text }) => (
               <option key={value} value={value}>
-                {value === '' && definition.notify !== undefined
-                  ? `${text} (${NOTIFY_MODE_TEXT[definition.notify.default].toLowerCase()})`
-                  : text}
+                {text}
               </option>
             ))}
           </select>

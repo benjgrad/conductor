@@ -56,6 +56,7 @@ import {
   SessionBaseSchema,
   MoveActorSchema,
   MoveCauseSchema,
+  NotifyDecisionSchema,
   WorkflowDefinitionSchema,
   conditionEnabled,
   conditionLabel,
@@ -482,6 +483,12 @@ export const InputRequestDtoSchema = z.object({
    * `ask_user` question. Absent or null ≡ none (type an answer).
    */
   options: QuestionOptionsSchema.nullable().optional(),
+  /**
+   * ADR-0037 P6: the notify policy's decision for the move that opened the request
+   * (`input_request.notify`). A `silent` request opens no in-tab notification, matching Web Push.
+   * Absent or null ≡ legacy mode (no workflow `notify` policy) or an older server: it notifies.
+   */
+  notify: NotifyDecisionSchema.nullable().optional(),
 });
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
@@ -1976,6 +1983,8 @@ export interface InputRequestLike {
   origin_cause?: string | null | undefined;
   /** Questions UX: the `options` jsonb. Absent or null ≡ none; malformed ≡ none. */
   options?: unknown;
+  /** ADR-0037 P6: the `notify` jsonb (a NotifyDecision). Absent or null ≡ none; malformed ≡ none. */
+  notify?: unknown;
 }
 
 /**
@@ -2011,6 +2020,10 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
   if (row.options !== undefined && row.options !== null) {
     const parsed = QuestionOptionsSchema.safeParse(row.options);
     if (parsed.success) dto.options = parsed.data;
+  }
+  if (row.notify !== undefined && row.notify !== null) {
+    const parsed = NotifyDecisionSchema.safeParse(row.notify);
+    if (parsed.success) dto.notify = parsed.data;
   }
   if (row.origin_transition === undefined && row.origin_from === undefined) return dto;
   // An engine route (requirements unmet, a step that failed, a fallback) records why under its own

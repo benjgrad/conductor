@@ -180,6 +180,17 @@ describe('applyBoardEvent', () => {
     expect(s.cards.get(running.ticket_id)?.input_request).toBeNull();
   });
 
+  it('input.requested carries the notify decision (ADR-0037 P6) only when present', () => {
+    const notify = { via: 'ask_user', mode: 'once', decision: 'silent' } as const;
+    const s = applyBoardEvent(boardOf(running), {
+      ...BOARD_SSE_FIXTURES['input.requested'],
+      notify,
+    });
+    expect(s.cards.get(running.ticket_id)?.input_request?.notify).toEqual(notify);
+    const legacy = applyBoardEvent(boardOf(running), BOARD_SSE_FIXTURES['input.requested']);
+    expect('notify' in legacy.cards.get(running.ticket_id)!.input_request!).toBe(false);
+  });
+
   it('card.badge toggles the build-slot badge', () => {
     let s = applyBoardEvent(boardOf(running), BOARD_SSE_FIXTURES['card.badge']);
     expect(s.cards.get(running.ticket_id)?.badges).toEqual(['waiting_for_build_slot']);

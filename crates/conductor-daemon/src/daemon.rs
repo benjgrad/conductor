@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::attachments;
-use conductor_protocol::tool_policy::resolve_tool_policy;
+use conductor_protocol::tool_policy::{forces_dont_ask, resolve_tool_policy};
 use conductor_protocol::{
     AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_AGENT_ATTACHMENTS,
     DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_PAGES, DAEMON_FEATURE_PERMISSION_MODE,
@@ -1493,6 +1493,8 @@ impl Core {
             .map(|n| u32::try_from(n.get()).unwrap_or(u32::MAX));
         // ADR-0009: a reviewer runs in dontAsk (the driver forces the mode).
         opts.review = review;
+        // R7: a read-only-shell state (bash_readonly, no write alias) also runs in dontAsk.
+        opts.dont_ask = forces_dont_ask(&p.tools);
         // ADR-0029: the user's MCP servers the agent gets (absent = only conductor's).
         opts.mcp = p.mcp.clone();
         // ADR-0011: the names complete_state accepts.

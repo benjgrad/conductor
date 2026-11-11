@@ -1,0 +1,86 @@
+{
+  "function": "forcesDontAsk",
+  "description": "forcesDontAsk(tools) → whether the session runs in dontAsk: bash_readonly and no write alias (workflow/tools.ts)",
+  "cases": [
+    {
+      "input": [],
+      "expected": false
+    },
+    {
+      "input": [
+        "read"
+      ],
+      "expected": false
+    },
+    {
+      "input": [
+        "bash_readonly"
+      ],
+      "expected": true
+    },
+    {
+      "input": [
+        "read",
+        "bash_readonly"
+      ],
+      "expected": true
+    },
+    {
+      "input": [
+        "read",
+        "bash_readonly",
+        "pages"
+      ],
+      "expected": true
+    },
+    {
+      "input": [
+        "bash_readonly",
+        "edit"
+      ],
+      "expected": false
+    },
+    {
+      "input": [
+        "bash_readonly",
+        "git"
+      ],
+      "expected": false
+    },
+    {
+      "input": [
+        "bash",
+        "bash_readonly"
+      ],
+      "expected": false
+    },
+    {
+      "input": [
+        "bash_readonly",
+        "pr_skill"
+      ],
+      "expected": false
+    },
+    {
+      "input": [
+        "qa",
+        "bash_readonly"
+      ],
+      "expected": false
+    },
+    {
+      "input": [
+        "review",
+        "bash_readonly"
+      ],
+      "expected": true
+    },
+    {
+      "input": [
+        "bash_readonly",
+        "nope"
+      ],
+      "expected": true
+    }
+  ]
+}

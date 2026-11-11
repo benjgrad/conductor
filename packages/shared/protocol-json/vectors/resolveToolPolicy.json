@@ -691,6 +691,194 @@
     },
     {
       "input": [
+        "bash_readonly"
+      ],
+      "expected": {
+        "builtin": [
+          "Read",
+          "Glob",
+          "Grep",
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
+        ],
+        "allow": [
+          "Read(./**)",
+          "Glob(./**)",
+          "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
+          "Bash(git status)",
+          "Bash(git branch --show-current)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git diff:*)",
+          "Bash(git grep:*)",
+          "Bash(git blame:*)",
+          "Bash(git ls-files:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh run view:*)",
+          "Bash(gh run list:*)",
+          "Bash(rg:*)",
+          "Bash(ls:*)",
+          "Bash(cat:*)"
+        ],
+        "deny": [
+          "Bash(git push:*)",
+          "Bash(git log --output:*)",
+          "Bash(git show --output:*)",
+          "Bash(git diff --output:*)",
+          "Bash(git grep -O:*)",
+          "Bash(git grep --open-files-in-pager:*)",
+          "Bash(rg --pre:*)",
+          "Bash(git * --output*)",
+          "Bash(git grep -O*)",
+          "Bash(git grep * -O*)",
+          "Bash(git grep * --open-files-in-pager*)",
+          "Bash(rg --pre*)",
+          "Bash(rg * --pre*)",
+          "Bash(gh * --web*)"
+        ]
+      }
+    },
+    {
+      "input": [
+        "read",
+        "bash_readonly",
+        "pages"
+      ],
+      "expected": {
+        "builtin": [
+          "Read",
+          "Glob",
+          "Grep",
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
+        ],
+        "allow": [
+          "Read(./**)",
+          "Glob(./**)",
+          "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
+          "Bash(git status)",
+          "Bash(git branch --show-current)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git diff:*)",
+          "Bash(git grep:*)",
+          "Bash(git blame:*)",
+          "Bash(git ls-files:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh run view:*)",
+          "Bash(gh run list:*)",
+          "Bash(rg:*)",
+          "Bash(ls:*)",
+          "Bash(cat:*)"
+        ],
+        "deny": [
+          "Bash(git push:*)",
+          "Bash(git log --output:*)",
+          "Bash(git show --output:*)",
+          "Bash(git diff --output:*)",
+          "Bash(git grep -O:*)",
+          "Bash(git grep --open-files-in-pager:*)",
+          "Bash(rg --pre:*)",
+          "Bash(git * --output*)",
+          "Bash(git grep -O*)",
+          "Bash(git grep * -O*)",
+          "Bash(git grep * --open-files-in-pager*)",
+          "Bash(rg --pre*)",
+          "Bash(rg * --pre*)",
+          "Bash(gh * --web*)"
+        ]
+      }
+    },
+    {
+      "input": [
+        "bash",
+        "bash_readonly"
+      ],
+      "expected": {
+        "builtin": [
+          "Read",
+          "Glob",
+          "Grep",
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
+        ],
+        "allow": [
+          "Read(./**)",
+          "Glob(./**)",
+          "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
+          "Bash(npm run:*)",
+          "Bash(npm test:*)",
+          "Bash(npm install)",
+          "Bash(npm ci)",
+          "Bash(pnpm run:*)",
+          "Bash(pnpm test:*)",
+          "Bash(pnpm install)",
+          "Bash(pnpm i)",
+          "Bash(pnpm install --frozen-lockfile)",
+          "Bash(pnpm i --frozen-lockfile)",
+          "Bash(pnpm typecheck)",
+          "Bash(pnpm lint)",
+          "Bash(pnpm build)",
+          "Bash(pnpm format)",
+          "Bash(pnpm vitest:*)",
+          "Bash(pnpm exec vitest:*)",
+          "Bash(pnpm exec prettier:*)",
+          "Bash(pnpm exec eslint:*)",
+          "Bash(pnpm exec tsc -b)",
+          "Bash(chmod +x:*)",
+          "Bash(git status)",
+          "Bash(git branch --show-current)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git diff:*)",
+          "Bash(git grep:*)",
+          "Bash(git blame:*)",
+          "Bash(git ls-files:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh run view:*)",
+          "Bash(gh run list:*)",
+          "Bash(rg:*)",
+          "Bash(ls:*)",
+          "Bash(cat:*)"
+        ],
+        "deny": [
+          "Bash(git push:*)",
+          "Bash(git log --output:*)",
+          "Bash(git show --output:*)",
+          "Bash(git diff --output:*)",
+          "Bash(git grep -O:*)",
+          "Bash(git grep --open-files-in-pager:*)",
+          "Bash(rg --pre:*)",
+          "Bash(git * --output*)",
+          "Bash(git grep -O*)",
+          "Bash(git grep * -O*)",
+          "Bash(git grep * --open-files-in-pager*)",
+          "Bash(rg --pre*)",
+          "Bash(rg * --pre*)",
+          "Bash(gh * --web*)"
+        ]
+      }
+    },
+    {
+      "input": [
         "nope"
       ],
       "error": {

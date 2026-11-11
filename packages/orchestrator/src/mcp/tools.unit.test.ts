@@ -132,7 +132,7 @@ describe('advisor tools (ADR-0033)', () => {
       'list_change_proposals',
       'apply_change',
     ]);
-    expect(names.slice(-8, -7)).toEqual(['adopt_default_workflow']);
+    expect(names.slice(-9, -7)).toEqual(['adopt_default_workflow', 'simulate_workflow']);
     for (const t of (await client.listTools()).tools.slice(-7, -3)) {
       expect(t.annotations?.readOnlyHint).toBe(true);
       expect(t.description!.length).toBeLessThanOrEqual(700);

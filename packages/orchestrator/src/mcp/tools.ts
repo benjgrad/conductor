@@ -81,6 +81,7 @@ import { cancelTicket, reopenTicket } from '../api/ticket-lifecycle.js';
 import { conductorDefaultAvailable, newestShippedConductor } from '../engine/seed.js';
 import { maxBoardEventId } from '../stream/board.js';
 import { capJson } from './cap.js';
+import { simulateRecordedTicket } from './simulate.js';
 import { WAITING_ON_USER, statusLine, statusReport, waitingOn, type WaitingOn } from './status.js';
 import { waitForUpdates, type ChangeRow } from './updates.js';
 
@@ -159,7 +160,8 @@ export const WORKFLOW_ADVISOR_PROMPT = [
     'reentries, check_failure_rate, questions or permission_denials; direction down or up), ' +
     'and how to roll it back. ' +
     'Prefer the narrowest scope: one repo’s checks before the workflow, one state before many. ' +
-    'Show me its diff.',
+    'For a workflow change, first simulate_workflow the draft against the finding’s example ' +
+    'tickets and say where their routes would differ. Show me its diff.',
   '5. Ask me to confirm. Only then apply_change it (confirm: true). On conflict, read again and ' +
     'propose anew; never retry blindly.',
   '6. Later: list_change_proposals with its id shows the metric before vs after the change; ' +
@@ -190,6 +192,8 @@ const BODY_MAX = 4000;
 const MACHINE_REPOS_MAX = 10;
 /** save_workflow: at most this many validator errors in the result. */
 const WORKFLOW_ERRORS_MAX = 50;
+/** simulate_workflow: at most this many tickets a call. */
+const SIMULATE_TICKETS_MAX = 10;
 
 /** list_schedules: each schedule's body, clipped. */
 const SCHEDULE_BODY_CLIP = 300;
@@ -237,6 +241,20 @@ function fail(code: string, message: string, extra: Record<string, unknown> = {}
     isError: true,
     content: [{ type: 'text', text: JSON.stringify({ error: { code, message, ...extra } }) }],
   };
+}
+
+/** A validator's errors as save_workflow's `invalid_workflow` result (≤ WORKFLOW_ERRORS_MAX). */
+function invalidWorkflow(errors: WorkflowValidationError[]): ToolResult {
+  return fail('invalid_workflow', 'workflow definition is invalid', {
+    errors: errors.slice(0, WORKFLOW_ERRORS_MAX).map((e) => ({
+      rule: e.rule,
+      path: pathString(e.path),
+      message: e.message,
+    })),
+    ...(errors.length > WORKFLOW_ERRORS_MAX
+      ? { more_errors: errors.length - WORKFLOW_ERRORS_MAX }
+      : {}),
+  });
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -1600,18 +1618,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       const problem = workflowJsonProblem(definition);
       if (problem !== null) return fail('invalid_input', problem);
       const checked = validateWorkflow(definition);
-      if (!checked.ok) {
-        return fail('invalid_workflow', 'workflow definition is invalid', {
-          errors: checked.errors.slice(0, WORKFLOW_ERRORS_MAX).map((e) => ({
-            rule: e.rule,
-            path: pathString(e.path),
-            message: e.message,
-          })),
-          ...(checked.errors.length > WORKFLOW_ERRORS_MAX
-            ? { more_errors: checked.errors.length - WORKFLOW_ERRORS_MAX }
-            : {}),
-        });
-      }
+      if (!checked.ok) return invalidWorkflow(checked.errors);
       return saveChecked(checked.def, base_version, checked.warnings ?? []);
     },
   );
@@ -1629,6 +1636,50 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     async ({ base_version }) => {
       if (!mayEditWorkflows) return notAdmin();
       return saveChecked(newestShippedConductor(), base_version);
+    },
+  );
+
+  register(
+    'simulate_workflow',
+    {
+      description:
+        'Replay tickets through a draft workflow: per ticket, the first move that differs',
+      // Loose and checked below, not in the schema, so the tool list stays inside its budget.
+      inputSchema: { definition: z.unknown(), ticket_ids: z.array(z.string()) },
+      annotations: readOnly,
+    },
+    async ({ definition, ticket_ids }) => {
+      if (ticket_ids.length === 0 || ticket_ids.length > SIMULATE_TICKETS_MAX) {
+        return fail('invalid_input', `Give 1 to ${SIMULATE_TICKETS_MAX} ticket refs.`);
+      }
+      if (definition === null || typeof definition !== 'object' || Array.isArray(definition)) {
+        return fail('invalid_input', '`definition` is a workflow definition object.');
+      }
+      const problem = workflowJsonProblem(definition);
+      if (problem !== null) return fail('invalid_input', problem);
+      const checked = validateWorkflow(definition);
+      if (!checked.ok) return invalidWorkflow(checked.errors);
+      const tickets: unknown[] = [];
+      const summary = { replayed: 0, diverged: 0, unreplayable: 0, unresolved: 0 };
+      for (const ref of ticket_ids) {
+        const t = await resolveTicket(db, accountId, ref);
+        const res =
+          'error' in t ? null : await simulateRecordedTicket(db, accountId, t.id, checked.def);
+        if (res === null) {
+          summary.unresolved++;
+          const err = 'error' in t ? (JSON.parse(t.error.content[0]!.text) as object) : null;
+          tickets.push({
+            ticket: ref,
+            ...(err ?? { error: { code: 'not_found', message: `No ticket ${ref}.` } }),
+          });
+          continue;
+        }
+        summary.replayed++;
+        if (res.diverged) summary.diverged++;
+        if (!res.replayable) summary.unreplayable++;
+        tickets.push(res);
+      }
+      return ok({ workflow_id: checked.def.id, summary, tickets });
     },
   );
 

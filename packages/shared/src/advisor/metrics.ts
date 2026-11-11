@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isNamedMove } from '../engine/types.js';
+import { isNamedMove, type TriageMove } from '../engine/types.js';
 import type { MoveCause, NotifyDecision } from '../workflow/schema.js';
 import { stateKey, type CheckRole, type CheckSource, type InputClass } from './gates.js';
 
@@ -35,6 +35,8 @@ export interface MoveRow {
   workflow_version?: number | null;
   /** ADR-0037 P6: the notify policy's decision for this move; absent in legacy mode. */
   notify?: NotifyDecision | null;
+  /** ADR-0043: on a triage verdict's move, the failure it judged; absent elsewhere. */
+  triage?: TriageMove | null;
 }
 
 /** One finished check: a `run_cmd` and its `command.exited`. */
@@ -766,6 +768,25 @@ export const ProcessMetricsSchema = z.object({
    * hold ended in the window: their time (taken out of the state groups, never slow) and how the
    * holds ended (`concurrency_released`, `timeout`, `left`). Absent when nothing was held.
    */
+  /**
+   * ADR-0043 (FR-5): the triage verdicts over the window, broken down by the failure they judged
+   * (`failure_cause`) and the verdict taken (its transition). `capped`: the verdict ran out of
+   * retries and went to its `else` (a human). Absent when no triage verdict was recorded.
+   */
+  triage: z
+    .object({
+      verdicts: z.number().int().nonnegative(),
+      tickets: z.number().int().nonnegative(),
+      by_cause: z.array(
+        z.object({
+          failure_cause: z.string(),
+          verdict: z.string(),
+          count: z.number().int().nonnegative(),
+          capped: z.number().int().nonnegative(),
+        }),
+      ),
+    })
+    .optional(),
   queued: z
     .object({
       holds: z.number().int().nonnegative(),
@@ -915,6 +936,7 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     ...pageCounts(rows.pages ?? []),
     ...presetUses(rows.preset_texts ?? []),
     ...pushCounts(rows.moves),
+    ...triageVerdicts(rows.moves),
     ...queuedTime(rows.holds ?? []),
   };
 }
@@ -943,6 +965,46 @@ export function queuedTime(holds: readonly HoldRow[]): Pick<ProcessMetrics, 'que
 }
 
 const VIAS_MAX = 10;
+const TRIAGE_ROWS_MAX = 20;
+
+/**
+ * ADR-0043 (FR-5): `{triage}` for ProcessMetrics, from the moves that carry a triage record (every
+ * move out of a triage state): per failure cause and verdict, most first. Nothing without one.
+ */
+export function triageVerdicts(moves: readonly MoveRow[]): Pick<ProcessMetrics, 'triage'> {
+  const judged = moves.filter((m): m is MoveRow & { triage: TriageMove } => m.triage != null);
+  if (judged.length === 0) return {};
+  const rows = new Map<
+    string,
+    { failure_cause: string; verdict: string; count: number; capped: number }
+  >();
+  for (const m of judged) {
+    const failure_cause = m.triage.failure_cause;
+    const verdict = m.transition ?? 'unknown';
+    const row = bucket(rows, `${failure_cause}\u0000${verdict}`, () => ({
+      failure_cause,
+      verdict,
+      count: 0,
+      capped: 0,
+    }));
+    row.count++;
+    if (m.cause === 'retries_exhausted') row.capped++;
+  }
+  return {
+    triage: {
+      verdicts: judged.length,
+      tickets: new Set(judged.map((m) => m.ticket_id)).size,
+      by_cause: [...rows.values()]
+        .sort(
+          (a, b) =>
+            b.count - a.count ||
+            a.failure_cause.localeCompare(b.failure_cause) ||
+            a.verdict.localeCompare(b.verdict),
+        )
+        .slice(0, TRIAGE_ROWS_MAX),
+    },
+  };
+}
 
 /**
  * ADR-0037 P6: `{pushes}` for ProcessMetrics, from the decisions recorded on the moves (one push

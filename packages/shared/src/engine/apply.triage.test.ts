@@ -238,6 +238,23 @@ describe('ADR-0043 the triage role', () => {
     expect(start.prompt).toContain('## What failed');
   });
 
+  it('(FR-5) every verdict out of triage records the failure it judged; a leg move does not', () => {
+    const judged = { failure_cause: 'retries_exhausted', gate_transition: 'pr_ready' };
+    const esc = inTriage();
+    verdict(esc, 'escalate', 'Only Ben can decide.');
+    expect(enteredOf(esc)).toEqual([
+      expect.objectContaining({ transition: 'escalate', cause: 'transition', triage: judged }),
+    ]);
+    const fix = inTriage();
+    verdict(fix, 'fix_env', 'Stale install.');
+    expect(enteredOf(fix)).toEqual([
+      expect.objectContaining({ to: 'fix_env', transition: 'fix_env', triage: judged }),
+    ]);
+    fix.cmdExit(0, 'installed');
+    expect(enteredOf(fix)).toHaveLength(1);
+    expect(enteredOf(fix)[0]!.triage).toBeUndefined();
+  });
+
   it('(f) send_back is counted: past its retries it goes to its else', () => {
     const h = inTriage();
     for (let i = 0; i < 2; i++) {

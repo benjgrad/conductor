@@ -18,6 +18,7 @@ import {
   ProcessMetricsSchema,
   rankFindings,
   stateDurations,
+  triageVerdicts,
   withoutHeld,
   type AdvisorRows,
   type HoldRow,
@@ -920,5 +921,52 @@ describe('machine_health (R13)', () => {
     const all = rankFindings(rows);
     expect(all.map((f) => f.category)).toContain('machine_health');
     expect(all.find((f) => f.category === 'machine_health')!.severity).toBe(3);
+  });
+});
+
+describe('triageVerdicts (ADR-0043 FR-5)', () => {
+  const judged = (cause: 'check_failed' | 'timeout', gate = 'pr_ready') => ({
+    triage: { failure_cause: cause, gate_transition: gate },
+  });
+
+  it('breaks the verdicts down by the failure they judged, most first', () => {
+    const moves: MoveRow[] = [
+      ...walk('a', [
+        ['implementing', 0],
+        ['triage', 5],
+      ]),
+      ...walk('a', [['implementing', 10, 'send_back']], {
+        ...judged('check_failed'),
+        from: 'triage',
+      }),
+      ...walk('b', [['in_review', 20, 'rerun']], { ...judged('check_failed'), from: 'triage' }),
+      ...walk('c', [['implementing', 30, 'send_back']], {
+        ...judged('check_failed'),
+        from: 'triage',
+      }),
+      ...walk('d', [['needs_input', 40, 'rerun']], {
+        ...judged('timeout'),
+        from: 'triage',
+        cause: 'retries_exhausted',
+      }),
+    ];
+    expect(triageVerdicts(moves)).toEqual({
+      triage: {
+        verdicts: 4,
+        tickets: 4,
+        by_cause: [
+          { failure_cause: 'check_failed', verdict: 'send_back', count: 2, capped: 0 },
+          { failure_cause: 'check_failed', verdict: 'rerun', count: 1, capped: 0 },
+          { failure_cause: 'timeout', verdict: 'rerun', count: 1, capped: 1 },
+        ],
+      },
+    });
+    const m = processMetrics({ ...EMPTY, moves }, 'state');
+    expect(ProcessMetricsSchema.parse(m).triage?.verdicts).toBe(4);
+  });
+
+  it('is absent without a triage verdict', () => {
+    expect(triageVerdicts(walk('a', [['implementing', 0]]))).toEqual({});
+    expect(processMetrics(EMPTY, 'state').triage).toBeUndefined();
   });
 });

@@ -77,7 +77,16 @@ The triage prompt is the state's rendered prompt plus a `## What failed` section
 - **A concrete state** is either `fix_env` (a command or agent leg) or escalate (a human state). An escalate's question leads with "Triage diagnosis (<title>, "<name>"): <reason>", followed by the evidence. The request's `return_to` is the triage state.
 - **Counting.** `retry_counters["<from>-><$return_to|$gate>:<failed transition>"]` is capped at the verdict's `retries` (default `budget.max_loop_retries`). Past the cap the ticket goes to the verdict's `else`, a human (kind `retries_exhausted`), never round the loop again. Triage never resets the gate's own `on_unmet` counter: once the gate's straight retries are spent, each new failure goes to triage, and the triage counters bound that loop.
 - **No evidence on record.** A `$return_to` or `$gate` with no `__triage` goes to the fallback human (cause `fallback`). So does a `$gate` whose failure was not a gate step.
-- **Recorded.** Every verdict's `state_entered` carries `triage: {failure_cause, gate_transition}`, which the wrapper keeps on the `state.entered` event row. That is the input for the per-cause metrics (FR-5, a follow-up ticket).
+- **Recorded.** Every verdict's `state_entered` carries `triage: {failure_cause, gate_transition}`, which the wrapper keeps on the `state.entered` event row. Every other move out of a triage state (escalate, `fix_env`, a timeout) carries it too; a leg's own move does not. That is the input for the per-cause metrics: `get_process_metrics.triage = {verdicts, tickets, by_cause: [{failure_cause, verdict, count, capped}]}` (`triageVerdicts`, `capped` = the verdict ran out of retries).
+
+### Draft definition (FR-4)
+
+[`conductor.triage.draft.json`](../design/workflows/conductor.triage.draft.json) is the live conductor v6 plus only this ADR's parts, checked by `conductor.triage-draft.test.ts`:
+- the three PR gates (`ready_for_testing`, `pr_ready_for_review`, `personal_pr_ready_for_review`) keep one straight retry (`retries: 1`) and then go to `triage` instead of Needs input;
+- `triage` (`role: triage`, `sonnet`, 20 min): `send_back` (`$return_to`, 2 retries), `rerun` (`$gate`, 1), `fix_env`, `escalate` (Needs input, `notify: every`); the loop verdicts don't push (`notify: never`), a timeout goes to Needs input;
+- `fix_env` (a command leg): `git fetch -q origin`, then `pnpm install --frozen-lockfile` or `npm ci` by lockfile; `exit_0` reruns the gate (1 retry), a failure goes to Needs input.
+
+It validates as is: nothing in it is "not available yet". It is not saved live by this ticket.
 
 ### 5 · Acting on Ben's behalf
 
@@ -102,9 +111,8 @@ Rule 29 is new, in `validate-triage.ts`. Rule 28 is ADR-0040's.
 
 | # | Ticket | Acceptance |
 |---|---|---|
-| R5b-1 | This ADR; schema, rule 29, engine, `triage` alias and daemon feature, the alias swap, 05/10 docs | Validator and engine tests; a bounded-path property (`apply.triage.test.ts`); the property suite runs a triage flow |
-| R5b-2 | A draft triage workflow under `docs/design/workflows/` (not saved live) and an e2e scenario per verdict with a fake triage | The draft validates; e2e: send_back, rerun, fix_env, escalate |
-| R5b-3 | Metrics: triage verdicts by `failure_cause` (`get_process_metrics`), and the designer's role picker and `$return_to` / `$gate` targets | Metrics test; designer test |
+| R5b (this ticket) | This ADR; schema, rule 29, engine, `triage` alias and daemon feature, the alias swap, 05/10 docs; the draft [`conductor.triage.draft.json`](../design/workflows/conductor.triage.draft.json) (v6 plus triage, not saved live); `get_process_metrics.triage` | Validator and engine tests, a bounded-path property (`apply.triage.test.ts`), the property suite runs a triage flow; `conductor.triage-draft.test.ts`; `triageVerdicts` and query tests; `e2e/triage.e2e.test.ts`, one fake verdict per branch |
+| R5b-next | The designer: a role picker, `$return_to` / `$gate` targets, and its gate editor's "else is human" check relaxed to human-or-triage; Insights' page shows the triage table | Designer tests |
 
 ## Alternatives considered
 
@@ -130,7 +138,7 @@ Rule 29 is new, in `validate-triage.ts`. Rule 28 is ADR-0040's.
   - A machine on an older daemon triages without `gh` (the `review` alias) until it updates.
   - The triage reads the worktree and runs `gh` read commands. Like a reviewer, it is not OS-sandboxed (U-004).
 - **Follow-ups (Tracking, for the daily sync).**
-  - Tickets R5b-2 and R5b-3.
+  - The designer ticket (R5b-next) and, once a live run has data, saving the draft (a `save_workflow` edit Ben makes).
   - TD row: a triage on a daemon without the `triage` feature runs with `review` (no `gh`).
   - U row: should triage be able to `gh run rerun` a flaky CI job itself, instead of only rerunning conductor's gate?
 

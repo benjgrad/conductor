@@ -1087,7 +1087,7 @@ function takeOutcome(
   // failed process) as an engine move with its detail; any other unnamed outcome (a legacy `done`,
   // an event's name) as a transition taken by the state's own actor (ADR-0037 P7).
   const engineOutcome = outcomeRecord(outcome, info);
-  const record: MoveFields =
+  const base: MoveFields =
     opts.move !== undefined
       ? named(opts.move)
       : (opts.record ??
@@ -1102,6 +1102,12 @@ function takeOutcome(
                 ? 'agent'
                 : 'system',
         });
+  // ADR-0043 (FR-5): every move out of a triage state records the failure it judged.
+  const judged = isTriageState(state) ? triageOf(st.s.context) : null;
+  const record: MoveFields =
+    judged !== null
+      ? { ...base, triage: { failure_cause: judged.cause, gate_transition: judged.transition } }
+      : base;
   // ADR-0043: a triage verdict (or a leg's) back to the failed state or gate.
   if (t !== undefined && isTriageTarget(transitionGoto(t))) {
     takeTriageRoute(st, from, outcome, t, record, info);
@@ -3643,7 +3649,10 @@ function takeTriageRoute(
     toFallbackHuman(st, 'retries_exhausted', q, engineMove('fallback', outcome, q));
     return;
   }
-  const triage = { failure_cause: tri.cause, gate_transition: tri.transition };
+  // Only a triage state's own verdict records the failure it judged (a leg's move is no verdict).
+  const triage = isTriageState(st.def.states[from])
+    ? { triage: { failure_cause: tri.cause, gate_transition: tri.transition } }
+    : {};
   const key = `${from}->${goto}:${tri.transition}`;
   const cap = obj.retries ?? st.def.budget.max_loop_retries;
   const taken = st.s.retry_counters[key] ?? 0;
@@ -3652,7 +3661,7 @@ function takeTriageRoute(
     const q = `"${stateTitle(st.def, from)}" chose "${outcome}" for "${tri.transition}" ${taken} time${taken === 1 ? '' : 's'} already (limit ${cap}).${reason}\n\n${tri.question}\n\nRetry, skip, or abort?`;
     const out: MoveFields = {
       ...engineMove('retries_exhausted', outcome, `${outcome} (retry limit ${cap})`),
-      triage,
+      ...triage,
     };
     if (obj.else !== undefined) {
       enter(st, obj.else, { ...NO_ROUTE, kind: 'retries_exhausted', question: q, record: out });
@@ -3662,7 +3671,7 @@ function takeTriageRoute(
     return;
   }
   st.s.retry_counters = { ...st.s.retry_counters, [key]: taken + 1 };
-  const move: MoveFields = { ...record, triage };
+  const move: MoveFields = { ...record, ...triage };
   if (goto === GATE) {
     retryGate(st, gate!, `${outcome}: run "${tri.transition}" again`, move);
     return;

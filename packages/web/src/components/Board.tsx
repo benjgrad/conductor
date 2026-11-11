@@ -28,6 +28,7 @@ import { columnPurpose } from '../board/column-purpose.js';
 import { waitingOnYou } from '../board/waiting.js';
 import { routeHash } from '../nav.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
+import { CardTitle } from './CardTitle.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
 import {
   ago,
@@ -794,7 +795,7 @@ function Card({
           sessionId !== null ? onSelect(sessionId) : onSelectTicket?.(card.ticket_id)
         }
       >
-        <span className="card-title">{card.title}</span>
+        <CardTitle title={card.title} />
       </button>
       <div className="card-meta">
         {card.kind && (

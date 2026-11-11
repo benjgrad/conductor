@@ -92,24 +92,47 @@ export function frictionReport(insights: readonly StoredInsight[]) {
 export const REPORT_THIN_SAMPLE = 0.25;
 
 /**
- * The frictions' sample: how many of the window's finished sessions were analysed, and, when
- * that is under REPORT_THIN_SAMPLE, a note that the frictions and the wasted minutes cover only
- * those sessions.
+ * The frictions' sample: how many of the window's finished sessions were analysed, and a note
+ * when that matters: R13 `sample` mode (a daily cap picks the sessions), a share under
+ * REPORT_THIN_SAMPLE, or (every session analysed by default) jobs still queued.
  */
-export function sampleNote(c: { finished_sessions: number; analysed_sessions: number }): {
+export function sampleNote(c: {
+  finished_sessions: number;
+  analysed_sessions: number;
+  mode?: 'all' | 'sample';
+  daily_cap?: number | null;
+  open?: number;
+}): {
   sample_share: number;
   sample_note?: string;
 } {
   const share = c.finished_sessions === 0 ? 0 : c.analysed_sessions / c.finished_sessions;
   const rounded = Math.round(share * 100) / 100;
-  if (c.finished_sessions === 0 || share >= REPORT_THIN_SAMPLE) return { sample_share: rounded };
-  return {
-    sample_share: rounded,
-    sample_note:
-      `Frictions come from ${c.analysed_sessions} of ${c.finished_sessions} finished sessions ` +
-      `(${Math.round(share * 100)} %); wasted minutes are summed over those ` +
-      `${c.analysed_sessions} only.`,
-  };
+  const of = `${c.analysed_sessions} of ${c.finished_sessions} finished sessions`;
+  if (c.mode === 'sample' && c.daily_cap != null) {
+    return {
+      sample_share: rounded,
+      sample_note:
+        `This account samples: at most ${c.daily_cap} sessions a day are analysed, so ` +
+        `frictions come from ${of} (${Math.round(share * 100)} %).`,
+    };
+  }
+  if (c.finished_sessions > 0 && share < REPORT_THIN_SAMPLE) {
+    return {
+      sample_share: rounded,
+      sample_note:
+        `Frictions come from ${of} ` +
+        `(${Math.round(share * 100)} %); wasted minutes are summed over those ` +
+        `${c.analysed_sessions} only.`,
+    };
+  }
+  if (c.mode === 'all' && share < 1 && (c.open ?? 0) > 0) {
+    return {
+      sample_share: rounded,
+      sample_note: `${c.open} more ${c.open === 1 ? 'session is' : 'sessions are'} being analysed.`,
+    };
+  }
+  return { sample_share: rounded };
 }
 
 // ---------------------------------------------------------------- REST DTOs (UXR-84)
@@ -163,6 +186,22 @@ export const ReportFrictionSchema = z.object({
 });
 export type ReportFriction = z.infer<typeof ReportFrictionSchema>;
 
+/** R13: the report's `analyst`: every session or a sample, and the window's jobs and cost. */
+export const AnalystReportSchema = z.object({
+  mode: z.enum(['all', 'sample']),
+  /** Jobs per 24 h in `sample` mode; null in `all`. */
+  daily_cap: z.number().int().positive().nullable(),
+  jobs: z.number().int().nonnegative(),
+  done: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  dropped: z.number().int().nonnegative(),
+  open: z.number().int().nonnegative(),
+  /** USD the daemon reported, summed over `priced_jobs`. */
+  cost_usd: z.number().nonnegative(),
+  priced_jobs: z.number().int().nonnegative(),
+});
+export type AnalystReport = z.infer<typeof AnalystReportSchema>;
+
 /** GET /api/insights/report. */
 export const ProcessReportResponseSchema = z.object({
   window_days: z.number().int().positive(),
@@ -173,8 +212,10 @@ export const ProcessReportResponseSchema = z.object({
   analysed_sessions: z.number().int().nonnegative(),
   /** analysed / finished (0..1). Absent from older servers. */
   sample_share: z.number().min(0).max(1).optional(),
-  /** Set when the sample is thin (`sampleNote`). */
+  /** Set when the sample is thin, sampled or still filling (`sampleNote`). */
   sample_note: z.string().optional(),
+  /** R13: the analyst setting and the window's jobs and cost. Absent from older servers. */
+  analyst: AnalystReportSchema.optional(),
   totals: ProcessMetricsSchema.shape.totals,
   analysed: z.number().int().nonnegative(),
   outcomes: z.record(z.string(), z.number()),

@@ -172,6 +172,30 @@ async fn adr_0039_permission_mode_bypass_sets_skip_permissions_for_a_worker_only
     assert!(!drv.starts()[2].skip_permissions);
 }
 
+/// R7: `forces_dont_ask` on the start's `tools`: a read-only-shell state runs in dontAsk, a
+/// working state (or bash_readonly beside a write alias) does not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn r7_a_read_only_shell_start_runs_in_dont_ask() {
+    let c = Ctx::new().await;
+    let drv = driver(complete(json!({})));
+    c.make(drv.clone(), Make::default());
+    c.registered_and_asked().await;
+    let starts = [
+        (json!(["read", "bash_readonly"]), true),
+        (json!(["read"]), false),
+        (json!(["edit", "bash_readonly"]), false),
+    ];
+    for (i, (tools, _)) in starts.iter().enumerate() {
+        c.send(&c.start(Uuid::new_v4(), json!({ "tools": tools }), 1).msg);
+        c.until_true(|| c.events(Some("exit")).len() > i).await;
+    }
+    for (i, (tools, dont_ask)) in starts.iter().enumerate() {
+        let o = drv.starts()[i].clone();
+        assert_eq!(o.dont_ask, *dont_ask, "{tools}");
+        assert!(!o.review, "{tools}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn adr_0009_a_reviewer_start_is_fresh_read_only_and_never_replaces_the_worker_s_stored_id() {
     let c = Ctx::new().await;

@@ -167,6 +167,32 @@ const SCENARIOS: Record<string, unknown> = {
       ],
     ],
   },
+  // 6. R2: the pnpm repo's worktree has node_modules before the agent's first turn (the
+  // daemon ran `pnpm install --frozen-lockfile` there); without it the planner asks a human.
+  pnpm_worktree: {
+    turns: [
+      [
+        {
+          if_exists: {
+            path: 'node_modules',
+            then: [{ say: 'Dependencies are installed.' }, PLAN],
+            else: [
+              {
+                complete_state: {},
+                transition: 'needs_product_context',
+                reason: 'node_modules is missing: the worktree setup did not run',
+              },
+            ],
+          },
+        },
+      ],
+      [
+        { say: 'Implementing.' },
+        ...COMMIT,
+        { complete_state: { summary: 'added /health' }, transition: SHIP, reason: SHIP_REASON },
+      ],
+    ],
+  },
   // 7. conductor v4: the ship move held by red CI, sent back, fixed, then green.
   ci_fix: {
     turns: [
@@ -613,10 +639,11 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     }
   });
 
-  it('6. M2-T30: on a pnpm repo the checks install and run with pnpm, then Needs input', async () => {
-    // The fixture's build/test fail unless pnpm runs them after `pnpm install --frozen-lockfile`.
+  it('6. M2-T30 / R2: on a pnpm repo the agent starts with node_modules, the checks install and run with pnpm, then Needs input', async () => {
+    // The fixture's build/test fail unless pnpm runs them after `pnpm install --frozen-lockfile`;
+    // the scenario's planner leaves for a human unless node_modules was already in its worktree.
     const pnpmRepo = createPnpmFixtureRepo(join(stack.tmp, 'pnpm-fixture-repo'));
-    const id = await ticket('Personal change on pnpm', 'personal', 'personal', pnpmRepo);
+    const id = await ticket('Personal change on pnpm', 'pnpm_worktree', 'personal', pnpmRepo);
     const asked = await board
       .card(id, 'needs_input', (c) => c.column === 'needs_input', 60_000)
       .catch(async (err: unknown) => {

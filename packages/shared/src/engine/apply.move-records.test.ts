@@ -123,6 +123,7 @@ describe('engine move records', () => {
 
   it('the budget is an engine route with the overspend', () => {
     const h = implementing();
+    h.run({ type: 'spend.reported', claude_session_id: 'c-budget', total_usd: 6 });
     const r = h.run({ type: 'budget.exceeded', dimension: 'usd', spent: 6, limit: 5 });
     expect(entered(r.effects)).toMatchObject({
       to: 'needs_input',
@@ -130,7 +131,7 @@ describe('engine move records', () => {
       actor: 'system',
       cause: 'budget_exceeded',
     });
-    expect(entered(r.effects)!.reason).toContain('spent 6 of 5 USD');
+    expect(entered(r.effects)!.reason).toContain('spent $6.00 of $5.00');
   });
 
   it('a lost machine is an engine route', () => {

@@ -1,5 +1,7 @@
+import { budgetVerdict, type SessionSnapshot } from '@conductor/shared';
 import type { EngineService, OutputBus } from '../contracts.js';
 import type { Db } from '../main.js';
+import { DefinitionCache, splitStep } from './rows.js';
 
 // Timeout sweep (M1-T04b; 10-contracts §Engine `timer.fired`). Finds sessions whose
 // `state_deadline` has passed and feeds `timer.fired {state, deadline}` through the engine;
@@ -126,4 +128,70 @@ async function sweepTimers(deps: SweepDeps, column: Timer, stats: SweepStats): P
       console.error(`[sweep] session ${row.id}:`, err instanceof Error ? err.message : err);
     }
   }
+}
+
+// 09 §Budgets: the wall-time trigger. The spend trigger runs in the EngineService right after a
+// `spend.reported`; minutes grow with no event, so this sweep checks every active session's
+// running clock (and its spend, belt and braces) and feeds `budget.exceeded` for each one over
+// budget. apply re-checks the verdict on its own snapshot (`within_budget` otherwise).
+
+/** How often the engine loop runs `sweepBudgets` (minutes need no second-level precision). */
+export const BUDGET_SWEEP_INTERVAL_MS = 15_000;
+
+const budgetDefs = new DefinitionCache();
+
+export interface BudgetSweepStats {
+  checked: number;
+  exceeded: number;
+  errors: number;
+}
+
+export async function sweepBudgets(deps: SweepDeps): Promise<BudgetSweepStats> {
+  const stats: BudgetSweepStats = { checked: 0, exceeded: 0, errors: 0 };
+  const now = deps.now();
+  const rows = await deps.db.query<{
+    id: string;
+    workflow_id: string;
+    workflow_version: number;
+    status: SessionSnapshot['status'];
+    workflow_state: string;
+    spend_usd: string | number;
+    wall_seconds: string | number;
+    state_entered_at: Date;
+    context: SessionSnapshot['context'];
+  }>(
+    `SELECT id, workflow_id, workflow_version, status, workflow_state,
+            spend_usd, wall_seconds, state_entered_at, context
+       FROM session
+      WHERE status IN ('assigned', 'running', 'queued') AND workflow_state IS NOT NULL
+      ORDER BY state_entered_at LIMIT $1`,
+    [SWEEP_BATCH * 10],
+  );
+  for (const row of rows.rows) {
+    stats.checked++;
+    try {
+      const def = await budgetDefs.get(deps.db, row.workflow_id, row.workflow_version);
+      const { context, step } = splitStep(row.context ?? {});
+      const verdict = budgetVerdict(
+        def,
+        {
+          status: row.status,
+          workflow_state: row.workflow_state,
+          step,
+          spend_usd: Number(row.spend_usd),
+          wall_seconds: Number(row.wall_seconds),
+          state_entered_at: row.state_entered_at.toISOString(),
+          context,
+        },
+        now,
+      );
+      if (verdict === null) continue;
+      const res = await deps.engine.applyEvent(row.id, { type: 'budget.exceeded', ...verdict });
+      if (res.status === 'applied') stats.exceeded++;
+    } catch (err) {
+      stats.errors++;
+      console.error(`[budget] session ${row.id}:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return stats;
 }

@@ -187,6 +187,19 @@ export const API_PATHS = {
   repoCheckRuns: '/api/repo-checks/runs',
   /** UXR-80: GET → RepoChecksHealthResponse (recent check results per repo). */
   repoChecksHealth: '/api/repo-checks/health',
+  /**
+   * R11 (ADR-0037 Q1 amended): GET → GithubWebhookStatus (the signed-in account's webhook URL,
+   * whether a secret is set, the last delivery). Never returns the secret.
+   */
+  githubWebhook: '/api/github-webhook',
+  /** R11: POST `{}` → GithubWebhookSecretCreated (a new secret, shown once; the old one stops working). */
+  githubWebhookSecret: '/api/github-webhook/secret',
+  /**
+   * R11: public, signed with the account's secret (`X-Hub-Signature-256`). POST a GitHub
+   * `check_run` / `check_suite` / `pull_request` / `pull_request_review` delivery (JSON) → 202
+   * GithubWebhookAck. A matching session's next check comes forward to now; nothing is decided here.
+   */
+  githubWebhookDelivery: (accountId: string) => `/api/webhooks/github/${accountId}`,
   /** ADR-0032: GET → ScheduleListResponse; POST CreateScheduleRequest → 201 ScheduleDto. */
   schedules: '/api/schedules',
   /** ADR-0032: GET → ScheduleDto; PATCH UpdateScheduleRequest → ScheduleDto; DELETE `{}` → OkResponse. */
@@ -1037,6 +1050,35 @@ export type AnswerInputRequest = z.infer<typeof AnswerInputRequestSchema>;
 
 export const OkResponseSchema = z.object({ ok: z.literal(true) });
 export type OkResponse = z.infer<typeof OkResponseSchema>;
+
+// ---------------------------------------------------------------- R11: GitHub webhooks
+
+/** GET API_PATHS.githubWebhook: where GitHub delivers for this account, never the secret. */
+export const GithubWebhookStatusSchema = z.object({
+  /** The payload URL to give GitHub (API_PATHS.githubWebhookDelivery on the public origin). */
+  url: z.string().min(1),
+  /** A secret is set; without one every delivery is refused (404). */
+  configured: z.boolean(),
+  rotated_at: IsoDateTimeSchema.nullable(),
+  last_delivery_at: IsoDateTimeSchema.nullable(),
+});
+export type GithubWebhookStatus = z.infer<typeof GithubWebhookStatusSchema>;
+
+/** POST API_PATHS.githubWebhookSecret: the new secret, shown once. */
+export const GithubWebhookSecretCreatedSchema = z.object({
+  url: z.string().min(1),
+  secret: z.string().min(32),
+});
+export type GithubWebhookSecretCreated = z.infer<typeof GithubWebhookSecretCreatedSchema>;
+
+/** A delivery's answer: how many sessions' next check came forward, or why none did. */
+export const GithubWebhookAckSchema = z.object({
+  ok: z.literal(true),
+  nudged: z.number().int().min(0),
+  duplicate: z.boolean().optional(),
+  ignored: z.boolean().optional(),
+});
+export type GithubWebhookAck = z.infer<typeof GithubWebhookAckSchema>;
 
 // ---------------------------------------------------------------- UX-15: Web Push
 

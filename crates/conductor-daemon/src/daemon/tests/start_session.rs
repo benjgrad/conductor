@@ -76,7 +76,8 @@ async fn creates_the_worktree_on_the_session_branch_spawns_the_driver_and_forwar
     let prompt = opts.append_system_prompt.clone().unwrap();
     assert!(prompt.contains(CONDUCTOR_INSTRUCTIONS));
     assert!(prompt.contains("Always run npm test."));
-    assert_eq!(opts.max_budget_usd, None);
+    // 09 §Budgets (TD-022): the remaining budget is the CLI's --max-budget-usd.
+    assert_eq!(opts.max_budget_usd, Some(5.0));
     assert_eq!(opts.env["CONDUCTOR_SESSION_ID"], sid.to_string());
     assert_eq!(opts.env["CONDUCTOR_PORT_BASE"], "42000");
     assert_eq!(opts.env["PORT"], "42000");
@@ -697,6 +698,34 @@ async fn a_start_without_attachments_adds_no_dir() {
     let opts = drv.starts()[0].clone();
     assert_eq!(opts.prompt, "Implement the ticket");
     assert!(opts.add_dirs.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn passes_the_remaining_budget_as_max_budget_usd_on_a_resume_too_and_omits_zero() {
+    // 09 §Budgets, TD-022 / U-018: the CLI caps what one process spends, so a resume gets the
+    // remaining budget too. 0 (or absent) passes no cap: 0 would stop the CLI at once.
+    let c = Ctx::new().await;
+    let drv = driver(complete(json!({})));
+    let d = c.make(drv.clone(), Make::default());
+    c.registered_and_asked().await;
+    let claude_id = Uuid::new_v4().to_string();
+    let sid = Uuid::new_v4();
+    write_transcript_for(&c, &d, sid, &claude_id, false);
+    let start = c.start(
+        sid,
+        json!({ "resume_claude_session_id": claude_id, "prompt": "go on", "max_budget_usd": 1.25 }),
+        1,
+    );
+    c.send(&start.msg);
+    c.first_event("exit").await;
+    assert!(drv.starts()[0].resume);
+    assert_eq!(drv.starts()[0].max_budget_usd, Some(1.25));
+
+    let zero = c.start(Uuid::new_v4(), json!({ "max_budget_usd": 0 }), 1);
+    c.send(&zero.msg);
+    c.until_true(|| drv.starts().len() == 2).await;
+    assert_eq!(drv.starts()[1].max_budget_usd, None);
+    c.done().await;
 }
 
 /// A `work_assignment` reply to the daemon's request_work, sent by the test itself.

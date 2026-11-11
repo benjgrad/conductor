@@ -435,6 +435,7 @@ describe('while reviewing', () => {
 
   it('budget.exceeded → on_budget_exceeded, returning to the source state', () => {
     const h = reviewing();
+    h.run({ type: 'spend.reported', claude_session_id: REVIEWER, total_usd: 3.1 });
     const r = h.run({ type: 'budget.exceeded', dimension: 'usd', spent: 3.1, limit: 3 });
     expect(r.snapshot).toMatchObject({
       workflow_state: 'needs_input',

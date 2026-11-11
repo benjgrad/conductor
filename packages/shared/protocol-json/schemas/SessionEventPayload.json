@@ -342,6 +342,14 @@
                           "timeout": {
                             "type": "string",
                             "pattern": "^(\\d+)(ms|s|m|h|d)$"
+                          },
+                          "paths": {
+                            "minItems": 1,
+                            "maxItems": 50,
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -495,6 +503,10 @@
         },
         "no_commits": {
           "type": "boolean"
+        },
+        "skipped": {
+          "type": "string",
+          "maxLength": 4000
         }
       },
       "required": [

@@ -197,6 +197,10 @@ A human or event column's panel has **While here, keep checking** (`WatchFields`
 
 Unticking removes the key. While a ticket waits in a watched column, its card shows one line, `Watching: <label> ✓ · next check 14:02` (`watchingSummary`, from `BoardCard.watching`), with the last note (no machine, the last check failed) after it.
 
+## Notifications in the workflow editor (ADR-0037 P6)
+
+Under the columns, the collapsed **Notifications** section (`workflow/NotifyPolicyEditor.tsx`) has the workflow's notify policy (Decide per transition, the default for transitions that inherit, conductor's own moves, the coalesce window) and, below it, a **Per transition** table: every transition grouped by the column it leaves (`notifyRows` in `notify-policy.ts`), with where it goes, "(you)" on a move a person takes, and a Notify select (Inherit (<default>), Once per ticket, Every time, Never; without a policy only Inherit, Every time and Never, rule 23). A change is the same edit as the Notify select in the transition's own panel (`setTransitionNotify`; a bare `"name": "goto"` becomes an object and back). The section's button counts the transitions that never notify (`· N silenced`).
+
 ## Base refs (ADR-0039)
 
 Where a ticket's branch starts and where its PR goes ([ADR-0039](../adr/0039-base-refs.md)). B3 shows and edits it; B2 makes conductor use it. Until then every part reads as not yet active: `webWorkflowFeatures()` (`workflow/features.ts`) is the server's `AVAILABLE_WORKFLOW_FEATURES`, without `bases`. The mock app's `?mock-bases=1` scene adds `bases`, the v7 draft's bases, a queued card on `master` and a running card with a resolved base, for screenshots.

@@ -929,6 +929,13 @@
             },
             "last": {
               "type": "boolean"
+            },
+            "paths": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [

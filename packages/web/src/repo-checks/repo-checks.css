@@ -286,6 +286,11 @@
   color: var(--warn);
   background: var(--warn-bg);
 }
+/* R3: skipped, no change matched the check's paths: muted, neither passed nor failed. */
+.rc-run-skipped {
+  color: var(--muted);
+  border-style: dashed;
+}
 .rc-health-passing {
   color: var(--ok);
 }

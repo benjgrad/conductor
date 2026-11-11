@@ -436,6 +436,26 @@ p.wf-version-warning {
   gap: 6px 8px;
   align-items: center;
 }
+/* The Notifications section's per-transition table (NotifyPolicyEditor). */
+.wf-notify-heading {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+}
+.wf-notify-table {
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  width: 100%;
+}
+.wf-notify-table th,
+.wf-notify-table td {
+  padding: 2px var(--space-1);
+  text-align: left;
+}
+.wf-notify-table th[scope='rowgroup'] {
+  color: var(--muted);
+  font-weight: normal;
+  padding-top: var(--space-2);
+}
 .wf-unmet label {
   color: var(--muted);
   font-size: var(--text-sm);
@@ -687,6 +707,19 @@ main[hidden] {
 }
 .wf-checks .wf-checks-problems td {
   padding-top: 0;
+}
+/* R3: a check's "Only when these change" globs, under its row. */
+.wf-checks .wf-checks-paths td {
+  padding-top: 0;
+}
+.wf-checks-paths-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+.wf-checks-paths-field span {
+  white-space: nowrap;
 }
 .wf-checks .wf-item-actions {
   flex-direction: row;

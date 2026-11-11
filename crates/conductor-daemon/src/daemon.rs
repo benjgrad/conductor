@@ -47,8 +47,9 @@ use uuid::Uuid;
 
 use crate::actions::checkout::{
     BaseCheckoutInput, BaseProbeNext, FreshCheckout, FreshCheckoutInput, ProbeSetupInput,
-    SetupOnBase, detect_setup, fetch_budget, fresh_checkout, managed_command, missing_manager,
-    no_commits_ahead, prepare_base_probe, remove_checkout, sweep_private,
+    SetupOnBase, changed_since_base, detect_setup, fetch_budget, fresh_checkout, managed_command,
+    missing_manager, no_commits_ahead, prepare_base_probe, remove_checkout, skip_reason,
+    sweep_private,
 };
 use crate::actions::condition_cmd::{CmdContext, CmdExec, CmdExecResult};
 use crate::actions::conditions::{EvaluateConditionsInput, evaluate_conditions};
@@ -81,7 +82,7 @@ use crate::orphan::{ProcFacts, ProcInfo, StoredAgent, check_ours, read_proc_info
 use crate::platform::{self, Liveness, Platform, Signal, machine, mkdir_private, pid_liveness};
 use crate::ports::{PortPool, port_env};
 use crate::store::{
-    AckRecord, AgentRecord, DaemonStore, DurableMessage, PersistedSession, PortRange,
+    AckRecord, AgentRecord, DaemonStore, DurableMessage, PersistedSession, PortRange, SessionBase,
 };
 use crate::sysinfo::{SysInfo, live_sysinfo};
 use crate::system_prompt::build_append_system_prompt;
@@ -276,6 +277,9 @@ struct Checkout {
     sha: String,
     dir: PathBuf,
     token: i64,
+    /// The gate's setup ran in it. R3: a check skipped for its `paths` runs no setup, so the
+    /// next check that runs does it first.
+    setup_done: bool,
 }
 
 #[derive(Default)]
@@ -1183,9 +1187,10 @@ impl Core {
             // TD-181: working_copy has no default_branch yet, so the base is the clone's
             // origin/HEAD. TD-200: the ack waits for this (a first clone can outlast the
             // orchestrator's ack window).
-            let wt = self
+            // R3 (TD-221): a new branch also gives the commit it starts at.
+            let (wt, created_base) = match self
                 .workspace
-                .ensure_worktree(&EnsureWorktree {
+                .ensure_worktree_based(&EnsureWorktree {
                     repo: p.repo.clone(),
                     session_id: m.sid.to_string(),
                     branch: p.branch.clone(),
@@ -1193,7 +1198,10 @@ impl Core {
                     default_branch: None,
                 })
                 .await
-                .map_err(|e| e.to_string());
+            {
+                Ok((dir, base)) => (Ok(dir), base),
+                Err(e) => (Err(e.to_string()), None),
+            };
             // 06 §Attachments: download the ticket's files before the spawn (never under the
             // state lock); the prompt lists them and Claude may read their directory.
             let mut add_dirs = Vec::new();
@@ -1219,7 +1227,7 @@ impl Core {
                         p.prompt = format!("{}\n\n{block}", p.prompt);
                     }
                     let mut st = self.lock();
-                    self.start_spawn(&mut st, m, &p, starting, wt, add_dirs)
+                    self.start_spawn(&mut st, m, &p, starting, wt, created_base, add_dirs)
                 }
             };
             if started {
@@ -1384,6 +1392,7 @@ impl Core {
     }
 
     /// The part of start_session after the worktree. True when a process was started.
+    #[allow(clippy::too_many_arguments)]
     fn start_spawn(
         &self,
         st: &mut State,
@@ -1391,9 +1400,10 @@ impl Core {
         p: &StartSessionPayload,
         starting: u64,
         wt: Result<PathBuf, String>,
+        created_base: Option<SessionBase>,
         add_dirs: Vec<PathBuf>,
     ) -> bool {
-        match self.start_spawn_inner(st, m, p, starting, wt, add_dirs) {
+        match self.start_spawn_inner(st, m, p, starting, wt, created_base, add_dirs) {
             Ok(started) => started,
             Err(e) => {
                 let acked = self.start_acked(st, starting);
@@ -1497,9 +1507,10 @@ impl Core {
             worktree_path: wt.to_string_lossy().into_owned(),
             branch: p.branch.clone(),
             port_range: prior.as_ref().and_then(|x| x.port_range),
-            claude_session_id: prior.and_then(|x| x.claude_session_id),
+            claude_session_id: prior.as_ref().and_then(|x| x.claude_session_id.clone()),
             last_used_at: now_ms(),
             agent: Some(Some(rec)),
+            base: prior.and_then(|x| x.base),
         };
         if let Err(e) = store.put_session(&m.sid.to_string(), s) {
             self.log(&format!("store: {e}"));
@@ -1548,6 +1559,7 @@ impl Core {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn start_spawn_inner(
         &self,
         st: &mut State,
@@ -1555,6 +1567,7 @@ impl Core {
         p: &StartSessionPayload,
         starting_id: u64,
         wt: Result<PathBuf, String>,
+        created_base: Option<SessionBase>,
         add_dirs: Vec<PathBuf>,
     ) -> Result<bool, String> {
         let sid = m.sid;
@@ -1588,6 +1601,20 @@ impl Core {
             } else {
                 Some(claude_session_id.clone())
             };
+            // R3 (TD-221): the base recorded when this daemon created the branch: this
+            // session's, else the one it just created, else (ADR-0008 reopen) an earlier
+            // session's on the same repo and branch.
+            let base = prior
+                .as_ref()
+                .and_then(|x| x.base.clone())
+                .or(created_base)
+                .or_else(|| {
+                    store
+                        .sessions()
+                        .values()
+                        .find(|x| x.repo == p.repo && x.branch == p.branch && x.base.is_some())
+                        .and_then(|x| x.base.clone())
+                });
             store
                 .put_session(
                     &sid.to_string(),
@@ -1600,6 +1627,7 @@ impl Core {
                         claude_session_id: stored_id,
                         last_used_at: now_ms(),
                         agent: None,
+                        base,
                     },
                 )
                 .map_err(|e| e.to_string())?;
@@ -2208,6 +2236,9 @@ impl Core {
             if out.no_commits {
                 data["no_commits"] = json!(true);
             }
+            if let Some(why) = &out.skipped {
+                data["skipped"] = json!(why);
+            }
             let mut st = core.lock();
             if let Some(l) = st.live.get_mut(&sid) {
                 l.cmds.remove(&p.command_id);
@@ -2583,14 +2614,50 @@ impl Core {
                         sha: want.clone(),
                         dir,
                         token,
+                        setup_done: false,
                     };
                     st.checkouts.insert(sid, c.clone());
                     c
                 };
-                mine = Some(c.clone());
-                held = Some(c.clone());
+                held = Some(c);
+            }
+            let held = held.expect("set above");
+            mine = Some(held.clone());
+            // R3: a check with `paths` runs only when the commit's diff from the commit this
+            // daemon created the branch at (TD-221: recorded in its own store) touches one. The
+            // diff is read in this conductor-owned checkout, whose objects came in through the
+            // hardened fetch (every object's hash verified), never through the agent's object
+            // store. No recorded base, a base the fetch didn't bring (a rebased branch) or any
+            // error runs the check. A skip runs no setup and no command.
+            if !co.paths.is_empty() {
+                let changed = match &s.base {
+                    Some(b) => changed_since_base(&held.dir, &b.sha, &want, None).await,
+                    None => None,
+                };
+                let label = s
+                    .base
+                    .as_ref()
+                    .map(|b| format!("{} at {}", b.branch, b.sha.get(..12).unwrap_or(&b.sha)));
+                if let Some(why) = skip_reason(changed.as_deref(), &co.paths, label.as_deref()) {
+                    self.debug_line(
+                        sid,
+                        token,
+                        &format!("conductor: skipped `{}`: {why}", p.cmd),
+                    );
+                    out.skipped = Some(why.clone());
+                    ok = true;
+                    return Ok(CommandResult {
+                        exit_code: Some(0),
+                        signal: None,
+                        timed_out: false,
+                        duration_ms: 0,
+                        output_tail: why,
+                    });
+                }
+            }
+            if !held.setup_done {
                 // TD-177: the missing-manager guards here are unit-tested only.
-                if let Some(setup) = detect_setup(&c.dir, co.setup.as_deref()) {
+                if let Some(setup) = detect_setup(&held.dir, co.setup.as_deref()) {
                     let failed = if let Some(missing) = missing_manager(&setup, None) {
                         Some(self.not_run(sid, token, &missing))
                     } else {
@@ -2599,7 +2666,7 @@ impl Core {
                             token,
                             &format!("conductor: setup `{setup}` in a fresh checkout of {want}"),
                         );
-                        let sr = exec(setup.clone(), c.dir.clone()).await?;
+                        let sr = exec(setup.clone(), held.dir.clone()).await?;
                         (sr.exit_code != Some(0) || sr.timed_out).then_some(sr)
                     };
                     if let Some(r) = failed {
@@ -2615,9 +2682,11 @@ impl Core {
                         return Ok(r);
                     }
                 }
+                let mut st = self.lock();
+                if let Some(c) = st.checkouts.get_mut(&sid).filter(|c| c.id == held.id) {
+                    c.setup_done = true;
+                }
             }
-            let held = held.expect("set above");
-            mine = Some(held.clone());
             let (at, inside) = resolve_inside(&held.dir, p.cwd.as_deref());
             if !inside {
                 out.not_run = Some("invalid cwd".into());
@@ -3258,6 +3327,8 @@ struct RunOutcome {
     not_run: Option<String>,
     /// No commits ahead of origin's default branch (`cmd_exit.no_commits`).
     no_commits: bool,
+    /// R3: no change matched the check's `paths`, so it did not run: why (`cmd_exit.skipped`).
+    skipped: Option<String>,
 }
 
 impl Daemon {

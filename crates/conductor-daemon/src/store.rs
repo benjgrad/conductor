@@ -146,6 +146,15 @@ pub struct AgentRecord {
     pub started_at: Option<i64>,
 }
 
+/// R3 (TD-221): the commit a session branch started from, recorded by the daemon when it created
+/// the branch (before any agent ran in it), and the branch it came from (`origin/main`). Diff-aware
+/// checks diff against it, never against refs the agent's worktree can write.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionBase {
+    pub sha: String,
+    pub branch: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedSession {
@@ -166,6 +175,10 @@ pub struct PersistedSession {
         with = "absent_or_null"
     )]
     pub agent: Option<Option<AgentRecord>>,
+    /// R3 (TD-221): where the branch started; None = unknown (made before R3, or not by this
+    /// daemon), and then no check is skipped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<SessionBase>,
 }
 
 /// `Option<Option<T>>` ⇄ absent / `null` / value.
@@ -453,6 +466,7 @@ mod tests {
             claude_session_id: None,
             last_used_at: 1,
             agent: Some(None),
+            base: None,
         };
         s.put_session(SID, session.clone()).unwrap();
         s.put_repo("github.com/org/app", "/r").unwrap();

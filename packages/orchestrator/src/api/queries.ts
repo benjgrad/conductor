@@ -49,7 +49,9 @@ const ms = (t: string): number => Date.parse(t);
 
 /** 06 §Kanban columns sort order, by the column's kind (ADR-0010). */
 function sortColumn(kind: BoardColumnInfo['kind'], cards: BoardCard[]): BoardCard[] {
-  const byCreated = (a: BoardCard, b: BoardCard) => ms(a.created_at) - ms(b.created_at);
+  // Ticket age, oldest first; ticket_id breaks ties (the web client sorts the same way).
+  const byCreated = (a: BoardCard, b: BoardCard) =>
+    ms(a.created_at) - ms(b.created_at) || a.ticket_id.localeCompare(b.ticket_id);
   const recentFirst = (a: BoardCard, b: BoardCard) => ms(b.updated_at) - ms(a.updated_at);
   switch (kind) {
     case 'queued':
@@ -58,7 +60,8 @@ function sortColumn(kind: BoardColumnInfo['kind'], cards: BoardCard[]): BoardCar
     case 'agent':
     case 'command':
     case 'connector':
-      return cards.sort(recentFirst);
+      // A stable key: status and check events bump updated_at and must not reshuffle the column.
+      return cards.sort(byCreated);
     case 'human':
       // Oldest open input_request first; a card without one (shouldn't happen) goes last.
       return cards.sort((a, b) => {

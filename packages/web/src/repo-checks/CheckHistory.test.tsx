@@ -4,7 +4,7 @@ import type { RepoCheckRun, RepoCheckRunsResponse } from '@conductor/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError, type ApiClient } from '../api/client.js';
 import { createMockApi } from '../api/mock.js';
-import { CheckHistory, HealthBadge, runLabel } from './CheckHistory.js';
+import { CheckHistory, HealthBadge, runLabel, windowText } from './CheckHistory.js';
 import { RepoChecksPage } from './RepoChecksPage.js';
 
 // UXR-80: the history marks and the health hint, against a stubbed client (no server).
@@ -69,8 +69,16 @@ const RESPONSE: RepoCheckRunsResponse = {
       ],
       runs_in_window: 7,
       failures_in_window: 4,
+      skips_in_window: 0,
     },
-    { name: 'Build', cmd: 'npm run build', runs: [], runs_in_window: 0, failures_in_window: 0 },
+    {
+      name: 'Build',
+      cmd: 'npm run build',
+      runs: [],
+      runs_in_window: 0,
+      failures_in_window: 0,
+      skips_in_window: 0,
+    },
   ],
 };
 
@@ -116,6 +124,9 @@ describe('CheckHistory (UXR-80)', () => {
       /^Setup failed, /,
     );
     expect(runLabel(run({ status: 'timed_out', exit_code: null }), NOW)).toMatch(/^Timed out, /);
+    expect(runLabel(run({ status: 'skipped', exit_code: 0 }), NOW)).toMatch(
+      /^Skipped: no matching changes, /,
+    );
   });
 });
 
@@ -176,5 +187,17 @@ describe('RepoChecksPage with history (UXR-80)', () => {
     const list = within(await screen.findByRole('list', { name: 'Own checks' }));
     expect(list.getByRole('button', { name: /^github\.com\/acme\/shop/ })).toBeTruthy();
     expect(document.querySelector('.rc-health')).toBeNull();
+  });
+});
+
+describe('windowText (R3)', () => {
+  it('counts skipped checks apart from runs and failures', () => {
+    const c = { runs_in_window: 4, failures_in_window: 1 };
+    expect(windowText({ ...c, skips_in_window: 0 })).toBe('1 of 4 failed');
+    expect(windowText({ ...c, skips_in_window: 2 })).toBe('1 of 4 failed, 2 skipped');
+    expect(windowText({ runs_in_window: 0, failures_in_window: 0, skips_in_window: 3 })).toBe(
+      '3 skipped',
+    );
+    expect(windowText({ runs_in_window: 0, failures_in_window: 0 })).toBe('—');
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyRepoChecks, PIN_CHECK, type GateSpec } from '../engine/move-step.js';
 import { repoChecksKey } from '../api/rest.js';
 import { CONDUCTOR_V4_DEF } from './conductor.js';
+import { checkPathsProblem, EntryCheckSchema, type WorkflowDefinition } from './schema.js';
 import {
   checksGatesOf,
   RepoChecksSchema,
@@ -9,7 +10,6 @@ import {
   type RepoChecks,
 } from './repo-checks.js';
 import { agentTransitionOptions, transitionChecks } from './transition-rules.js';
-import type { WorkflowDefinition } from './schema.js';
 
 // ADR-0030: per-repo check overrides: the schema, what they replace, the repo key.
 
@@ -165,5 +165,40 @@ describe('R4: the checks a transition runs (run_gate)', () => {
     expect(byName.pr_ready_for_review!.checks).toBe(true);
     expect(byName.needs_approval_to_message).not.toHaveProperty('checks');
     expect(byName.ask_user).not.toHaveProperty('checks');
+  });
+});
+
+describe('check paths (R3)', () => {
+  const base = { name: 'Cargo', cmd: 'cargo nextest run' };
+  it('accepts up to 50 globs, trimmed', () => {
+    const parsed = RepoChecksSchema.parse({
+      checks: [{ ...base, paths: [' crates/** ', 'Cargo.*', 'rust-toolchain.toml'] }],
+    });
+    expect(parsed.checks[0]!.paths).toEqual(['crates/**', 'Cargo.*', 'rust-toolchain.toml']);
+    const fifty = Array.from({ length: 50 }, (_, i) => `d${i}/**`);
+    expect(RepoChecksSchema.safeParse({ checks: [{ ...base, paths: fifty }] }).success).toBe(true);
+  });
+
+  it('refuses more than 50, an empty list and globs that can never match a git path', () => {
+    const bad = (paths: string[]) =>
+      RepoChecksSchema.safeParse({ checks: [{ ...base, paths }] }).success;
+    expect(bad(Array.from({ length: 51 }, (_, i) => `d${i}/**`))).toBe(false);
+    expect(bad([])).toBe(false);
+    for (const g of ['', '/abs/**', '../x', 'a/../b', 'crates\\x', 'a{b,c', 'x'.repeat(201)]) {
+      expect(bad([g]), g).toBe(false);
+    }
+  });
+
+  it('checkPathsProblem explains each refusal', () => {
+    expect(checkPathsProblem('crates/**')).toBeNull();
+    expect(checkPathsProblem('packages/{web,shared}/**')).toBeNull();
+    expect(checkPathsProblem('src\\a.ts')).toMatch(/forward slashes/);
+    expect(checkPathsProblem('/x')).toMatch(/relative to the repo root/);
+    expect(checkPathsProblem('../x')).toMatch(/inside the repo/);
+    expect(checkPathsProblem('a{b')).toMatch(/unclosed/);
+  });
+
+  it('a workflow check accepts paths too (requires.checks / entry.checks share the schema)', () => {
+    expect(EntryCheckSchema.safeParse({ ...base, paths: ['crates/**'] }).success).toBe(true);
   });
 });

@@ -33,6 +33,10 @@ pub struct GateCheck {
     /// `<n><ms|s|m|h|d>`, as the workflow writes it.
     #[serde(default)]
     pub timeout: Option<String>,
+    /// R3: the check runs only when a change since the branch's base matches one of these globs
+    /// (empty = always), as at the gate.
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 /// The orchestrator's answer: what to run.
@@ -78,6 +82,8 @@ pub struct ItemOutcome {
     pub duration_ms: u64,
     /// The output tail (failures only matter).
     pub output: String,
+    /// R3: it passed without running, because no change matched its `paths`: why.
+    pub unchanged: Option<String>,
 }
 
 impl ItemOutcome {
@@ -89,6 +95,17 @@ impl ItemOutcome {
             timed_out: false,
             duration_ms: 0,
             output: String::new(),
+            unchanged: None,
+        }
+    }
+
+    /// R3: passed without running (no change matched its `paths`), as the gate counts it.
+    pub fn unchanged(name: impl Into<String>, why: String) -> Self {
+        ItemOutcome {
+            status: Status::Pass,
+            exit_code: Some(0),
+            unchanged: Some(why),
+            ..ItemOutcome::skipped(name)
         }
     }
 }
@@ -213,7 +230,10 @@ pub fn format_run_gate(o: &GateOutcome) -> String {
                         _ => String::new(),
                     }
                 };
-                l.push_str(&format!(" ({why}{})", seconds(it.duration_ms)));
+                match &it.unchanged {
+                    Some(u) => l.push_str(&format!(" (not run: {u})")),
+                    None => l.push_str(&format!(" ({why}{})", seconds(it.duration_ms))),
+                }
             }
             Status::Skipped => {}
             Status::NotRun => {}
@@ -355,6 +375,7 @@ mod tests {
             timed_out: false,
             duration_ms: 2_400,
             output: output.into(),
+            unchanged: None,
         }
     }
 
@@ -447,6 +468,27 @@ mod tests {
             o.result_body("r")["not_run"],
             "the branch has no commits ahead of origin/main"
         );
+    }
+
+    #[test]
+    fn a_check_no_change_matches_passes_without_running_as_at_the_gate() {
+        let o = outcome(
+            None,
+            vec![
+                ItemOutcome::unchanged(
+                    "Cargo",
+                    "no changes match paths: crates/** (diff against main at 0123456789ab)".into(),
+                ),
+                item("Tests pass", Status::Pass, "ok"),
+            ],
+        );
+        assert!(o.passed());
+        let t = format_run_gate(&o);
+        assert!(
+            t.contains("- Cargo: pass (not run: no changes match paths: crates/**"),
+            "{t}"
+        );
+        assert_eq!(o.result_body("r")["results"][0]["status"], "pass");
     }
 
     #[test]

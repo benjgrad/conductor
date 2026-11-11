@@ -122,6 +122,7 @@ export async function loadCheckRuns(
     exit_code: number | null;
     timed_out: boolean;
     setup_failed: boolean;
+    skipped: boolean;
     started_at: Date;
     ts: Date;
   }>(
@@ -132,6 +133,7 @@ export async function loadCheckRuns(
       "(e.payload->>'exit_code')::int AS exit_code, " +
       "COALESCE((e.payload->>'timed_out')::boolean, false) AS timed_out, " +
       "COALESCE((e.payload->>'setup_failed')::boolean, false) AS setup_failed, " +
+      "(e.payload ? 'skipped') AS skipped, " +
       'o.created_at AS started_at, e.ts ' +
       `${SCOPE.replace(
         'FROM session s',
@@ -157,6 +159,7 @@ export async function loadCheckRuns(
     exit_code: r.exit_code,
     timed_out: r.timed_out,
     setup_failed: r.setup_failed,
+    ...(r.skipped ? { skipped: true } : {}),
     started_at: r.started_at.toISOString(),
     at: r.ts.toISOString(),
   }));

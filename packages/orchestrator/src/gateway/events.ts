@@ -58,6 +58,7 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         ...(p.data.base_ref !== undefined ? { base_ref: p.data.base_ref } : {}),
         ...(p.data.not_run !== undefined ? { not_run: p.data.not_run } : {}),
         ...(p.data.no_commits !== undefined ? { no_commits: p.data.no_commits } : {}),
+        ...(p.data.skipped !== undefined ? { skipped: p.data.skipped } : {}),
       };
     case 'spend':
       return {

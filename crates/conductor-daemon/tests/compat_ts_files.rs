@@ -103,6 +103,7 @@ fn session(
         claude_session_id: claude.map(String::from),
         last_used_at: 1_793_095_872_000,
         agent,
+        base: None,
     }
 }
 

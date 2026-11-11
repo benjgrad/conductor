@@ -25,8 +25,9 @@ use uuid::Uuid;
 
 use super::{Core, RunningCmd};
 use crate::actions::checkout::{
-    FreshCheckout, FreshCheckoutInput, detect_setup, fetch_budget, fresh_checkout, managed_command,
-    missing_manager, no_commits_ahead, remove_checkout,
+    FreshCheckout, FreshCheckoutInput, changed_since_base, detect_setup, fetch_budget,
+    fresh_checkout, managed_command, missing_manager, no_commits_ahead, remove_checkout,
+    skip_reason,
 };
 use crate::actions::open_pr::check_clean;
 use crate::actions::run_gate::{
@@ -38,7 +39,7 @@ use crate::claude::driver::RunGateHook;
 use crate::claude::outcome_server::RunGateRequest;
 use crate::commands::runner::{CancelToken, CommandOutputChunk, CommandRunner, RunCommandOptions};
 use crate::ports::port_env;
-use crate::store::PortRange;
+use crate::store::{PortRange, SessionBase};
 
 /// FR-3: the agent's text for a dirty worktree (pure).
 pub(crate) fn dirty_text(lines: &[String]) -> String {
@@ -140,7 +141,9 @@ impl Core {
             cancel: cancel.clone(),
         };
         let started = Instant::now();
-        let mut outcome = self.gate_work(&ctx, &wt, &s.branch, &head, &spec).await;
+        let mut outcome = self
+            .gate_work(&ctx, &wt, &s.branch, s.base.as_ref(), &head, &spec)
+            .await;
         timer.abort();
         if over.load(Ordering::SeqCst) && outcome.not_run.is_none() {
             outcome.not_run = Some(format!(
@@ -178,6 +181,7 @@ impl Core {
         ctx: &ExecCtx,
         wt: &Path,
         branch: &str,
+        base: Option<&SessionBase>,
         head: &str,
         spec: &GateSpec,
     ) -> GateOutcome {
@@ -235,22 +239,53 @@ impl Core {
                 return out;
             }
         };
-        self.gate_items(ctx, &dir, spec, &mut out).await;
+        self.gate_items(ctx, &dir, base, head, spec, &mut out).await;
         remove_checkout(&dir);
         out
     }
 
-    async fn gate_items(&self, ctx: &ExecCtx, dir: &Path, spec: &GateSpec, out: &mut GateOutcome) {
+    /// The setup and the checks, as the gate runs them: R3, a check with `paths` that no change
+    /// since the branch's base matches counts as passed without running (`skip_reason`), and the
+    /// setup runs only before the first check that does run.
+    async fn gate_items(
+        &self,
+        ctx: &ExecCtx,
+        dir: &Path,
+        base: Option<&SessionBase>,
+        head: &str,
+        spec: &GateSpec,
+        out: &mut GateOutcome,
+    ) {
+        // The diff the gate reads, in the same conductor-owned checkout; read once.
+        let changed = match base {
+            Some(b) if spec.checks.iter().any(|c| !c.paths.is_empty()) => {
+                changed_since_base(dir, &b.sha, head, None).await
+            }
+            _ => None,
+        };
+        let label = base.map(|b| format!("{} at {}", b.branch, b.sha.get(..12).unwrap_or(&b.sha)));
         let mut stopped = false;
-        if let Some(setup) = detect_setup(dir, spec.setup.as_deref()) {
-            let item = self.gate_exec(ctx, dir, &setup, &setup, None).await;
-            stopped = item.status != Status::Pass;
-            out.setup = Some(item);
-        }
+        let mut set_up = false;
         for c in &spec.checks {
             if stopped || ctx.cancel.is_cancelled() {
                 out.checks.push(ItemOutcome::skipped(&c.name));
                 continue;
+            }
+            if let Some(why) = skip_reason(changed.as_deref(), &c.paths, label.as_deref()) {
+                out.checks.push(ItemOutcome::unchanged(&c.name, why));
+                continue;
+            }
+            if !set_up {
+                set_up = true;
+                if let Some(setup) = detect_setup(dir, spec.setup.as_deref()) {
+                    let item = self.gate_exec(ctx, dir, &setup, &setup, None).await;
+                    stopped = item.status != Status::Pass;
+                    out.setup = Some(item);
+                    if stopped {
+                        out.checks.push(ItemOutcome::skipped(&c.name));
+                        continue;
+                    }
+                }
             }
             let cmd = managed_command(dir, &c.cmd);
             let timeout = c.timeout.as_deref().and_then(parse_duration);

@@ -541,6 +541,9 @@ function SpecView({ spec }: { spec: Spec }) {
           <li key={`${i}:${c.name}`}>
             {c.name}: <code>{c.cmd}</code>
             {c.timeout !== undefined ? ` (${c.timeout})` : ''}
+            {c.paths !== undefined && (
+              <span className="muted"> · only when {c.paths.join(', ')} change</span>
+            )}
           </li>
         ))}
       </ul>

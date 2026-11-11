@@ -56,6 +56,7 @@ import {
   SessionBaseSchema,
   MoveActorSchema,
   MoveCauseSchema,
+  NotifyDecisionSchema,
   WorkflowDefinitionSchema,
   conditionEnabled,
   conditionLabel,
@@ -489,6 +490,12 @@ export const InputRequestDtoSchema = z.object({
    * `ask_user` question. Absent or null ≡ none (type an answer).
    */
   options: QuestionOptionsSchema.nullable().optional(),
+  /**
+   * ADR-0037 P6: the notify policy's decision for the move that opened the request
+   * (`input_request.notify`). A `silent` request opens no in-tab notification, matching Web Push.
+   * Absent or null ≡ legacy mode (no workflow `notify` policy) or an older server: it notifies.
+   */
+  notify: NotifyDecisionSchema.nullable().optional(),
 });
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
@@ -760,7 +767,7 @@ export const BoardCardSchema = z.object({
   /** Open input request (needs-input cards): the question badge. */
   input_request: InputRequestDtoSchema.nullable(),
   created_at: IsoDateTimeSchema,
-  /** Last activity (Running sort). */
+  /** Last activity (Done sort, the card's age label). */
   updated_at: IsoDateTimeSchema,
   /**
    * 06 §Queue order: the ticket's hand-set place in the queue (1 = picked up first). null / absent
@@ -809,8 +816,9 @@ export type BoardColumnDto = z.infer<typeof BoardColumnDtoSchema>;
 /**
  * GET /api/board. `columns` is ordered left to right (ADR-0010), built from the latest `conductor`
  * version: Queued (`id: 'queued'`) first. Each column is pre-sorted per 06 by its kind (queued:
- * priority then age; human: oldest open input_request first; event: oldest first; others: most
- * recent activity first; 06 §Queue order: queued is hand order first, then priority then age).
+ * priority then age; human: oldest open input_request first; event, agent, command, connector:
+ * oldest ticket first, a stable order; terminal: most recent activity first; 06 §Queue order:
+ * queued is hand order first, then priority then age).
  * `last_event_id` is where the SSE board stream should resume.
  */
 export const BoardResponseSchema = z.object({
@@ -1681,10 +1689,16 @@ export const RepoChecksDetailSchema = z.object({
 export type RepoChecksDetail = z.infer<typeof RepoChecksDetailSchema>;
 
 /**
- * UXR-80: how one check run ended. `setup_failed` wins over `timed_out`, which wins over a non-zero
- * (or missing) exit (`fail`).
+ * UXR-80: how one check run ended. `skipped` (R3: no change matched its `paths`) wins, then
+ * `setup_failed` over `timed_out`, which wins over a non-zero (or missing) exit (`fail`).
  */
-export const CheckRunStatusSchema = z.enum(['pass', 'fail', 'timed_out', 'setup_failed']);
+export const CheckRunStatusSchema = z.enum([
+  'pass',
+  'fail',
+  'timed_out',
+  'setup_failed',
+  'skipped',
+]);
 export type CheckRunStatus = z.infer<typeof CheckRunStatusSchema>;
 
 /** UXR-80: one past run of a check (a `run_cmd` and its `command.exited`). */
@@ -1718,8 +1732,11 @@ export const RepoCheckRunsResponseSchema = z.object({
       cmd: z.string(),
       /** Newest first, at most `limit`. */
       runs: z.array(RepoCheckRunSchema),
+      /** Runs that ran (R3: skipped ones are under `skips_in_window`). */
       runs_in_window: z.number().int().nonnegative(),
       failures_in_window: z.number().int().nonnegative(),
+      /** R3: skipped because no change matched the check's `paths`. */
+      skips_in_window: z.number().int().nonnegative().default(0),
     }),
   ),
 });
@@ -1729,6 +1746,7 @@ export type RepoCheckRunsResponse = z.infer<typeof RepoCheckRunsResponseSchema>;
 export const RepoCheckHealthSchema = z.object({
   /** `repoChecksKey` of the repo. */
   repo: z.string(),
+  /** Runs that ran (R3: skipped ones are not runs). */
   runs: z.number().int().nonnegative(),
   failures: z.number().int().nonnegative(),
   last_run_at: z.string().nullable(),
@@ -1983,6 +2001,8 @@ export interface InputRequestLike {
   origin_cause?: string | null | undefined;
   /** Questions UX: the `options` jsonb. Absent or null ≡ none; malformed ≡ none. */
   options?: unknown;
+  /** ADR-0037 P6: the `notify` jsonb (a NotifyDecision). Absent or null ≡ none; malformed ≡ none. */
+  notify?: unknown;
 }
 
 /**
@@ -2018,6 +2038,10 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
   if (row.options !== undefined && row.options !== null) {
     const parsed = QuestionOptionsSchema.safeParse(row.options);
     if (parsed.success) dto.options = parsed.data;
+  }
+  if (row.notify !== undefined && row.notify !== null) {
+    const parsed = NotifyDecisionSchema.safeParse(row.notify);
+    if (parsed.success) dto.notify = parsed.data;
   }
   if (row.origin_transition === undefined && row.origin_from === undefined) return dto;
   // An engine route (requirements unmet, a step that failed, a fallback) records why under its own
@@ -2203,9 +2227,17 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
   }
   const declared = req.checks ?? [];
   const checks = stepChecksSource(declared, step) === 'repo' ? step.repo_checks!.checks : declared;
-  checks.forEach((c, i) =>
-    items.push({ kind: 'check', label: c.name, status: indexed(1, i), detail: null }),
-  );
+  // R3: a check the daemon skipped (no change matched its `paths`) shows as skipped, with why.
+  const skipped = new Map((step.skipped_checks ?? []).map((k) => [k.index, k.reason]));
+  checks.forEach((c, i) => {
+    const status = indexed(1, i);
+    const reason = status === 'met' ? skipped.get(i) : undefined;
+    items.push(
+      reason !== undefined
+        ? { kind: 'check', label: c.name, status: 'skipped', detail: reason }
+        : { kind: 'check', label: c.name, status, detail: null },
+    );
+  });
   if (req.review !== undefined) {
     const n = req.review.items.length;
     items.push({

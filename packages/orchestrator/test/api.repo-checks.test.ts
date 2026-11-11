@@ -115,6 +115,27 @@ describe('/api/repo-checks', () => {
     expect([res.status, res.json.error?.code]).toEqual([400, 'bad_request']);
   });
 
+  it('R3: PUT and GET round-trip a check’s paths; a bad glob 400s', async () => {
+    api = await startApi({ db: db.pool, auth: passwordAuth(HTTPS_URL) });
+    const a = await signIn(api);
+    const checks = [{ name: 'Cargo', cmd: 'cargo nextest run', paths: ['crates/**', 'Cargo.*'] }];
+    const put = await api.send('PUT', API_PATHS.repoChecks, {
+      headers: { cookie: a.cookie },
+      body: { repo: 'github.com/acme/app', checks },
+    });
+    expect(put.status).toBe(200);
+    const detail = await api.send('GET', q('github.com/acme/app'), {
+      headers: { cookie: a.cookie },
+    });
+    expect(RepoChecksDetailSchema.parse(detail.json).override?.checks).toEqual(checks);
+    expect(await readRepoChecks(db.pool, a.accountId, 'github.com/acme/app')).toEqual({ checks });
+    const bad = await api.send('PUT', API_PATHS.repoChecks, {
+      headers: { cookie: a.cookie },
+      body: { repo: 'github.com/acme/app', checks: [{ name: 'X', cmd: 'x', paths: ['/abs'] }] },
+    });
+    expect([bad.status, bad.json.error?.code]).toEqual([400, 'bad_request']);
+  });
+
   it('readRepoChecks ignores (and reports) a stored config that no longer parses', async () => {
     api = await startApi({ db: db.pool, auth: passwordAuth(HTTPS_URL) });
     const a = await signIn(api);

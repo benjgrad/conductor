@@ -35,7 +35,7 @@ export interface ChecksIssue {
 export function checksFieldSuffixes(checks: readonly EntryCheck[]): Set<string> {
   const out = new Set(['checks']);
   checks.forEach((_, i) => {
-    for (const f of ['name', 'cmd', 'timeout']) out.add(`checks.${i}.${f}`);
+    for (const f of ['name', 'cmd', 'timeout', 'paths']) out.add(`checks.${i}.${f}`);
   });
   if (checks.length > 0) out.add('setup');
   return out;
@@ -164,6 +164,7 @@ export function ChecksFields({
             <tbody ref={list}>
               {checks.map((c, i) => {
                 // A row's problems span the row under it (each names its column, FR-5).
+                // R3: a paths problem shows under the paths field instead.
                 const problems = ['name', 'cmd', 'timeout'].flatMap((f) =>
                   issues.some((x) => x.suffix === `checks.${i}.${f}`) ? [f] : [],
                 );
@@ -234,6 +235,20 @@ export function ChecksFields({
                         </td>
                       </tr>
                     )}
+                    <tr className="wf-checks-paths">
+                      <td colSpan={4}>
+                        <PathsInput
+                          i={i}
+                          paths={c.paths}
+                          onChange={(paths) => {
+                            const next = { ...c };
+                            delete next.paths;
+                            setAt(i, paths.length === 0 ? next : { ...next, paths });
+                          }}
+                        />
+                        {issueAt(`checks.${i}.paths`)}
+                      </td>
+                    </tr>
                   </Fragment>
                 );
               })}
@@ -256,6 +271,48 @@ export function ChecksFields({
         </button>
       </div>
     </>
+  );
+}
+
+/** R3: a check's `paths` as typed: globs separated by commas or new lines, blanks dropped. */
+export function parsePaths(text: string): string[] {
+  return text
+    .split(/[,\n]/)
+    .map((g) => g.trim())
+    .filter((g) => g !== '');
+}
+
+/**
+ * R3: "Only when these change": the check's path globs. Empty = always run. The text is kept as
+ * typed (a trailing comma stays while typing) and re-read when the check's paths change elsewhere.
+ */
+function PathsInput({
+  i,
+  paths,
+  onChange,
+}: {
+  i: number;
+  paths: readonly string[] | undefined;
+  onChange: (paths: string[]) => void;
+}) {
+  const joined = (paths ?? []).join(', ');
+  const [text, setText] = useState(joined);
+  // The paths changed elsewhere (a reorder, a reset): show them.
+  if (parsePaths(text).join('\u0000') !== (paths ?? []).join('\u0000')) setText(joined);
+  return (
+    <label className="wf-checks-paths-field">
+      <span className="muted">Only when these change</span>
+      <input
+        aria-label={`Check ${i + 1} paths`}
+        className="mono"
+        value={text}
+        placeholder="any file (e.g. crates/**, Cargo.*)"
+        onChange={(e) => {
+          setText(e.target.value);
+          onChange(parsePaths(e.target.value));
+        }}
+      />
+    </label>
   );
 }
 

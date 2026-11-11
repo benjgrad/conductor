@@ -162,6 +162,57 @@
         "Bash(gh:*)"
       ]
     },
+    "triage": {
+      "builtin": [
+        "Bash",
+        "TaskStop",
+        "BashOutput",
+        "KillShell"
+      ],
+      "allow": [
+        "TaskStop",
+        "BashOutput",
+        "KillShell",
+        "Bash(git status)",
+        "Bash(git status --short)",
+        "Bash(git diff)",
+        "Bash(git diff --cached)",
+        "Bash(git diff --stat)",
+        "Bash(git diff HEAD~1)",
+        "Bash(git diff --stat HEAD~1)",
+        "Bash(git log --oneline -n 20)",
+        "Bash(git log --stat -n 10)",
+        "Bash(git log -p -n 5)",
+        "Bash(git show)",
+        "Bash(git show --stat)",
+        "Bash(git rev-parse HEAD)",
+        "Bash(git branch --show-current)",
+        "Bash(gh pr view:*)",
+        "Bash(gh pr checks:*)",
+        "Bash(gh pr diff:*)",
+        "Bash(gh run list:*)",
+        "Bash(gh run view:*)"
+      ],
+      "deny": [
+        "Edit",
+        "Write",
+        "Bash(git add:*)",
+        "Bash(git commit:*)",
+        "Bash(git reset:*)",
+        "Bash(git checkout:*)",
+        "Bash(git stash:*)",
+        "Bash(gh api:*)",
+        "Bash(gh pr create:*)",
+        "Bash(gh pr merge:*)",
+        "Bash(gh pr close:*)",
+        "Bash(gh pr edit:*)",
+        "Bash(gh pr comment:*)",
+        "Bash(gh pr review:*)",
+        "Bash(gh run rerun:*)",
+        "Bash(gh run cancel:*)",
+        "Bash(gh workflow:*)"
+      ]
+    },
     "pr_skill": {
       "builtin": [
         "Skill",

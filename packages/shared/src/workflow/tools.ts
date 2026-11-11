@@ -78,6 +78,20 @@ export const QA_GIT_COMMANDS: readonly string[] = [
   'git log --oneline qa-base..HEAD',
 ];
 
+/**
+ * ADR-0041: the read-only `gh` commands a triage session may run, as prefixes (it needs a run or
+ * PR number). None of them has a flag that writes a file or changes GitHub: `pr view` / `pr checks`
+ * / `pr diff` read a PR, `run list` / `run view` (with `--log` / `--log-failed`) read CI. No
+ * `gh api`, which can POST.
+ */
+export const TRIAGE_GH_PREFIXES: readonly string[] = [
+  'gh pr view',
+  'gh pr checks',
+  'gh pr diff',
+  'gh run list',
+  'gh run view',
+];
+
 /** ADR-0020 §2: the test runners a QA session may run (prefixes, then exact commands). */
 const QA_TEST_PREFIXES = ['pnpm test', 'pnpm vitest', 'pnpm exec vitest', 'npm test', 'npm run'];
 const QA_TEST_EXACT = ['pnpm typecheck', 'pnpm lint'];
@@ -173,6 +187,38 @@ export const TOOL_ALIASES = {
       ...QA_TEST_EXACT.map((c) => `Bash(${c})`),
     ],
     deny: ['Edit', 'Write', 'Bash(git add:*)', 'Bash(git commit:*)', 'Bash(gh:*)'],
+  },
+  /**
+   * A `role: 'triage'` state (ADR-0041), run in forced dontAsk: the read base, the reviewer's exact
+   * git commands and the read-only `gh` prefixes (CI logs, PR checks). Nothing can change the
+   * branch or GitHub: no Edit/Write, no staging or committing, no `gh` writes, no `gh api`.
+   */
+  triage: {
+    builtin: ['Bash', ...BACKGROUND_TOOLS],
+    allow: [
+      ...BACKGROUND_TOOLS,
+      ...REVIEW_GIT_COMMANDS.map((c) => `Bash(${c})`),
+      ...TRIAGE_GH_PREFIXES.map((c) => `Bash(${c}:*)`),
+    ],
+    deny: [
+      'Edit',
+      'Write',
+      'Bash(git add:*)',
+      'Bash(git commit:*)',
+      'Bash(git reset:*)',
+      'Bash(git checkout:*)',
+      'Bash(git stash:*)',
+      'Bash(gh api:*)',
+      'Bash(gh pr create:*)',
+      'Bash(gh pr merge:*)',
+      'Bash(gh pr close:*)',
+      'Bash(gh pr edit:*)',
+      'Bash(gh pr comment:*)',
+      'Bash(gh pr review:*)',
+      'Bash(gh run rerun:*)',
+      'Bash(gh run cancel:*)',
+      'Bash(gh workflow:*)',
+    ],
   },
   /**
    * The PR skill (pr_flow `open_pr`, M3). `gh pr create` can push the branch, so agents only get

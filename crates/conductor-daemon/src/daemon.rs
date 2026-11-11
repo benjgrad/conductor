@@ -33,11 +33,12 @@ use conductor_protocol::tool_policy::resolve_tool_policy;
 use conductor_protocol::{
     AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_AGENT_ATTACHMENTS,
     DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_PAGES, DAEMON_FEATURE_PERMISSION_MODE,
-    DAEMON_FEATURE_TICKET_ATTACHMENTS, DaemonToOrchestrator, EvaluateConditionsArgs, KillPayload,
-    NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS, OrchestratorToDaemon, PROTOCOL_VERSION,
-    PermissionDecisionPayload, RunActionPayload, RunActionPayloadAction, RunCmdPayload,
-    STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload, SendMessagePayload,
-    SessionEventPayload, StartSessionPayload, TranscriptPayload, auth::daemon_auth_header_value,
+    DAEMON_FEATURE_TICKET_ATTACHMENTS, DAEMON_FEATURE_TRIAGE, DaemonToOrchestrator,
+    EvaluateConditionsArgs, KillPayload, NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS,
+    OrchestratorToDaemon, PROTOCOL_VERSION, PermissionDecisionPayload, RunActionPayload,
+    RunActionPayloadAction, RunCmdPayload, STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload,
+    SendMessagePayload, SessionEventPayload, StartSessionPayload, TranscriptPayload,
+    auth::daemon_auth_header_value,
 };
 use futures_util::FutureExt;
 use serde_json::{Value, json};
@@ -689,6 +690,8 @@ impl Core {
                 DAEMON_FEATURE_PAGES,
                 // ADR-0039: it honours `start_session.permission_mode` (skip permissions).
                 DAEMON_FEATURE_PERMISSION_MODE,
+                // ADR-0041: its tool policy knows the `triage` alias.
+                DAEMON_FEATURE_TRIAGE,
             ],
         });
         // Local mode keeps M1's `enrollment_token: null`; an enrolled daemon authenticates on the

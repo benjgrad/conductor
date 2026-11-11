@@ -78,6 +78,11 @@ export const DAEMON_FEATURE_PAGES = 'pages';
  * `--permission-mode bypassPermissions`). A machine without it never gets the field.
  */
 export const DAEMON_FEATURE_PERMISSION_MODE = 'permission_mode';
+/**
+ * ADR-0041: the daemon knows the `triage` tool alias (read-only git and `gh`). A machine without it
+ * gets a triage session with the `review` alias instead (read-only git, no `gh`).
+ */
+export const DAEMON_FEATURE_TRIAGE = 'triage';
 /** The `register.features` names conductor knows. */
 export const DAEMON_FEATURES = [
   DAEMON_FEATURE_ASSISTANT_JOB,
@@ -85,6 +90,7 @@ export const DAEMON_FEATURES = [
   DAEMON_FEATURE_AGENT_ATTACHMENTS,
   DAEMON_FEATURE_PAGES,
   DAEMON_FEATURE_PERMISSION_MODE,
+  DAEMON_FEATURE_TRIAGE,
 ] as const;
 
 /** M1-T11: a newer connection for the same machine id replaced this one. */

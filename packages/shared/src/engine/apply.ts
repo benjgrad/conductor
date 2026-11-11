@@ -12,6 +12,9 @@ import { stateTitle } from '../workflow/conductor.js';
 import { resolveInstruction } from '../workflow/instructions.js';
 import {
   AVAILABLE_TRANSITION_ACTIONS,
+  ENGINE_CAUSES,
+  GATE,
+  isTriageState,
   NOTIFY_VIA_WATCH_ESCALATE,
   parseDuration,
   RETURN_TO,
@@ -31,8 +34,20 @@ import {
 import {
   isCountedTransition,
   transitionActor,
+  transitionGoto,
   transitionObject,
 } from '../workflow/transition-rules.js';
+import { isTriageTarget } from '../workflow/validate-triage.js';
+import {
+  keepsTriage,
+  patchTriage,
+  planTriageEntry,
+  triageInstruction,
+  triageOf,
+  triageStartSession,
+  withTriage,
+  type TriageGate,
+} from './triage.js';
 import {
   checklistLines,
   enabledIndexes,
@@ -184,6 +199,8 @@ const AGENT_ACTIVE: ReadonlySet<SessionStatus> = new Set(['assigned', 'running']
 class Step {
   readonly s: SessionSnapshot;
   readonly effects: Effect[] = [];
+  /** ADR-0041: the gate step `leaveStep` just ended (a triage state's evidence of what failed). */
+  lastStep: GateStep | null = null;
 
   constructor(
     readonly def: WorkflowDefinition,
@@ -274,6 +291,11 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       // ADR-0020 §2: the QA's conversation is its own, never the worker's.
       if (isQaState(st.state)) {
         st.s.context = patchQa(st.s.context, { claude_session_id: e.claude_session_id });
+        return null;
+      }
+      // ADR-0041: so is the triage's, so `$return_to` resumes the worker's own conversation.
+      if (isTriageState(st.state)) {
+        st.s.context = patchTriage(st.s.context, { claude_session_id: e.claude_session_id });
         return null;
       }
       st.s.claude_session_id = e.claude_session_id;
@@ -1056,7 +1078,11 @@ function takeOutcome(
   const state = st.state;
   const t = state && state.type !== 'terminal' ? state.on?.[outcome] : undefined;
   const kind = opts.kind ?? kindForOutcome(outcome);
-  const question = questionFor(from, outcome, kind, info);
+  // ADR-0041: a triage's escalate verdict leads with its diagnosis and the evidence.
+  const question =
+    isTriageState(state) && kind === 'approval'
+      ? triageQuestion(st, from, outcome, info)
+      : questionFor(from, outcome, kind, info);
   // A named transition is recorded as taken; an outcome conductor produced itself (a timeout, a
   // failed process) as an engine move with its detail; any other unnamed outcome (a legacy `done`,
   // an event's name) as a transition taken by the state's own actor (ADR-0037 P7).
@@ -1076,6 +1102,11 @@ function takeOutcome(
                 ? 'agent'
                 : 'system',
         });
+  // ADR-0041: a triage verdict (or a leg's) back to the failed state or gate.
+  if (t !== undefined && isTriageTarget(transitionGoto(t))) {
+    takeTriageRoute(st, from, outcome, t, record, info);
+    return;
+  }
   const notify = notifyFor(outcome, t);
   // Questions UX: only the agent's own question carries its options.
   const options =
@@ -2473,26 +2504,47 @@ function onGateRetry(st: Step): ApplyIgnoreReason | null {
   s.context = rest;
   const transition = typeof g.transition === 'string' ? g.transition : null;
   const actor = g.actor === 'agent' || g.actor === 'human' || g.actor === 'system' ? g.actor : null;
-  // The step runs on the session's machine, or requeues without one (enterStep).
+  retryGate(
+    st,
+    {
+      kind: g.kind,
+      from: g.from,
+      outcome: g.outcome,
+      to: g.to,
+      transition,
+      actor,
+      reason: typeof g.reason === 'string' ? g.reason : null,
+    },
+    'retry the checks after a check-config fix',
+    engineMove('retry', transition ?? g.outcome, 'checks retried after a check-config fix'),
+  );
+  return null;
+}
+
+/**
+ * Run a remembered gate step again from its source state (`gate.retry`, ADR-0041 `$gate`). The
+ * step runs on the session's machine, or requeues without one (enterStep).
+ */
+function retryGate(st: Step, g: TriageGate, detail: string, record: MoveFields): void {
+  const transition = g.transition;
   enterStep(st, {
     kind: g.kind,
     from: g.from,
     outcome: g.outcome,
     to: g.to,
     attachment: null,
-    info: { detail: 'retry the checks after a check-config fix' },
+    info: { detail },
     ...(g.kind === 'move'
       ? {
           move: {
             transition: transition ?? g.outcome,
-            actor: actor ?? 'human',
-            reason: typeof g.reason === 'string' ? g.reason : null,
+            actor: g.actor ?? 'human',
+            reason: g.reason,
           },
         }
       : {}),
-    record: engineMove('retry', transition ?? g.outcome, 'checks retried after a check-config fix'),
+    record,
   });
-  return null;
 }
 
 /**
@@ -2632,6 +2684,8 @@ function stepUnmet(st: Step, spec: GateSpec, r: GateStep, unmet: ReviewFeedback[
     ...NO_ROUTE,
     kind: 'retries_exhausted',
     question: lines.join('\n'),
+    // A human target ignores it; a triage target (ADR-0041) keeps the unmet items as evidence.
+    feedback,
     auditFrom: label,
     skipEntry: true,
     record: engineMove(
@@ -2732,6 +2786,7 @@ function leaveStep(st: Step, kill: boolean): void {
     s.state_entered_at = st.now.toISOString();
   }
   s.workflow_state = r.from;
+  st.lastStep = r;
   s.step = null;
   s.agent_command_id = null;
   s.agent_process_live = false;
@@ -2891,6 +2946,7 @@ function moveFields(move: MoveFields) {
     reason: move.reason,
     actor: move.actor,
     cause: move.cause,
+    ...(move.triage !== undefined ? { triage: move.triage } : {}),
   };
 }
 
@@ -2900,6 +2956,8 @@ interface MoveFields {
   transition: string | null;
   reason: string | null;
   actor: MoveActor;
+  /** ADR-0041: a triage verdict's move: the failure it judged (the metrics' cause). */
+  triage?: { failure_cause: MoveCause; gate_transition: string };
 }
 
 /** A named transition someone took (an agent, a human, an event): cause `transition`. */
@@ -2979,6 +3037,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     return;
   }
   if (isQaState(toState) && !enterQa(st, target)) return;
+  updateTriage(st, from, target, toState, opts);
   addWallTime(st);
   // ADR-0037 P6: under a `notify` policy, decide on the real landing (never on a gate step);
   // null = legacy mode, where `opts.notify` (a `notify: true` transition) is all there is.
@@ -3503,6 +3562,133 @@ function watchBroken(st: Step, w: Watch, rt: WatchRuntime): void {
   });
 }
 
+// ---------------------------------------------------------------- triage (ADR-0041, triage.ts)
+
+/**
+ * `context.__triage` on an entry: a failure route (an engine cause) into a triage state writes
+ * the evidence (the gate step `leaveStep` just ended, the question a human would have got, the
+ * unmet items) and detaches the previous agent. Leaving the triage state and its legs clears it,
+ * except into a human state the triage escalated to (its answer comes back to triage).
+ */
+function updateTriage(
+  st: Step,
+  from: string | null,
+  target: string,
+  toState: WorkflowState,
+  opts: EnterOpts,
+): void {
+  const s = st.s;
+  const step = st.lastStep;
+  st.lastStep = null;
+  if (isTriageState(toState)) {
+    if (!ENGINE_CAUSES.includes(opts.record.cause)) return;
+    s.context = withTriage(
+      s.context,
+      planTriageEntry({
+        step,
+        from: from ?? target,
+        cause: opts.record.cause,
+        transition: opts.record.transition,
+        question: opts.question,
+        unmet: opts.feedback?.unmet ?? [],
+      }),
+    );
+    if (s.machine_id !== null && s.agent_command_id !== null) {
+      st.emit({
+        type: 'kill',
+        reason: 'triage started: the previous agent is done',
+        target_command_id: s.agent_command_id,
+      });
+    }
+    s.agent_command_id = null;
+    s.agent_process_live = false;
+    return;
+  }
+  if (triageOf(s.context) !== null && !keepsTriage(st.def, from, target)) {
+    s.context = withTriage(s.context, null);
+  }
+}
+
+/** A triage verdict into a human state (escalate): the agent's reason as the diagnosis, first. */
+function triageQuestion(st: Step, from: string, outcome: string, info: OutcomeInfo): string {
+  const t = triageOf(st.s.context);
+  const head = `Triage diagnosis (${stateTitle(st.def, from)}, "${outcome}"): ${info.detail ?? '(no reason given)'}`;
+  if (t === null) return head;
+  return `${head}\n\nWhat failed: "${t.transition}" in "${stateTitle(st.def, t.return_to)}" (${t.cause}).\n\n${t.question}`;
+}
+
+/**
+ * ADR-0041: a verdict naming `$return_to` (back to the failed state, the instruction attached, the
+ * worker's own conversation resumed) or `$gate` (the failed gate step again). Counted per verdict
+ * and failure under `<from>-><target>:<failed transition>`; past `retries` it takes `else` (a
+ * human), never the loop. Without a recorded failure it goes to a human (`fallback`).
+ */
+function takeTriageRoute(
+  st: Step,
+  from: string,
+  outcome: string,
+  t: Transition,
+  record: MoveFields,
+  info: OutcomeInfo,
+): void {
+  const goto = transitionGoto(t);
+  const obj = transitionObject(t);
+  const tri = triageOf(st.s.context);
+  const gate = tri?.gate ?? null;
+  if (tri === null || (goto === GATE && gate === null)) {
+    const q =
+      tri === null
+        ? `"${stateTitle(st.def, from)}" chose "${outcome}" (${goto}), but conductor has no failure on record to go back to. Retry, skip, or abort?`
+        : `"${stateTitle(st.def, from)}" chose "${outcome}" (${goto}), but "${tri.transition}" did not fail in a gate step, so there is nothing to run again.\n\n${tri.question}\n\nRetry, skip, or abort?`;
+    toFallbackHuman(st, 'retries_exhausted', q, engineMove('fallback', outcome, q));
+    return;
+  }
+  const triage = { failure_cause: tri.cause, gate_transition: tri.transition };
+  const key = `${from}->${goto}:${tri.transition}`;
+  const cap = obj.retries ?? st.def.budget.max_loop_retries;
+  const taken = st.s.retry_counters[key] ?? 0;
+  if (taken >= cap) {
+    const reason = info.detail !== undefined ? ` Its reason: ${info.detail}` : '';
+    const q = `"${stateTitle(st.def, from)}" chose "${outcome}" for "${tri.transition}" ${taken} time${taken === 1 ? '' : 's'} already (limit ${cap}).${reason}\n\n${tri.question}\n\nRetry, skip, or abort?`;
+    const out: MoveFields = {
+      ...engineMove('retries_exhausted', outcome, `${outcome} (retry limit ${cap})`),
+      triage,
+    };
+    if (obj.else !== undefined) {
+      enter(st, obj.else, { ...NO_ROUTE, kind: 'retries_exhausted', question: q, record: out });
+    } else {
+      toFallbackHuman(st, 'retries_exhausted', q, out);
+    }
+    return;
+  }
+  st.s.retry_counters = { ...st.s.retry_counters, [key]: taken + 1 };
+  const move: MoveFields = { ...record, triage };
+  if (goto === GATE) {
+    retryGate(st, gate!, `${outcome}: run "${tri.transition}" again`, move);
+    return;
+  }
+  const instruction = triageInstruction(info.result, info.detail);
+  const unmet =
+    tri.unmet.length > 0
+      ? tri.unmet.map((u) => ({
+          item: u.item,
+          reason: u.reason,
+          ...(u.output !== undefined ? { output: u.output } : {}),
+        }))
+      : [{ item: tri.transition, reason: tri.cause, output: tri.question }];
+  enter(st, tri.return_to, {
+    ...NO_ROUTE,
+    question: instruction ?? tri.question,
+    feedback: {
+      heading: `Sent back by ${stateTitle(st.def, from)} after "${tri.transition}" failed:`,
+      unmet,
+      instruction,
+    },
+    skipEntry: true,
+    record: move,
+  });
+}
+
 // ---------------------------------------------------------------- the QA state (ADR-0020 §2, qa.ts)
 
 /**
@@ -3567,6 +3753,8 @@ function startFor(
   state: AgentState,
   p: Parameters<typeof startSession>[3],
 ): Extract<Effect, { type: 'start_session' }> {
+  if (isTriageState(state))
+    return triageStartSession(st.def, st.s, name, state, { answer: p.answer });
   return isQaState(state)
     ? qaStartSession(st.def, st.s, name, state, { answer: p.answer })
     : startSession(st, name, state, p);

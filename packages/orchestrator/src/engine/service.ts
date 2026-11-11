@@ -54,6 +54,7 @@ import { storeProposedChecks } from './check-proposals.js';
 import { withStartAttachments } from './attachments.js';
 import { withSkipPermissions } from './skip-permissions.js';
 import { withPagesFeature } from './pages.js';
+import { withTriageFeature } from './triage-feature.js';
 
 /** Session statuses after which apply ignores every event. */
 const TERMINAL: ReadonlySet<string> = new Set(['done', 'failed', 'lost']);
@@ -414,6 +415,8 @@ export class EngineServiceImpl implements EngineService {
                 ...(effect.reason !== undefined ? { reason: effect.reason } : {}),
                 ...(effect.actor !== undefined ? { actor: effect.actor } : {}),
                 cause: effect.cause,
+                // ADR-0041: a triage verdict's judged failure (metrics by cause).
+                ...(effect.triage !== undefined ? { triage: effect.triage } : {}),
                 // ADR-0037 P6: the notify policy's decision (absent in legacy mode).
                 ...(effect.notify_decision !== undefined ? { notify: effect.notify_decision } : {}),
               }),
@@ -670,7 +673,12 @@ export class EngineServiceImpl implements EngineService {
               tx,
               await withPagesFeature(
                 tx,
-                await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+                // ADR-0041: `review` for a triage on a daemon without the `triage` alias.
+                await withTriageFeature(
+                  tx,
+                  await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+                  cmd.target,
+                ),
                 cmd.target,
               ),
               ticket.id,

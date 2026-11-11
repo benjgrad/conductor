@@ -186,7 +186,7 @@ export function qaRoundResets(def: Pick<WorkflowDefinition, 'states' | 'budget'>
 
 /**
  * Whether the wrapper must bump the fencing token (ADR-0020 §2 "Fenced"): the session entered
- * or left a QA state outside a gate step (which is fenced already). A late event of the worker
+ * or left a QA (or ADR-0041 triage) state outside a gate step (which is fenced already). A late event of the worker
  * can then never be taken as the QA's outcome, nor the QA's as the worker's.
  */
 export function qaFenceChanged(
@@ -197,7 +197,10 @@ export function qaFenceChanged(
   if (before.workflow_state === after.workflow_state) return false;
   const was = before.workflow_state === null ? undefined : def.states[before.workflow_state];
   const is = after.workflow_state === null ? undefined : def.states[after.workflow_state];
-  return isQaState(was) || isQaState(is);
+  // ADR-0041: a triage state is fenced the same way (its own conversation, never the worker's).
+  const isolated = (st: WorkflowState | undefined) =>
+    isQaState(st) || (st?.type === 'agent' && st.role === 'triage');
+  return isolated(was) || isolated(is);
 }
 
 /** What `## Sent back by <title>` renders (render.ts `renderSentBack`). */

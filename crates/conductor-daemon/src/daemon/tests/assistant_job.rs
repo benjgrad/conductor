@@ -59,6 +59,7 @@ async fn register_advertises_the_assistant_job_feature() {
     c.make(driver(complete(json!({}))), Make::default());
     let reg = c.until(|| c.of_type("register").into_iter().next()).await;
     // 06 §Attachments: the daemon also downloads ticket attachments. ADR-0038: it publishes pages.
+    // ADR-0041: it knows the `triage` tool alias.
     assert_eq!(
         reg["payload"]["features"],
         json!([
@@ -66,7 +67,8 @@ async fn register_advertises_the_assistant_job_feature() {
             "ticket_attachments",
             "agent_attachments",
             "pages",
-            "permission_mode"
+            "permission_mode",
+            "triage"
         ])
     );
     c.done().await;

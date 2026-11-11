@@ -228,6 +228,14 @@ export const ENGINE_CAUSES: readonly MoveCause[] = MOVE_CAUSES.filter(
 export const RETURN_TO = '$return_to';
 
 /**
+ * ADR-0041: the `goto` of a triage transition that retries the move that failed (the gate step
+ * remembered in `context.__triage`). Only on a triage state's transitions and its legs (rule 29).
+ */
+export const GATE = '$gate';
+/** ADR-0041: the pseudo-targets a triage state and its legs may name (rule 29). */
+export const TRIAGE_TARGETS: readonly string[] = [RETURN_TO, GATE];
+
+/**
  * Conductor's own actions on a move (ADR-0010 / ADR-0011). `open_pr` now; `update_jira` and
  * `slack_message` parse but the validator refuses them until M5 (rule 14).
  */
@@ -725,8 +733,11 @@ export const AgentStateSchema = z
     /**
      * ADR-0020 §2: `qa` runs the state as an independent QA session (fresh conversation every
      * visit, fenced, forced dontAsk, its Claude id in `context.__qa`, never the session's).
+     * ADR-0041: `triage` runs it as a fresh, read-only triage of a failed gate (the `triage` tool
+     * alias, its Claude id in `context.__triage`); it may be an `on_unmet` / `else` target, and
+     * its transitions may name `$return_to` and `$gate` (rule 29).
      */
-    role: z.literal('qa').optional(),
+    role: z.enum(['qa', 'triage']).optional(),
     /**
      * ADR-0020 §2: run in a fresh, conductor-owned checkout of the PR head (`context.__qa.head_sha`)
      * instead of the worktree. `setup` as `requires.setup`: null or absent = auto-detect, '' = none.
@@ -819,6 +830,21 @@ export const StateSchema = z.discriminatedUnion('type', [
 export type WorkflowState = z.infer<typeof StateSchema>;
 export type StateType = WorkflowState['type'];
 export type AgentState = z.infer<typeof AgentStateSchema>;
+
+/** ADR-0041: a `role: 'triage'` agent state. */
+export function isTriageState(
+  state: WorkflowState | undefined,
+): state is AgentState & { role: 'triage' } {
+  return state?.type === 'agent' && state.role === 'triage';
+}
+
+/**
+ * Where a failure leg (`on_unmet.else`, an entry's, a watch's `on_broken.else`) may go: a human
+ * state, or (ADR-0041) a triage state, whose own verdicts are counted and end at a human (rule 29).
+ */
+export function isFailureTarget(state: WorkflowState | undefined): boolean {
+  return state?.type === 'human' || isTriageState(state);
+}
 export type CommandState = z.infer<typeof CommandStateSchema>;
 export type EventState = z.infer<typeof EventStateSchema>;
 export type ConnectorState = z.infer<typeof ConnectorStateSchema>;
@@ -838,6 +864,7 @@ export const RESERVED_CONTEXT_KEYS = [
   '__machine_lost',
   '__working_copy',
   '__qa',
+  '__triage',
 ] as const;
 export type ReservedContextKey = (typeof RESERVED_CONTEXT_KEYS)[number];
 

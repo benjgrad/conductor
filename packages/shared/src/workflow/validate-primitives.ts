@@ -1,6 +1,7 @@
 import {
   conditionEnabled,
   instructionRef,
+  isFailureTarget,
   parseDuration,
   RETURN_TO,
   MIN_WATCH_POLL,
@@ -194,11 +195,11 @@ export function checkPrimitives(
           );
         }
         const otherwise = stateOf(ob.else);
-        if (otherwise !== undefined && otherwise.type !== 'human') {
+        if (otherwise !== undefined && !isFailureTarget(otherwise)) {
           err(
             19,
             [...b, 'else'],
-            `on_broken.else "${ob.else}" must be a human state (it is ${otherwise.type})`,
+            `on_broken.else "${ob.else}" must be a human or triage state (it is ${otherwise.type})`,
           );
         }
         if (ob.return_to !== undefined && ob.return_to !== '$self' && !has(ob.return_to)) {

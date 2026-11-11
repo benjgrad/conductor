@@ -1192,6 +1192,11 @@ fn agent_env_passes_only_allowlisted_state_keys_and_pins_connectors_and_safe_mod
     assert_eq!(get(&env, "BASH_MAX_TIMEOUT_MS").as_deref(), Some("1800000"));
     // ADR-0023: the MCP tool timeout outlasts a held prompt (30 min + 5).
     assert_eq!(get(&env, "MCP_TOOL_TIMEOUT").as_deref(), Some("2100000"));
+    // R2 (FR-4): corepack never waits on its download prompt.
+    assert_eq!(
+        get(&env, "COREPACK_ENABLE_DOWNLOAD_PROMPT").as_deref(),
+        Some("0")
+    );
     dropped.sort();
     assert_eq!(
         dropped,

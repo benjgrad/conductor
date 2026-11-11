@@ -157,10 +157,15 @@ pub fn remove_mcp_config_file(path: &Path) {
 /// safe mode (which would drop the edit-guard hook) stays off, and (ADR-0023) the MCP tool timeout
 /// outlasts a held permission prompt. It applies to the user's inherited MCP servers too
 /// (ADR-0029). The CLI's Bash tool kills a command after 2 min by default, so an agent's own test
-/// run died and was retried: 10 min by default, 30 at most.
-pub fn agent_env_pins() -> [(&'static str, String); 4] {
+/// run died and was retried: 10 min by default, 30 at most. R2: corepack never stops an agent to
+/// ask before downloading a package manager (07 §Worktree setup).
+pub fn agent_env_pins() -> [(&'static str, String); 5] {
     [
         ("CLAUDE_CODE_SAFE_MODE", "0".to_string()),
+        (
+            crate::actions::worktree_setup::COREPACK_ENV.0,
+            crate::actions::worktree_setup::COREPACK_ENV.1.to_string(),
+        ),
         (
             "MCP_TOOL_TIMEOUT",
             (DEFAULT_PERMISSION_TIMEOUT_MS + 5 * 60_000).to_string(),

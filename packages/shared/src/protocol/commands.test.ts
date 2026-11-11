@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SNAPSHOT_FIXTURE } from '../engine/fixtures.js';
+import type { SessionSnapshot } from '../engine/types.js';
 import { sessionBranch } from '../domain.js';
 import { WORKING_COPY_CONTEXT_KEY } from '../machines/inventory.js';
 import { commandPayloadForEffect, M1_BASE_REF } from './commands.js';
@@ -181,6 +182,35 @@ describe('commandPayloadForEffect (Effect → WS)', () => {
     expect(commandPayloadForEffect(effect, { ...ctx, snapshot: bad }).payload).not.toHaveProperty(
       'working_copy',
     );
+  });
+
+  it("R2: a working agent's start carries the repo override's setup as worktree_setup", () => {
+    const effect = {
+      type: 'start_session' as const,
+      state: 'implementing',
+      prompt: 'p',
+      tools: ['edit'],
+      resume_claude_session_id: null,
+    };
+    const checks = [{ name: 'Tests', cmd: 'npm test' }];
+    const withChecks = (repo_checks: SessionSnapshot['repo_checks']) =>
+      commandPayloadForEffect(effect, { ...ctx, snapshot: { ...SNAPSHOT_FIXTURE, repo_checks } });
+    const set = withChecks({ setup: 'make deps', checks });
+    expect(set.kind === 'start_session' && set.payload.worktree_setup).toBe('make deps');
+    expect(envelope(set.kind, set.payload).type).toBe('start_session');
+    const none = withChecks({ setup: '', checks });
+    expect(none.kind === 'start_session' && none.payload.worktree_setup).toBe('');
+    // An override without a setup: auto-detect.
+    const auto = withChecks({ checks });
+    expect(auto.kind === 'start_session' && auto.payload.worktree_setup).toBeNull();
+    // No override: omitted (the daemon auto-detects).
+    expect(withChecks(null).payload).not.toHaveProperty('worktree_setup');
+    // A reviewer never gets one.
+    const review = commandPayloadForEffect(
+      { ...effect, review: true },
+      { ...ctx, snapshot: { ...SNAPSHOT_FIXTURE, repo_checks: { setup: 'x', checks } } },
+    );
+    expect(review.payload).not.toHaveProperty('worktree_setup');
   });
 
   it('throws without a machine', () => {

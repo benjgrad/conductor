@@ -42,6 +42,7 @@ mod start_session;
 mod transitions;
 mod units;
 mod update;
+mod worktree_setup;
 
 pub const TICKET: &str = "0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2";
 

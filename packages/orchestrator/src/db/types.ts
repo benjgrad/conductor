@@ -805,6 +805,27 @@ export interface AttachmentContentRow {
   data: Buffer;
 }
 
+/**
+ * R11 (migration 1764100000001): an account's GitHub webhook signing secret. Plaintext, because
+ * HMAC needs the key (TD-222). One per account; rotating replaces it.
+ */
+export interface GithubWebhookRow {
+  account_id: string;
+  secret: string;
+  created_at: Date;
+  rotated_at: Date;
+}
+
+/** R11: one accepted delivery, keyed by `X-GitHub-Delivery` (dedup; pruned after 7 days). */
+export interface GithubWebhookDeliveryRow {
+  delivery_id: string;
+  account_id: string;
+  /** `X-GitHub-Event`. */
+  event: string;
+  received_at: Date;
+  sessions_nudged: number;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -842,4 +863,6 @@ export interface Tables {
   attachment_content: AttachmentContentRow;
   page: PageRow;
   self_check_run: SelfCheckRunRow;
+  github_webhook: GithubWebhookRow;
+  github_webhook_delivery: GithubWebhookDeliveryRow;
 }

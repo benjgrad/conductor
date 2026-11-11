@@ -47,6 +47,8 @@ import type {
   AttachmentContentRow,
   PageRow,
   SelfCheckRunRow,
+  GithubWebhookRow,
+  GithubWebhookDeliveryRow,
   SessionRow,
   TicketProposalDecisionRow,
   Tables,
@@ -589,6 +591,19 @@ const self_check_run: ColumnSpec<SelfCheckRunRow> = {
   duration_ms: col('int4', NULL),
   results: col('jsonb', NULL),
 };
+const github_webhook: ColumnSpec<GithubWebhookRow> = {
+  account_id: col('uuid', NN),
+  secret: col(t, NN),
+  created_at: col('timestamptz', NN),
+  rotated_at: col('timestamptz', NN),
+};
+const github_webhook_delivery: ColumnSpec<GithubWebhookDeliveryRow> = {
+  delivery_id: col(t, NN),
+  account_id: col('uuid', NN),
+  event: col(t, NN),
+  received_at: col('timestamptz', NN),
+  sessions_nudged: col('int4', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -625,6 +640,8 @@ const SCHEMA: Schema = {
   attachment_content,
   page,
   self_check_run,
+  github_webhook,
+  github_webhook_delivery,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -928,6 +945,8 @@ describe('migrations', () => {
           'attachment_content',
           'page',
           'self_check_run',
+          'github_webhook',
+          'github_webhook_delivery',
         ].sort(),
       );
     } finally {
@@ -1604,6 +1623,29 @@ describe('schema (migrated test database)', () => {
     await expectPgError(
       pool.query('UPDATE self_check_run SET passed = true WHERE id = $1', [sc.rows[0]!.id]),
       '23514',
+    );
+
+    // R11: an account's webhook secret (one per account) and a delivery (dedup by its id).
+    await pool.query("INSERT INTO github_webhook (account_id, secret) VALUES ($1, 'hush')", [
+      LOCAL_ACCOUNT_ID,
+    ]);
+    await expectPgError(
+      pool.query("INSERT INTO github_webhook (account_id, secret) VALUES ($1, 'again')", [
+        LOCAL_ACCOUNT_ID,
+      ]),
+      '23505',
+    );
+    const delivery = [LOCAL_ACCOUNT_ID, new Date()];
+    await pool.query(
+      "INSERT INTO github_webhook_delivery (delivery_id, account_id, event, received_at) VALUES ('d-1', $1, 'check_run', $2)",
+      delivery,
+    );
+    await expectPgError(
+      pool.query(
+        "INSERT INTO github_webhook_delivery (delivery_id, account_id, event, received_at) VALUES ('d-1', $1, 'check_run', $2)",
+        delivery,
+      ),
+      '23505',
     );
 
     // Every table has exactly the row just written.

@@ -40,12 +40,23 @@ Add eight general primitives (P1–P8) to the workflow definition, the engine an
 
 | # | Question | Decision | Why |
 |---|---|---|---|
-| 1 | `watch` events: poll or webhooks? | **Poll plus internal triggers, no webhooks.** Watches are re-evaluated every `watch.poll` (default 2m, minimum 30s; the interval doubles after an unchanged answer, capped at 15m, as conditions do today). The orchestrator also re-evaluates at once, and releases P4 holds, when (a) a ticket on the same repo has its PR merged (a `merge_pr` action succeeded, or a human move into a terminal state from a state whose `context.__pr` is set), or (b) the session's branch is pushed by conductor (`open_pr`). | Conductor already knows when the merges it performs happen, and that is the common case for this repo. Webhooks would be a new inbound external service per repo (ADR-0017 self-hosting, ADR-0012 auth). The 2-minute poll covers merges done outside conductor. Revisit if P4 release latency shows up in Insights (U-row in §Consequences). |
+| 1 | `watch` events: poll or webhooks? | **Poll plus internal triggers, no webhooks.** Watches are re-evaluated every `watch.poll` (default 2m, minimum 30s; the interval doubles after an unchanged answer, capped at 15m, as conditions do today). The orchestrator also re-evaluates at once, and releases P4 holds, when (a) a ticket on the same repo has its PR merged (a `merge_pr` action succeeded, or a human move into a terminal state from a state whose `context.__pr` is set), or (b) the session's branch is pushed by conductor (`open_pr`). | Conductor already knows when the merges it performs happen, and that is the common case for this repo. Webhooks would be a new inbound external service per repo (ADR-0017 self-hosting, ADR-0012 auth). The 2-minute poll covers merges done outside conductor. Revisit if P4 release latency shows up in Insights (U-row in §Consequences). *Amended 2026-11-11 (R11), see below.* |
 | 2 | `concurrency`: on the transition or on the target state? | **On the transition, as `requires.concurrency`, the first phase of the move step** (before checks). The card shows "Queued behind #N" from the hold record. | It reuses the move-step machinery: the timeout goes to `on_unmet.else`, the counter rules apply, and the card checklist is already there. Running it first means the checks, review and `open_pr` run on the branch as it is *after* the release, not on one that went stale while waiting. The display issue is solved by a card field (`BoardCard.checking.phase = 'held'`), not by an extra state. |
 | 3 | Where do `instructions` live? | **A workflow-level `instructions` map**, referenced as `$instructions.<slug>`. It is not shared across workflows, and it does not reuse the prompt-template mechanism. | Templates are code, not data. There is one workflow (ADR-0010; `routine` is the only other), so cross-workflow sharing has no user. Keeping the text inside the definition means it is versioned with the transitions that use it. |
 | 4 | `handoff: true` flag, or `question` as an enum? | **A new boolean `handoff`**, exclusive with `question`. | Additive. Turning `question` into an enum would rewrite every stored definition and every reader of `question === true`. |
 | 5 | Coalescing in the engine or the notifier? | **The engine decides *whether*, the notifier coalesces.** Pure `apply()` evaluates the policy and records `notify: {via, mode, decision}` on `state_entered` and on the input_request (amended by T4: `mode` is `once` / `every` / `never`). `push/enqueue.ts` coalesces with an idempotency bucket `notify:<ticket>:<state>:<floor(now / coalesce)>`. | Whether to notify is a pure function of the definition and the move, so it is testable in `apply.notify.test.ts`. Coalescing needs wall-clock windows and the outbox's unique index, which are notifier concerns. |
 | 6 | Are 091cbc80's flags the P6 surface? | **No**, see FR-5. The boolean is kept and folded into P6 as described there. | |
+
+> **Amended 2026-11-11 (R11): optional GitHub webhooks.** Q1 stands: polling plus the internal nudges are still how every watch and condition is re-checked, and nothing depends on a webhook. What changed is that a repo *may* add a GitHub webhook as an accelerator. A signed `check_run` / `check_suite` (`completed`), `pull_request` or `pull_request_review` delivery to `POST /api/webhooks/github/<account>` brings a matching session's next check forward to now:
+> - `state_deadline` for a move step in its conditions phase;
+> - `watch_deadline` for a watched state;
+> - a merged PR wakes every watch on the repo, like the internal merge nudge.
+>
+> The delivery never decides anything: the sweep fires the timer and the normal evaluation runs. This answers Q1's two objections without reversing it:
+> - it is opt-in per repo, not a required inbound service;
+> - it is authenticated by an HMAC with a per-account secret rather than ADR-0012's session auth.
+>
+> Merges and CI completions made outside conductor now reach a watched or gated ticket in seconds when the repo has the webhook, and at the next poll when it doesn't. Setup: [github-webhooks.md](../setup/github-webhooks.md); contracts: [10 §GitHub webhooks](../design/10-contracts.md#github-webhooks).
 
 ### P1 · `watch` on human and event states
 
@@ -402,7 +413,7 @@ Order: T1 (schema) first; P7 and P8 next, because Insights and notifications rea
 | Option | Why not |
 |---|---|
 | Special-case "re-sync on conflict" in the engine | Fails the §1 test: only useful for one process, invisible in the builder. |
-| GitHub webhooks for merge events | A new inbound service per repo (auth, self-hosting); conductor already knows about its own merges. Kept as a revisit. |
+| GitHub webhooks for merge events | A new inbound service per repo (auth, self-hosting); conductor already knows about its own merges. Kept as a revisit. *R11 (2026-11-11) added them as an optional accelerator on top of polling, not a replacement (see the amendment under Q1).* |
 | `concurrency` on the target state | Holding *after* the checks ran means checking a branch that goes stale while held; a state-level hold also has no natural timeout leg. |
 | Make `question` an enum | Rewrites stored definitions and every `question === true` reader for no gain over an exclusive flag. |
 | Coalesce in the engine | Needs wall-clock windows and DB state in the pure `apply()`. |
@@ -427,6 +438,6 @@ Order: T1 (schema) first; P7 and P8 next, because Insights and notifications rea
 
 ## Revisit when
 
-- Insights shows median P4 release latency above 5 min, or the merges that break watched PRs mostly happen outside conductor. Either is the trigger to reconsider webhooks.
+- Insights shows median P4 release latency above 5 min, or the merges that break watched PRs mostly happen outside conductor. Either is the trigger to reconsider webhooks. *(R11 added optional webhooks for watches and conditions; a held P4 move is still released only by the internal triggers and its poll.)*
 - A second workflow needs the same `instructions`, which would make shared instructions worth having.
 - Users ask for a notify mode other than the three listed.

@@ -302,3 +302,7 @@ The private key is a secret. Never rotate the pair casually: a new one invalidat
 - `CONDUCTOR_VAPID_SUBJECT` must be a real `mailto:` address (or an https URL you own). Apple refuses a `localhost` or placeholder subject with `403 BadJwtToken`.
 - In the Home Screen app: account menu → **Send test**. A refused send shows the push service's reason, e.g. `Not delivered (http_403 BadJwtToken)`, and the orchestrator logs `[push] send to web.push.apple.com failed: …`.
 - After rotating the keys, opening the account menu drops the old subscription. Turn **This device** on again.
+
+## 14. Optional: GitHub webhooks (R11)
+
+PR gates and watched columns re-check on a 1–15 minute poll. To have them react within seconds of CI, reviews and merges, add a GitHub webhook to each repo (or the org). The payload URL and secret come from `cdc exec orchestrator node dist/admin-cli.js github-webhook <email>`. The full steps are in [github-webhooks.md](github-webhooks.md). nginx needs no change: it passes `X-Hub-Signature-256`, `X-GitHub-Event`, `X-GitHub-Delivery` and the body through untouched, and these deliveries are far below its 4m body limit.

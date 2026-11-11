@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { McpPolicySchema } from './mcp.js';
+import { CapabilityRequirementSchema } from '../machines/capabilities.js';
 
 // WorkflowDefinition per docs/design/05-workflow-engine.md#definition-schema.
 // This is the *shape* only. The six graph rules of "Validation on save" are M1-T03
@@ -424,6 +425,7 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * - `bases` (ADR-0039, B1 → B2): `bases`, `base_default`, `$base` / `$base_sha` substitution, and a
  *   ticket's or planning result's `base`.
  * - `answerer` (ADR-0040, R5a-2): the workflow `answerer` block.
+ * - `parallel` (ADR-0042, R10): `requires.parallel` lanes of legs.
  */
 export const WORKFLOW_FEATURES = [
   'watch',
@@ -434,6 +436,7 @@ export const WORKFLOW_FEATURES = [
   'handoff',
   'bases',
   'answerer',
+  'parallel',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
 export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
@@ -531,6 +534,45 @@ export const ConcurrencySchema = z.strictObject({
 export type Concurrency = z.infer<typeof ConcurrencySchema>;
 
 /**
+ * ADR-0042: what a `cmd` leg needs on the machine that runs it: an ADR-0013 capability key
+ * (`cli:gh:authed`, `mcp:slack`, …) or `os:<platform>`, satisfied by the machine's `os`. Local to
+ * legs on purpose: the claim's capability keys (REQUIREMENT_RE) never see `os:`, and leg needs
+ * route the leg, never the ticket (`requiredCapabilitiesOf` ignores them).
+ */
+export const LegNeedSchema = z.union([
+  z.string().regex(/^os:(windows|darwin|linux)$/, 'expected os:windows, os:darwin or os:linux'),
+  CapabilityRequirementSchema,
+]);
+export type LegNeed = z.infer<typeof LegNeedSchema>;
+
+/**
+ * ADR-0042: one leg of `requires.parallel`.
+ * - `checks`: the transition's `requires.checks` (with the ADR-0030 repo override), session machine;
+ * - `review`: the transition's `requires.review` (the fenced reviewer), session machine;
+ * - `cmd`: a command in a fresh checkout of the pinned commit, on any eligible machine of the
+ *   account that has the repo and every `needs` key; `leg_timeout` (default 30m) bounds the wait
+ *   for such a machine and the run.
+ */
+export const ParallelLegSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('checks') }),
+  z.strictObject({ type: z.literal('review') }),
+  z.strictObject({
+    type: z.literal('cmd'),
+    name: z.string().trim().min(1).max(200),
+    cmd: z.string().min(1),
+    timeout: DurationSchema.optional(),
+    /** The fresh checkout's setup: omitted = auto-detect, '' = none (as `requires.setup`). */
+    setup: z.string().max(2_000).optional(),
+    needs: z.array(LegNeedSchema).min(1).max(5),
+    leg_timeout: DurationSchema.optional(),
+  }),
+]);
+export type ParallelLeg = z.infer<typeof ParallelLegSchema>;
+/** ADR-0042: a lane's legs run one after another; the lanes of `requires.parallel` run at once. */
+export const ParallelLaneSchema = z.array(ParallelLegSchema).min(1).max(5);
+export type ParallelLane = z.infer<typeof ParallelLaneSchema>;
+
+/**
  * ADR-0011: what must hold before a ticket moves along a transition, checked in order: `checks`
  * (fresh checkout of the exact commit, after `setup`), the `review` (the fenced ADR-0009 reviewer),
  * conductor's `actions`, then the external `conditions`, re-polled every `condition_poll` until
@@ -558,6 +600,11 @@ export const TransitionRequiresSchema = z.strictObject({
   approvals: z.array(ApprovalSchema).min(1).max(5).optional(),
   /** ADR-0037 P4: the `held` phase, before `checks`. */
   concurrency: ConcurrencySchema.optional(),
+  /**
+   * ADR-0042: lanes that run at the same time after the commit is pinned, joined (every leg must
+   * pass; the first failure cancels the rest). Refused "not available yet" (rule 14, `parallel`).
+   */
+  parallel: z.array(ParallelLaneSchema).min(2).max(4).optional(),
 });
 export type TransitionRequires = z.infer<typeof TransitionRequiresSchema>;
 

@@ -266,6 +266,26 @@ describe('unlock, revoke-sessions, disable, list-users', () => {
     expect(line.split('\t').slice(2, 5)).toEqual(['yes', 'no', 'no']);
   });
 
+  it('github-webhook prints the URL and a new secret for the account the user owns (R11)', async () => {
+    const u = await createUser(db.pool, { password: PASSWORD });
+    const first = await run(['github-webhook', u.email]);
+    expect(first.code).toBe(0);
+    expect(first.out).toContain(`payload URL: ${LOOPBACK_URL}/api/webhooks/github/${u.accountId}`);
+    expect(first.out).toContain('content type: application/json');
+    const secretOf = (out: string) => /secret: ([0-9a-f]{64})/.exec(out)?.[1];
+    const stored = await db.pool.query<{ secret: string }>(
+      'SELECT secret FROM github_webhook WHERE account_id = $1',
+      [u.accountId],
+    );
+    expect(secretOf(first.out)).toBe(stored.rows[0]!.secret);
+    // Running it again rotates the secret.
+    const second = await run(['github-webhook', u.email]);
+    expect(secretOf(second.out)).not.toBe(secretOf(first.out));
+    expect((await run(['github-webhook', 'nobody@example.test'])).code).toBe(1);
+    expect((await run(['github-webhook'])).code).toBe(2);
+    expect((await run(['github-webhook', u.email], null)).code).toBe(1);
+  });
+
   it('usage errors and unknown commands → exit 2', async () => {
     expect((await run([])).code).toBe(2);
     expect((await run(['frobnicate'])).code).toBe(2);

@@ -116,6 +116,9 @@ export function checkPrimitiveAvailability(
       if (t.handoff === true && off('handoff')) {
         r14([...base, 'handoff'], 'handoff is not available yet');
       }
+      if (t.requires?.parallel !== undefined && off('parallel')) {
+        r14([...base, 'requires', 'parallel'], 'parallel legs are not available yet');
+      }
     }
   }
   if (off('instructions')) {

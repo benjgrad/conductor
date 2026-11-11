@@ -156,7 +156,8 @@ const UPLOAD_PATHS: ReadonlySet<string> = new Set([
 /**
  * 06 §Attachments: the daemon's POSTs, authenticated by its machine credential (a bearer header a
  * cross-site page can't send), never by the session cookie, so the Origin rule (CSRF) doesn't
- * apply: the daemon sends no Origin.
+ * apply: the daemon sends no Origin. R11's GitHub webhook delivery is in the same position: its
+ * body's HMAC authenticates it, and GitHub sends no Origin.
  */
 const DAEMON_POSTS: ReadonlySet<string> = new Set([
   API_PATHS.daemonSessionAttachments(':id'),
@@ -165,6 +166,8 @@ const DAEMON_POSTS: ReadonlySet<string> = new Set([
   // R4: the daemon's run_gate spec request and its outcome (JSON).
   API_PATHS.daemonSessionGate(':id'),
   API_PATHS.daemonSessionGateResult(':id'),
+  // R11: a GitHub webhook delivery, authenticated by the HMAC of its body (no cookie, no Origin).
+  API_PATHS.githubWebhookDelivery(':id'),
 ]);
 const isDaemonRequest = (req: FastifyRequest): boolean =>
   req.method === 'POST' && DAEMON_POSTS.has(policyPath(req));

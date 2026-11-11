@@ -150,7 +150,8 @@ pub async fn changed_since_default(
     }
     let mb = git(&["merge-base", sha, "refs/remotes/origin/HEAD"]).await;
     let base = mb.stdout.trim().to_string();
-    if mb.code != Some(0) || !exec::is_sha(&base) {
+    // A merge base at the commit itself means no commits ahead: never a reason to skip.
+    if mb.code != Some(0) || !exec::is_sha(&base) || base == sha {
         return None;
     }
     let diff = git(&[
@@ -182,8 +183,14 @@ pub async fn changed_since_default(
 const SKIP_REASON_GLOBS: usize = 10;
 
 /// R3: why a check with `paths` is skipped, or None when it runs: it has no paths, the changes
-/// are unknown (`changed` None: uncertainty runs more, never less), or a changed path matches.
-/// `base`: the default branch the diff is against, for the reason.
+/// are unknown (`changed` None: uncertainty runs more, never less), none at all (a branch with
+/// commits ahead always changes something; an empty diff means the refs are not what they seem),
+/// or a changed path matches. `base`: the default branch the diff is against, for the reason.
+///
+/// TD-221: the base comes from the session clone's `origin/HEAD`, which the agent's worktree
+/// can write. A gate is a quality check, not a boundary against the agent (it can edit its tests
+/// too), and the reviewer and the PR's CI still run; a base recorded at worktree creation would
+/// close it.
 pub fn skip_reason(
     changed: Option<&[String]>,
     paths: &[String],
@@ -193,6 +200,9 @@ pub fn skip_reason(
         return None;
     }
     let changed = changed?;
+    if changed.is_empty() {
+        return None;
+    }
     if !conductor_protocol::screenshots::matching_paths(changed, paths).is_empty() {
         return None;
     }

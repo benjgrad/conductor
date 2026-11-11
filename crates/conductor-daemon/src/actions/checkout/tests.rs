@@ -483,11 +483,8 @@ fn skip_reason_runs_when_a_change_matches_and_skips_when_none_does() {
             "no changes match paths: crates/**, Cargo.*, rust-toolchain.toml (diff against origin/main)"
         )
     );
-    // An empty diff matches nothing.
-    assert_eq!(
-        skip_reason(Some(&[]), &paths(&["src/**"]), None).as_deref(),
-        Some("no changes match paths: src/**")
-    );
+    // An empty diff can't be told apart from forged refs: it runs.
+    assert_eq!(skip_reason(Some(&[]), &paths(&["src/**"]), None), None);
 }
 
 #[test]
@@ -520,6 +517,9 @@ async fn changed_since_default_lists_the_branch_changes_or_none_when_it_cannot_t
         changed_since_default(&f.worktree, "not-a-sha", None).await,
         None
     );
+    // origin/main moved to the branch tip (forged, or the branch merged): no merge base to use.
+    git(&f.clone, &["update-ref", "refs/remotes/origin/main", &head]);
+    assert_eq!(changed_since_default(&f.worktree, &head, None).await, None);
     git(&f.clone, &["remote", "set-head", "origin", "--delete"]);
     assert_eq!(changed_since_default(&f.worktree, &head, None).await, None);
 }

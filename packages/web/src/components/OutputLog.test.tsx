@@ -97,6 +97,61 @@ describe('buildEntries', () => {
   });
 });
 
+describe('answers to the agent’s question', () => {
+  const ask = (question: string) => toolUse('mcp__conductor__ask_user', { question });
+
+  it('a user chunk after an ask_user call is its answer', () => {
+    const e = buildEntries([
+      chunk('assistant', 'Checking.'),
+      ask('Which database?\nPostgres or SQLite.'),
+      chunk('tool_result', 'Question sent.'),
+      chunk('user', 'Postgres'),
+      chunk('user', 'and add a test'),
+    ]);
+    expect(e.filter((x) => x.kind === 'user')).toMatchObject([
+      { text: 'Postgres', answer: { question: 'Which database?\nPostgres or SQLite.' } },
+      { text: 'and add a test' },
+    ]);
+    const later = e.at(-1);
+    expect(later?.kind === 'user' && later.answer).toBeUndefined();
+  });
+
+  it('the agent back at work first: a later message is not an answer', () => {
+    const e = buildEntries([
+      chunk('assistant', 'Checking.'),
+      ask('Ship it?'),
+      chunk('tool_result', 'Question sent.'),
+      toolUse('Bash', { command: 'ls' }),
+      chunk('tool_result', 'a'),
+      chunk('user', 'hi'),
+    ]);
+    const msg = e.at(-1);
+    expect(msg?.kind === 'user' && msg.answer).toBeUndefined();
+  });
+
+  it('shows the answer as “You answered”, the question quoted', () => {
+    render(
+      <OutputLog
+        output={[
+          chunk('assistant', 'Checking.'),
+          ask('Which database?\nMore detail.'),
+          chunk('tool_result', 'Question sent.'),
+          chunk('user', 'Postgres'),
+          chunk('user', 'thanks'),
+        ]}
+        worktree={WT}
+      />,
+    );
+    const answer = screen.getByRole('group', { name: 'Your answer' });
+    expect(within(answer).getByText('You answered')).toBeTruthy();
+    expect(within(answer).getByText('↳ Which database?')).toBeTruthy();
+    expect(within(answer).getByText('Postgres')).toBeTruthy();
+    expect(
+      within(screen.getByRole('group', { name: 'Your message' })).getByText('thanks'),
+    ).toBeTruthy();
+  });
+});
+
 describe('describeTool / resultSummary', () => {
   const short = shortener(WT);
   it('labels tools like Claude Code and strips the worktree (with or without /private)', () => {

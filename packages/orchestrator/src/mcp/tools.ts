@@ -54,7 +54,7 @@ import {
 } from '../advisor/proposals.js';
 import { WINDOW_DEFAULT_DAYS, WINDOW_MAX_DAYS } from '../advisor/queries.js';
 import { listMachineRows } from '../api/machines.js';
-import { sendOperatorMessage } from '../api/messages.js';
+import { provideAnswer, sendOperatorMessage } from '../api/messages.js';
 import { loadBoard, loadWorkflowDetail } from '../api/queries.js';
 import {
   clearRepoChecks,
@@ -387,7 +387,11 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
 
   /** Apply one engine event and turn the outcome into a tool result. */
   const apply = async (route: EngineRoute, sessionId: string, event: EngineEvent) => {
-    const result = await engine.applyEvent(sessionId, event, { actor: UI_ACTOR });
+    // An answer also goes to the Messages thread as a `user` chunk (`provideAnswer`).
+    const result =
+      event.type === 'input.provided'
+        ? await provideAnswer({ engine, outputBus }, sessionId, event, { actor: UI_ACTOR })
+        : await engine.applyEvent(sessionId, event, { actor: UI_ACTOR });
     if (result.status === 'applied') return ok({ ok: true });
     const { code } = httpForApplyResult(route, result);
     return fail(code, `${event.type}: ${result.reason}`);

@@ -916,6 +916,22 @@ button.copy {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* An answer to the agent's question: the question's accent (as the request it closes), with the
+   question quoted above the answer. */
+.answer-msg {
+  border-left: 4px solid var(--info);
+}
+.answer-msg .user-label {
+  color: var(--info);
+}
+.user-answer-to {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* UXR-38: the opening prompt (the ticket) is markdown, laid out by .md, not pre-wrapped. */
 .ticket-msg .user-text {
   white-space: normal;

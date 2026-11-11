@@ -1066,6 +1066,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           actor: 'human',
         });
         s.return_to = null;
+        // As the server: the answer shows in the Messages thread as a `user` chunk.
+        api.pushOutput(sessionId, req.answer, 'user');
         update(card, { status, workflow_state: target, input_request: null }, [
           {
             type: 'input.answered',

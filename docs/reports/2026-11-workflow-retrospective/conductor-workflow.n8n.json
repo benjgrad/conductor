@@ -1,0 +1,878 @@
+{
+  "name": "conductor v5 (MOCK rebuilt in n8n, never run)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "New conductor ticket",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Title",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Repo",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Body (Goal / Context / FRs / Out of scope / Verification)",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Kind",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "work"
+                  },
+                  {
+                    "option": "personal"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "mock-01",
+      "name": "New ticket (form)",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "ticket_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "name": "retries_implement",
+              "value": 0,
+              "type": "number"
+            },
+            {
+              "name": "worktree",
+              "value": "=~/.conductor/wt/{{ $execution.id }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "mock-02",
+      "name": "Ticket context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=git -C ~/.conductor/repos/{{ $json.Repo }} worktree add {{ $json.worktree }} -b conductor/{{ $json.ticket_id }} origin/main && cd {{ $json.worktree }} && pnpm install --frozen-lockfile"
+      },
+      "id": "mock-03",
+      "name": "Create worktree (daemon host)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "sshPassword": {
+          "id": "PLACEHOLDER",
+          "name": "daemon machine (placeholder)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "=cd {{ $json.worktree }} && claude -p --output-format json --resume {{ $json.claude_session_id || '' }} \"$(cat /tmp/prompt-{{ $json.ticket_id }}.md)\""
+      },
+      "id": "mock-04",
+      "name": "Planner agent (claude -p)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        660,
+        300
+      ],
+      "credentials": {
+        "sshPassword": {
+          "id": "PLACEHOLDER",
+          "name": "daemon machine (placeholder)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 30000
+    },
+    {
+      "parameters": {
+        "jsCode": "// MOCK: read complete_state {transition, reason, result} from claude's JSON output\nconst out = JSON.parse($json.stdout);\nreturn [{ json: { ...$('Ticket context').first().json, transition: out.transition, reason: out.reason, plan: out.result?.plan } }];"
+      },
+      "id": "mock-05",
+      "name": "Parse planner outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "plan_ready",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.transition }}",
+                    "rightValue": "plan_ready",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "plan_needs_approval",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.transition }}",
+                    "rightValue": "plan_needs_approval",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "question",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ ['ask_user','scope_changed','impossible','needs_product_context'].includes($json.transition) }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "mock-06",
+      "name": "Route planning outcome",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendAndWait",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "mode": "username",
+          "value": "@ben-placeholder"
+        },
+        "message": "=Plan for {{ $json.ticket_id }} needs approval: {{ $json.reason }}",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double"
+          }
+        },
+        "options": {
+          "limitWaitTime": {
+            "values": {
+              "resumeAmount": 2,
+              "resumeUnit": "hours"
+            }
+          }
+        }
+      },
+      "id": "mock-07",
+      "name": "Plan review (Slack approval)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1320,
+        160
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "PLACEHOLDER",
+          "name": "Slack (placeholder)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendAndWait",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "mode": "username",
+          "value": "@ben-placeholder"
+        },
+        "message": "=Question from {{ $json.ticket_id }}: {{ $json.reason }}",
+        "responseType": "freeText"
+      },
+      "id": "mock-08",
+      "name": "Needs input (Slack free text)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1320,
+        460
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "PLACEHOLDER",
+          "name": "Slack (placeholder)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "=cd {{ $json.worktree }} && claude -p --output-format json --resume {{ $json.claude_session_id || '' }} \"$(cat /tmp/prompt-{{ $json.ticket_id }}.md)\""
+      },
+      "id": "mock-09",
+      "name": "Implementer agent (claude -p)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        300
+      ],
+      "credentials": {
+        "sshPassword": {
+          "id": "PLACEHOLDER",
+          "name": "daemon machine (placeholder)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// MOCK: complete_state of the implementing step\nconst out = JSON.parse($json.stdout);\nreturn [{ json: { ...$json, transition: out.transition, reason: out.reason, summary: out.result?.summary } }];"
+      },
+      "id": "mock-10",
+      "name": "Parse implementer outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "pr_ready",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.transition.endsWith('pr_ready_for_review') }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "ask_user",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.transition }}",
+                    "rightValue": "ask_user",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "mock-11",
+      "name": "Route implementing outcome",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=set -e; d=$(mktemp -d); git -C {{ $json.worktree }} worktree add $d HEAD; cd $d; pnpm install --frozen-lockfile; git merge-tree --write-tree origin/main HEAD; pnpm typecheck; pnpm lint; pnpm test; pnpm build"
+      },
+      "id": "mock-12",
+      "name": "Gate checks in fresh checkout",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        200
+      ],
+      "credentials": {
+        "sshPassword": {
+          "id": "PLACEHOLDER",
+          "name": "daemon machine (placeholder)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $('Ticket context').first().json.retries_implement < 3 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "id": "mock-13",
+      "name": "Retries left? (≤3)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2420,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $json.Repo }}/pulls",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "head",
+              "value": "=conductor/{{ $json.ticket_id }}"
+            },
+            {
+              "name": "base",
+              "value": "main"
+            },
+            {
+              "name": "title",
+              "value": "={{ $json.Title }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ $json.summary }}"
+            }
+          ]
+        }
+      },
+      "id": "mock-14",
+      "name": "Open PR (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2420,
+        120
+      ],
+      "credentials": {
+        "githubApi": {
+          "id": "PLACEHOLDER",
+          "name": "GitHub (placeholder)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "limitWaitTime": true,
+        "resumeAmount": 2,
+        "resumeUnit": "hours"
+      },
+      "id": "mock-15",
+      "name": "Wait for CI (resume webhook)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.body.conclusion }}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "mock-16",
+      "name": "CI green?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendAndWait",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "mode": "username",
+          "value": "@ben-placeholder"
+        },
+        "message": "=PR ready for review: {{ $('Open PR (GitHub API)').first().json.html_url }}",
+        "responseType": "customForm",
+        "defineForm": "fields",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Decision",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Merged, done"
+                  },
+                  {
+                    "option": "Request changes"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Feedback",
+              "fieldType": "textarea"
+            }
+          ]
+        }
+      },
+      "id": "mock-17",
+      "name": "In review (Slack approval)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        3080,
+        120
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "PLACEHOLDER",
+          "name": "Slack (placeholder)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "done",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.data.Decision }}",
+                    "rightValue": "Merged, done",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "request_changes",
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.data.Decision }}",
+                    "rightValue": "Request changes",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "mock-18",
+      "name": "Route review",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3300,
+        120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "mock-19",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3520,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// MOCK: attach the failing output / review text to the next prompt and bump the loop counter\nconst ctx = $('Ticket context').first().json;\nctx.retries_implement += 1;\nreturn [{ json: { ...ctx, feedback: $json.stderr || $json.data?.Feedback || $json.body } }];"
+      },
+      "id": "mock-20",
+      "name": "Attach feedback, count retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        460
+      ]
+    }
+  ],
+  "connections": {
+    "New ticket (form)": {
+      "main": [
+        [
+          {
+            "node": "Ticket context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket context": {
+      "main": [
+        [
+          {
+            "node": "Create worktree (daemon host)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create worktree (daemon host)": {
+      "main": [
+        [
+          {
+            "node": "Planner agent (claude -p)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planner agent (claude -p)": {
+      "main": [
+        [
+          {
+            "node": "Parse planner outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse planner outcome": {
+      "main": [
+        [
+          {
+            "node": "Route planning outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route planning outcome": {
+      "main": [
+        [
+          {
+            "node": "Implementer agent (claude -p)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Plan review (Slack approval)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs input (Slack free text)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs input (Slack free text)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan review (Slack approval)": {
+      "main": [
+        [
+          {
+            "node": "Implementer agent (claude -p)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs input (Slack free text)": {
+      "main": [
+        [
+          {
+            "node": "Planner agent (claude -p)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Implementer agent (claude -p)": {
+      "main": [
+        [
+          {
+            "node": "Parse implementer outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse implementer outcome": {
+      "main": [
+        [
+          {
+            "node": "Route implementing outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route implementing outcome": {
+      "main": [
+        [
+          {
+            "node": "Gate checks in fresh checkout",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs input (Slack free text)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate checks in fresh checkout": {
+      "main": [
+        [
+          {
+            "node": "Open PR (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retries left? (≤3)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retries left? (≤3)": {
+      "main": [
+        [
+          {
+            "node": "Attach feedback, count retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs input (Slack free text)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach feedback, count retry": {
+      "main": [
+        [
+          {
+            "node": "Implementer agent (claude -p)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open PR (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "Wait for CI (resume webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for CI (resume webhook)": {
+      "main": [
+        [
+          {
+            "node": "CI green?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CI green?": {
+      "main": [
+        [
+          {
+            "node": "In review (Slack approval)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retries left? (≤3)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In review (Slack approval)": {
+      "main": [
+        [
+          {
+            "node": "Route review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route review": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Attach feedback, count retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "PLACEHOLDER-error-handler-workflow-id",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "note": "Mock for docs/reports/2026-11-workflow-retrospective.html. Not imported or run. Credentials and user names are placeholders. A real build would also need: an Error Trigger workflow, a Schedule Trigger sweep for timeouts, and a datastore for per-ticket state (n8n keeps it per execution only)."
+  },
+  "tags": [
+    {
+      "name": "mock"
+    },
+    {
+      "name": "conductor-retrospective"
+    }
+  ]
+}

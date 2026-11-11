@@ -59,8 +59,12 @@ async fn runs_the_setup_in_the_worktree_before_the_agent_and_skips_it_while_unch
     assert_eq!(calls[0].timeout, Some(WORKTREE_SETUP_TIMEOUT));
     assert_eq!(calls[0].env["COREPACK_ENABLE_DOWNLOAD_PROMPT"], "0");
     assert_eq!(*spawned_before.lock().unwrap(), Some(false));
-    // FR-4: the agent's environment too.
-    assert_eq!(opts.env["COREPACK_ENABLE_DOWNLOAD_PROMPT"], "0");
+    // FR-4: the agent's environment too (the driver's pins, which no state env can drop).
+    assert!(
+        crate::claude::cli_driver::agent_env_pins()
+            .iter()
+            .any(|(k, v)| *k == "COREPACK_ENABLE_DOWNLOAD_PROMPT" && v == "0")
+    );
     assert!(!opts.prompt.contains("Setup failed"));
     // Acked once, before the setup's process existed and before `started`.
     assert_eq!(

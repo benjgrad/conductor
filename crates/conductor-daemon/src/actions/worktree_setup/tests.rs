@@ -132,6 +132,27 @@ async fn a_successful_setup_is_skipped_until_the_lockfile_or_the_command_changes
 }
 
 #[tokio::test]
+async fn the_git_dir_read_from_dot_git_is_the_one_git_reports() {
+    let (_t, wt) = worktree();
+    let fast = git_dir_from_dotgit(&wt).expect("a linked worktree's .git file");
+    let reported = git(&wt, &["rev-parse", "--absolute-git-dir"]);
+    assert_eq!(
+        std::fs::canonicalize(&fast).unwrap(),
+        std::fs::canonicalize(reported.trim()).unwrap()
+    );
+    // A plain repo: its .git directory.
+    let plain = tempfile::tempdir().unwrap();
+    git(plain.path(), &["init", "--quiet"]);
+    assert_eq!(
+        git_dir_from_dotgit(plain.path()),
+        Some(plain.path().join(".git"))
+    );
+    // Neither: no answer (the caller asks git).
+    let none = tempfile::tempdir().unwrap();
+    assert_eq!(git_dir_from_dotgit(none.path()), None);
+}
+
+#[tokio::test]
 async fn no_setup_is_a_skip() {
     let (_t, wt) = worktree();
     assert_eq!(plan(&wt, Some("")).await, Plan::Skip("none"));

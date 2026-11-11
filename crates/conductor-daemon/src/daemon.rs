@@ -1604,8 +1604,6 @@ impl Core {
         let mut env: BTreeMap<String, String> = p.env.clone();
         env.extend(port_env(range));
         env.extend(self.git_env());
-        // R2 (FR-4): corepack never stops an agent to ask before downloading a package manager.
-        env.insert(COREPACK_ENV.0.into(), COREPACK_ENV.1.into());
         // TD-022: max_budget_usd is not passed (U-018).
         let mut opts = DriverStartOptions::new(
             worktree.clone(),

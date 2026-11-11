@@ -69,13 +69,44 @@ pub fn setup_key(dir: &Path, cmd: &str) -> String {
     hex::encode(h.finalize())
 }
 
-/// The worktree's own git dir (`<clone>/.git/worktrees/<name>` for a linked worktree).
+/// The worktree's own git dir (`<clone>/.git/worktrees/<name>` for a linked worktree). Read from
+/// `<worktree>/.git` without a process when it can be (a linked worktree's `gitdir:` file, or a
+/// plain `.git` directory): a start that skips its setup must not wait on a `git` spawn, which
+/// widens the window before `started`. Else `git rev-parse --absolute-git-dir`.
 pub async fn git_dir(worktree: &Path) -> Option<PathBuf> {
+    if let Some(d) = git_dir_from_dotgit(worktree) {
+        return Some(d);
+    }
     let mut a = no_hooks();
     a.extend(sv(&["rev-parse", "--absolute-git-dir"]));
     let r = exec::run("git", &a, worktree, None).await;
     let out = r.stdout.trim();
     (r.code == Some(0) && !out.is_empty()).then(|| PathBuf::from(out))
+}
+
+/// `<worktree>/.git` read directly: a directory is the git dir, a `gitdir: <path>` file names it
+/// (relative to the worktree when not absolute). None: neither, or the target isn't a directory.
+pub fn git_dir_from_dotgit(worktree: &Path) -> Option<PathBuf> {
+    let dotgit = worktree.join(".git");
+    let meta = std::fs::symlink_metadata(&dotgit).ok()?;
+    if meta.is_dir() {
+        return Some(dotgit);
+    }
+    if !meta.is_file() {
+        return None;
+    }
+    let text = std::fs::read_to_string(&dotgit).ok()?;
+    let target = text.lines().next()?.strip_prefix("gitdir:")?.trim();
+    if target.is_empty() {
+        return None;
+    }
+    let p = Path::new(target);
+    let p = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        worktree.join(p)
+    };
+    p.is_dir().then_some(p)
 }
 
 /// True when the last successful setup in this worktree had `key`.

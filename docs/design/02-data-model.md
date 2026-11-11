@@ -563,6 +563,29 @@ The bytes of one `attachment` (`attachment_id` pk, FK CASCADE; `account_id` fk a
 | created_at | timestamptz | |
 | expires_at | timestamptz | indexed (the sweep) |
 
+### github_webhook
+
+R11 ([ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) Q1 amended, [setup](../setup/github-webhooks.md)). Migration `1764100000001_github-webhook`. The account's GitHub webhook signing secret; deliveries to `/api/webhooks/github/<account_id>` are verified against it. Rotating (`POST /api/github-webhook/secret`, `conductor-admin github-webhook`) replaces it.
+
+| column | type | notes |
+|---|---|---|
+| account_id | uuid pk fk account | CASCADE; one webhook secret per account |
+| secret | text | 32 random bytes, hex. Plaintext, because HMAC needs the key (TD-222) |
+| created_at | timestamptz | |
+| rotated_at | timestamptz | the last rotation |
+
+### github_webhook_delivery
+
+R11: one accepted (signed, non-ping) delivery, so a redelivery changes nothing (FR-4). The route deletes rows older than 7 days on each delivery.
+
+| column | type | notes |
+|---|---|---|
+| delivery_id | text pk | `X-GitHub-Delivery` (a GUID per delivery; GitHub's redelivery reuses it) |
+| account_id | uuid fk account | CASCADE; `(account_id, received_at)` indexed (`last_delivery_at`) |
+| event | text | `X-GitHub-Event` |
+| received_at | timestamptz | indexed (the prune) |
+| sessions_nudged | int | how many sessions' next check came forward (0 for an ignored event) |
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |

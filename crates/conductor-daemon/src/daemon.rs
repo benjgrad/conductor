@@ -55,6 +55,9 @@ use crate::actions::conditions::{EvaluateConditionsInput, evaluate_conditions};
 use crate::actions::open_pr::{
     GhCommand, OpenPrInput, OpenPrResult, check_clean, open_pr, resolve_head,
 };
+use crate::actions::worktree_setup::{
+    self as wsetup, COREPACK_ENV, Plan as SetupPlan, WORKTREE_SETUP_TIMEOUT,
+};
 use crate::claude::driver::{
     ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions, ListenerId, OutputStream,
     PermissionDecision, PermissionResolution, SKIP_PERMISSION_MODE,
@@ -246,6 +249,18 @@ struct Starting {
     cancelled: bool,
     /// BUG-1: a newer start_session for the session arrived while this one was preparing.
     superseded: bool,
+    /// R2: acked before its worktree setup ran, so it ends with an `exit`, never a refusal.
+    acked: bool,
+    /// R2: cancelled with `cancelled` / `superseded`: stops a running worktree setup.
+    cancel: CancelToken,
+}
+
+/// R2: what the worktree setup leaves for the start.
+enum SetupStep {
+    /// Go on and spawn, with the `## Setup failed` block for the prompt when it failed.
+    Ready(Option<String>),
+    /// The start was refused (or ended) before its setup ran: don't spawn.
+    Ended,
 }
 
 struct RunningCmd {
@@ -1166,7 +1181,8 @@ impl Core {
             // TD-181: working_copy has no default_branch yet, so the base is the clone's
             // origin/HEAD. TD-200: the ack waits for this (a first clone can outlast the
             // orchestrator's ack window).
-            let wt = self
+            // R3 (TD-221): a new branch also gives the commit it starts at.
+            let (wt, created_base) = match self
                 .workspace
                 .ensure_worktree_based(&EnsureWorktree {
                     repo: p.repo.clone(),
@@ -1176,7 +1192,10 @@ impl Core {
                     default_branch: None,
                 })
                 .await
-                .map_err(|e| e.to_string());
+            {
+                Ok((dir, base)) => (Ok(dir), base),
+                Err(e) => (Err(e.to_string()), None),
+            };
             // 06 §Attachments: download the ticket's files before the spawn (never under the
             // state lock); the prompt lists them and Claude may read their directory.
             let mut add_dirs = Vec::new();
@@ -1187,9 +1206,23 @@ impl Core {
                 }
                 add_dirs.push(dir);
             }
-            let started = {
-                let mut st = self.lock();
-                self.start_spawn(&mut st, m, &p, starting, wt, add_dirs)
+            // R2 (07 §Worktree setup): a working agent's worktree gets the repo's setup first.
+            let mut step = SetupStep::Ready(None);
+            if let Ok(dir) = &wt
+                && p.review != Some(true)
+                && p.checkout.is_none()
+            {
+                step = self.worktree_setup(m, &p, starting, dir).await;
+            }
+            let started = match step {
+                SetupStep::Ended => false,
+                SetupStep::Ready(block) => {
+                    if let Some(block) = block {
+                        p.prompt = format!("{}\n\n{block}", p.prompt);
+                    }
+                    let mut st = self.lock();
+                    self.start_spawn(&mut st, m, &p, starting, wt, created_base, add_dirs)
+                }
             };
             if started {
                 // TD-110: legacy repo_inventory refresh, removed in M2-T21.
@@ -1320,6 +1353,7 @@ impl Core {
             // `superseded` before spawning and is refused.
             let old = s.command_id;
             s.superseded = true;
+            s.cancel.cancel();
             self.log(&format!(
                 "session {sid}: start {} supersedes {old}",
                 p.command_id
@@ -1333,6 +1367,8 @@ impl Core {
                 fencing_token: token,
                 cancelled: false,
                 superseded: false,
+                acked: false,
+                cancel: CancelToken::new(),
             },
         );
         st.live.entry(sid).or_default().starting = Some(id);
@@ -1356,32 +1392,35 @@ impl Core {
         m: Meta,
         p: &StartSessionPayload,
         starting: u64,
-        wt: Result<(PathBuf, Option<SessionBase>), String>,
+        wt: Result<PathBuf, String>,
+        created_base: Option<SessionBase>,
         add_dirs: Vec<PathBuf>,
     ) -> bool {
-        match self.start_spawn_inner(st, m, p, starting, wt, add_dirs) {
+        match self.start_spawn_inner(st, m, p, starting, wt, created_base, add_dirs) {
             Ok(started) => started,
             Err(e) => {
+                let acked = self.start_acked(st, starting);
                 self.end_starting(st, &m.sid, starting);
-                self.finish(m, false, Some(&format!("start_failed: {}", err_text(&e))));
+                let reason = format!("start_failed: {}", err_text(&e));
+                self.start_ended(st, m, acked, &reason);
                 self.start_refused(st, &m.sid, 0);
                 false
             }
         }
     }
 
-    fn start_spawn_inner(
+    /// The checks before a spawn (and, R2, before an early-acked worktree setup): the worktree is
+    /// not another session's, the start was not superseded or killed, and a resumed conversation
+    /// is on this machine. False: the start has been ended (refused, or `exit` once acked).
+    fn start_validate(
         &self,
         st: &mut State,
         m: Meta,
         p: &StartSessionPayload,
         starting_id: u64,
-        wt: Result<(PathBuf, Option<SessionBase>), String>,
-        add_dirs: Vec<PathBuf>,
+        worktree: &Path,
     ) -> Result<bool, String> {
         let sid = m.sid;
-        let token = m.token;
-        let (worktree, created_base) = wt?;
         // ADR-0008: a reopened session reuses the earlier session's worktree. Never while a
         // process of another session still runs in it.
         if worktree != self.workspace.worktree_path(&sid.to_string()) {
@@ -1393,7 +1432,7 @@ impl Core {
                 .collect();
             let busy = others.into_iter().find(|(id, path)| {
                 *id != sid.to_string()
-                    && same_worktree(Path::new(path), &worktree)
+                    && same_worktree(Path::new(path), worktree)
                     && Uuid::parse_str(id).is_ok_and(|u| st.is_busy(&u))
             });
             if let Some((id, _)) = busy {
@@ -1421,24 +1460,119 @@ impl Core {
             } else {
                 "killed"
             };
-            self.finish(m, false, Some(why));
+            self.start_ended(st, m, starting.acked, why);
             self.release_assignment(st, &sid);
             return Ok(false);
         }
         // A resume whose conversation isn't here (it ran on another machine): `claude --resume`
         // would exit 1. Refuse; apply forgets the id and the re-claim starts a fresh one.
         if let Some(resume_id) = &p.resume_claude_session_id
-            && !(self.has_conversation)(&worktree, resume_id)
+            && !(self.has_conversation)(worktree, resume_id)
         {
             self.log(&format!(
                 "session {sid}: refusing start {} ({NO_CONVERSATION_REASON}: Claude conversation {resume_id} is not on this machine)",
                 p.command_id
             ));
             self.end_starting(st, &sid, starting_id);
-            self.finish(m, false, Some(NO_CONVERSATION_REASON));
+            self.start_ended(st, m, starting.acked, NO_CONVERSATION_REASON);
             self.start_refused(st, &sid, 0);
             return Ok(false);
         }
+        Ok(true)
+    }
+
+    /// R2: an early-acked start, recorded as an agent without a pid while its worktree setup
+    /// runs, so a daemon restart before the spawn reports its `exit {signal: daemon_restart}`
+    /// (the startup sweep) instead of leaving the orchestrator waiting. The spawn overwrites it.
+    fn record_preparing(&self, m: Meta, p: &StartSessionPayload, wt: &Path) {
+        let mut store = self.store();
+        let prior = store.session(&m.sid.to_string()).cloned();
+        let rec = AgentRecord {
+            command_id: p.command_id.to_string(),
+            fencing_token: m.token,
+            pid: None,
+            claude_session_id: None,
+            started_at: None,
+        };
+        let s = PersistedSession {
+            ticket_id: p.ticket_id.to_string(),
+            repo: p.repo.clone(),
+            worktree_path: wt.to_string_lossy().into_owned(),
+            branch: p.branch.clone(),
+            port_range: prior.as_ref().and_then(|x| x.port_range),
+            claude_session_id: prior.as_ref().and_then(|x| x.claude_session_id.clone()),
+            last_used_at: now_ms(),
+            agent: Some(Some(rec)),
+            base: prior.and_then(|x| x.base),
+        };
+        if let Err(e) = store.put_session(&m.sid.to_string(), s) {
+            self.log(&format!("store: {e}"));
+        }
+    }
+
+    /// R2: this start was acked before its worktree setup.
+    fn start_acked(&self, st: &State, starting_id: u64) -> bool {
+        st.startings.get(&starting_id).is_some_and(|s| s.acked)
+    }
+
+    /// A start ended without a process: a refusal ack, or (R2: once acked early for a worktree
+    /// setup) an `exit` for its command with `reason` as the stderr tail.
+    fn start_ended(&self, st: &State, m: Meta, acked: bool, reason: &str) {
+        if !acked {
+            self.finish(m, false, Some(reason));
+            return;
+        }
+        let Some(cid) = m.cid else {
+            return;
+        };
+        // The restart record of `record_preparing` is no longer needed.
+        {
+            let mut store = self.store();
+            if let Some(s) = store.session(&m.sid.to_string()).cloned()
+                && matches!(&s.agent, Some(Some(a)) if a.command_id == cid.to_string() && a.pid.is_none())
+            {
+                let _ = store.put_session(
+                    &m.sid.to_string(),
+                    PersistedSession {
+                        agent: Some(None),
+                        ..s
+                    },
+                );
+            }
+        }
+        let tail: String = js_head_utf16(reason, STDERR_TAIL_CHARS).to_string();
+        self.emit(
+            st,
+            m.sid,
+            m.token,
+            json!({
+                "kind": "exit",
+                "data": { "command_id": cid, "code": null, "signal": null, "stderr_tail": tail },
+            }),
+        );
+    }
+
+    fn start_spawn_inner(
+        &self,
+        st: &mut State,
+        m: Meta,
+        p: &StartSessionPayload,
+        starting_id: u64,
+        wt: Result<PathBuf, String>,
+        created_base: Option<SessionBase>,
+        add_dirs: Vec<PathBuf>,
+    ) -> Result<bool, String> {
+        let sid = m.sid;
+        let token = m.token;
+        let worktree = wt?;
+        if !self.start_validate(st, m, p, starting_id, &worktree)? {
+            return Ok(false);
+        }
+        let starting = st
+            .startings
+            .get(&starting_id)
+            .cloned()
+            .ok_or("lost start")?;
         let range = self.allocate_ports(st, &sid)?;
         let tools = resolve_tool_policy(&p.tools).map_err(|e| e.to_string())?;
         let append =
@@ -1626,7 +1760,9 @@ impl Core {
                 );
             }
         }
-        self.finish(m, true, None);
+        if !starting.acked {
+            self.finish(m, true, None);
+        }
         self.emit(
             st,
             sid,
@@ -2109,13 +2245,30 @@ impl Core {
         cmd: &str,
         at: &Path,
     ) -> RunCommandOptions {
-        let mut o = RunCommandOptions::new(p.command_id, sid, cmd, at);
-        o.timeout = p.timeout_ms.map(|ms| Duration::from_millis(ms.get()));
         let mut env = BTreeMap::new();
         env.insert("CONDUCTOR_SESSION_ID".into(), sid.to_string());
         env.insert("CONDUCTOR_TICKET_ID".into(), s.ticket_id.clone());
         env.extend(port_env(range));
         env.extend(self.git_env());
+        let mut o = self.cmd_opts(p.command_id, sid, token, cmd, at, cancel, env);
+        o.timeout = p.timeout_ms.map(|ms| Duration::from_millis(ms.get()));
+        o
+    }
+
+    /// A command through the runner (and so the build semaphore), its output and `build_slot`
+    /// waits reported on the session.
+    #[allow(clippy::too_many_arguments)]
+    fn cmd_opts(
+        &self,
+        command_id: Uuid,
+        sid: Uuid,
+        token: i64,
+        cmd: &str,
+        at: &Path,
+        cancel: &CancelToken,
+        env: BTreeMap<String, String>,
+    ) -> RunCommandOptions {
+        let mut o = RunCommandOptions::new(command_id, sid, cmd, at);
         o.env = env;
         o.cancel = Some(cancel.clone());
         let weak = self.me.clone();
@@ -2138,6 +2291,176 @@ impl Core {
             }
         }));
         o
+    }
+
+    /// A failed setup, run once more on the base branch's tip (05 §Requirements to enter a
+    /// column, "Setup failures"): whose problem it is, and the base branch. `exec` runs a command
+    /// through the runner; a cancel makes the verdict `Unknown`.
+    #[allow(clippy::too_many_arguments)]
+    async fn base_probe<F, Fut>(
+        &self,
+        sid: Uuid,
+        token: i64,
+        wt: &Path,
+        sha: &str,
+        configured: Option<String>,
+        exec: &F,
+        cancel: &CancelToken,
+    ) -> (SetupOnBase, Option<String>)
+    where
+        F: Fn(String, PathBuf) -> Fut,
+        Fut: std::future::Future<Output = Result<CommandResult, RunError>>,
+    {
+        let probe = prepare_base_probe(&ProbeSetupInput {
+            base: BaseCheckoutInput {
+                root: self.config.root_dir.clone(),
+                worktree: wt.to_path_buf(),
+                env: None,
+            },
+            sha: sha.to_string(),
+            configured,
+        })
+        .await;
+        for line in &probe.log {
+            self.debug_line(sid, token, &format!("conductor: base probe: {line}"));
+        }
+        let verdict = match probe.next {
+            BaseProbeNext::Verdict(v) => v,
+            BaseProbeNext::Run { setup, dir } => {
+                let ok = matches!(
+                    exec(setup, dir.clone()).await,
+                    Ok(x) if x.exit_code == Some(0) && !x.timed_out
+                );
+                remove_checkout(&dir);
+                let branch = probe.branch.clone().unwrap_or_default();
+                self.debug_line(
+                    sid,
+                    token,
+                    &if ok {
+                        format!("conductor: base probe: it passes on origin/{branch}")
+                    } else {
+                        format!("conductor: base probe: it fails on origin/{branch} too")
+                    },
+                );
+                if ok {
+                    SetupOnBase::Pass
+                } else {
+                    SetupOnBase::Fail
+                }
+            }
+        };
+        let verdict = if cancel.is_cancelled() {
+            SetupOnBase::Unknown
+        } else {
+            verdict
+        };
+        (verdict, probe.branch)
+    }
+
+    /// R2 (07 §Worktree setup): the repo's setup in a working agent's worktree, before Claude
+    /// starts. Skipped while the marker matches. When it runs, the start is acked first (the
+    /// setup can outlast the orchestrator's ack window), after the same checks as a spawn. A
+    /// failure is triaged like the check checkout's and returned as the prompt's block.
+    async fn worktree_setup(
+        &self,
+        m: Meta,
+        p: &StartSessionPayload,
+        starting: u64,
+        wt: &Path,
+    ) -> SetupStep {
+        let (sid, token) = (m.sid, m.token);
+        let configured: Option<String> = p.worktree_setup.clone().flatten().map(String::from);
+        let (cmd, key, git_dir) = match wsetup::plan(wt, configured.as_deref()).await {
+            SetupPlan::Skip(why) => {
+                if why == "up to date" {
+                    self.debug_line(sid, token, "conductor: worktree setup is up to date");
+                }
+                return SetupStep::Ready(None);
+            }
+            SetupPlan::Run { cmd, key, git_dir } => (cmd, key, git_dir),
+        };
+        let (runner, cancel) = {
+            let mut st = self.lock();
+            match self.start_validate(&mut st, m, p, starting, wt) {
+                Ok(true) => {}
+                Ok(false) => return SetupStep::Ended,
+                // The spawn reports it (worktree in use): the same refusal as without a setup.
+                Err(_) => return SetupStep::Ready(None),
+            }
+            let Some(s) = st.startings.get_mut(&starting) else {
+                return SetupStep::Ready(None);
+            };
+            s.acked = true;
+            let cancel = s.cancel.clone();
+            self.finish(m, true, None);
+            self.record_preparing(m, p, wt);
+            (self.command_runner(&mut st), cancel)
+        };
+        let mut env = BTreeMap::new();
+        env.insert("CONDUCTOR_SESSION_ID".to_string(), sid.to_string());
+        env.insert("CONDUCTOR_TICKET_ID".to_string(), p.ticket_id.to_string());
+        env.extend(self.git_env());
+        env.insert(COREPACK_ENV.0.into(), COREPACK_ENV.1.into());
+        let exec = |c: String, at: PathBuf| {
+            let mut o = self.cmd_opts(p.command_id, sid, token, &c, &at, &cancel, env.clone());
+            o.timeout = Some(WORKTREE_SETUP_TIMEOUT);
+            let runner = runner.clone();
+            async move { runner.run(o).await }
+        };
+        let (result, how) = if let Some(missing) = missing_manager(&cmd, None) {
+            let r = self.not_run(sid, token, &missing);
+            (r, "a package manager is missing".to_string())
+        } else {
+            self.debug_line(
+                sid,
+                token,
+                &format!("conductor: worktree setup `{cmd}` before starting the agent"),
+            );
+            match exec(cmd.clone(), wt.to_path_buf()).await {
+                Ok(r) => {
+                    let how = wsetup::failure_how(&r);
+                    (r, how)
+                }
+                Err(e) => {
+                    let text = format!("the setup could not be spawned: {}", err_text(e));
+                    (
+                        self.not_run(sid, token, &text),
+                        "it could not be spawned".into(),
+                    )
+                }
+            }
+        };
+        if cancel.is_cancelled() {
+            // Killed or superseded: the spawn step ends the start.
+            return SetupStep::Ready(None);
+        }
+        if result.exit_code == Some(0) && !result.timed_out {
+            if let Some(g) = &git_dir {
+                wsetup::mark_done(g, &key);
+            }
+            self.debug_line(sid, token, "conductor: worktree setup done");
+            return SetupStep::Ready(None);
+        }
+        if let Some(g) = &git_dir {
+            wsetup::clear(g);
+        }
+        self.debug_line(
+            sid,
+            token,
+            &format!("conductor: worktree setup failed ({how}); starting the agent anyway"),
+        );
+        let head = resolve_head(wt, None).await.unwrap_or_default();
+        let (verdict, base) = self
+            .base_probe(sid, token, wt, &head, configured.clone(), &exec, &cancel)
+            .await;
+        SetupStep::Ready(Some(wsetup::failure_block(
+            &cmd,
+            configured.is_some(),
+            &how,
+            &crate::exec::tail(&result.output_tail, 4000),
+            verdict,
+            base.as_deref(),
+        )))
     }
 
     /// `notRun`: a result for a check that was not run, with the reason on stderr.
@@ -2337,54 +2660,11 @@ impl Core {
                         // whose problem it is (05 §Requirements to enter a column).
                         out.setup_failed = true;
                         out.setup_cmd = Some(setup);
-                        let probe = prepare_base_probe(&ProbeSetupInput {
-                            base: BaseCheckoutInput {
-                                root: self.config.root_dir.clone(),
-                                worktree: wt.clone(),
-                                env: None,
-                            },
-                            sha: want.clone(),
-                            configured: co.setup.clone(),
-                        })
-                        .await;
-                        for line in &probe.log {
-                            self.debug_line(sid, token, &format!("conductor: base probe: {line}"));
-                        }
-                        let verdict = match probe.next {
-                            BaseProbeNext::Verdict(v) => v,
-                            BaseProbeNext::Run { setup, dir } => {
-                                let ok = matches!(
-                                    exec(setup, dir.clone()).await,
-                                    Ok(x) if x.exit_code == Some(0) && !x.timed_out
-                                );
-                                remove_checkout(&dir);
-                                let branch = probe.branch.clone().unwrap_or_default();
-                                self.debug_line(
-                                    sid,
-                                    token,
-                                    &if ok {
-                                        format!(
-                                            "conductor: base probe: it passes on origin/{branch}"
-                                        )
-                                    } else {
-                                        format!(
-                                            "conductor: base probe: it fails on origin/{branch} too"
-                                        )
-                                    },
-                                );
-                                if ok {
-                                    SetupOnBase::Pass
-                                } else {
-                                    SetupOnBase::Fail
-                                }
-                            }
-                        };
-                        out.setup_on_base = Some(if cancel.is_cancelled() {
-                            SetupOnBase::Unknown
-                        } else {
-                            verdict
-                        });
-                        out.base_ref = probe.branch;
+                        let (verdict, base) = self
+                            .base_probe(sid, token, &wt, &want, co.setup.clone(), &exec, &cancel)
+                            .await;
+                        out.setup_on_base = Some(verdict);
+                        out.base_ref = base;
                         return Ok(r);
                     }
                 }
@@ -2710,6 +2990,7 @@ impl Core {
                         && s.command_id == target
                     {
                         s.cancelled = true;
+                        s.cancel.cancel();
                     }
                 }
                 None => {
@@ -2722,6 +3003,7 @@ impl Core {
                         && s.fencing_token <= m.token
                     {
                         s.cancelled = true;
+                        s.cancel.cancel();
                     }
                     if let Some(l) = st.live.get(&sid) {
                         for c in l.cmds.values() {
@@ -3007,6 +3289,9 @@ impl Core {
                 for c in l.cmds.values() {
                     c.cancel.cancel();
                 }
+            }
+            for s in st.startings.values() {
+                s.cancel.cancel();
             }
         }
     }

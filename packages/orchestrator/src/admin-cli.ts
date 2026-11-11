@@ -5,6 +5,13 @@ import { createDb } from './db/index.js';
 
 // `conductor-admin` (M2-T15a; commands in auth/admin-commands.ts). Env: DATABASE_URL (required),
 // CONDUCTOR_PUBLIC_URL (for the links); `vapid-keys` needs neither. In the container: `node dist/admin-cli.js <command>`.
+/** All of stdin, as text (`deploy-failed`). */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk as Buffer));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 const write = (stream: NodeJS.WriteStream) => (line: string) => {
   stream.write(`${line}\n`);
 };
@@ -38,6 +45,7 @@ async function run(): Promise<number> {
       now: () => new Date(),
       out: write(process.stdout),
       err,
+      stdin: readStdin,
     });
   } finally {
     await db.end();

@@ -902,7 +902,7 @@ export const RunCmdPayloadSchema = z.object({
    * = auto-detect (`package-lock.json` → `npm ci`, `package.json` → `npm install`), '' = none;
    * runs once per checkout. `last`: the daemon deletes the checkout after this check (it also
    * does on any failure). R3 `paths`: the check's globs; the daemon skips it (`cmd_exit.skipped`,
-   * no checkout, no setup) when the diff from the session's recorded base touches none of them,
+   * no setup, no command) when the diff from the session's recorded base touches none of them,
    * and runs it when it can't tell.
    */
   checkout: z

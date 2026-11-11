@@ -276,6 +276,9 @@ struct Checkout {
     sha: String,
     dir: PathBuf,
     token: i64,
+    /// The gate's setup ran in it. R3: a check skipped for its `paths` runs no setup, so the
+    /// next check that runs does it first.
+    setup_done: bool,
 }
 
 #[derive(Default)]
@@ -1386,6 +1389,7 @@ impl Core {
     }
 
     /// The part of start_session after the worktree. True when a process was started.
+    #[allow(clippy::too_many_arguments)]
     fn start_spawn(
         &self,
         st: &mut State,
@@ -1552,6 +1556,7 @@ impl Core {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn start_spawn_inner(
         &self,
         st: &mut State,
@@ -2554,44 +2559,6 @@ impl Core {
             out.not_run = Some(why.clone());
             return Ok(self.not_run(sid, token, &format!("{why}, so there is nothing to check")));
         }
-        // R3: a check with `paths` runs only when the branch's diff from the commit this daemon
-        // created it at (TD-221: recorded in its own store, never read from the agent's refs)
-        // touches one; no recorded base or anything unknown runs it. A skip makes no checkout and
-        // runs no setup; as the last check it still removes the gate's checkout.
-        if !co.paths.is_empty() {
-            let paths = co.paths.as_slice();
-            let changed = match &s.base {
-                Some(b) => changed_since_base(&wt, &b.sha, &want, None).await,
-                None => None,
-            };
-            let label = s
-                .base
-                .as_ref()
-                .map(|b| format!("{} at {}", b.branch, b.sha.get(..12).unwrap_or(&b.sha)));
-            let (base, files) = (label.as_deref(), changed.as_deref());
-            if let Some(why) = skip_reason(files, paths, base) {
-                self.debug_line(
-                    sid,
-                    token,
-                    &format!("conductor: skipped `{}`: {why}", p.cmd),
-                );
-                if co.last {
-                    let mut st = self.lock();
-                    let held = st.checkouts.get(&sid).filter(|h| h.sha == want).cloned();
-                    if let Some(h) = held {
-                        self.drop_checkout(&mut st, &sid, Some(&h));
-                    }
-                }
-                out.skipped = Some(why.clone());
-                return Ok(CommandResult {
-                    exit_code: Some(0),
-                    signal: None,
-                    timed_out: false,
-                    duration_ms: 0,
-                    output_tail: why,
-                });
-            }
-        }
         let mut ok = false;
         // The checkout this run uses: its cleanup only ever removes this one.
         let mut mine: Option<Checkout> = None;
@@ -2636,14 +2603,50 @@ impl Core {
                         sha: want.clone(),
                         dir,
                         token,
+                        setup_done: false,
                     };
                     st.checkouts.insert(sid, c.clone());
                     c
                 };
-                mine = Some(c.clone());
-                held = Some(c.clone());
+                held = Some(c);
+            }
+            let held = held.expect("set above");
+            mine = Some(held.clone());
+            // R3: a check with `paths` runs only when the commit's diff from the commit this
+            // daemon created the branch at (TD-221: recorded in its own store) touches one. The
+            // diff is read in this conductor-owned checkout, whose objects came in through the
+            // hardened fetch (every object's hash verified), never through the agent's object
+            // store. No recorded base, a base the fetch didn't bring (a rebased branch) or any
+            // error runs the check. A skip runs no setup and no command.
+            if !co.paths.is_empty() {
+                let changed = match &s.base {
+                    Some(b) => changed_since_base(&held.dir, &b.sha, &want, None).await,
+                    None => None,
+                };
+                let label = s
+                    .base
+                    .as_ref()
+                    .map(|b| format!("{} at {}", b.branch, b.sha.get(..12).unwrap_or(&b.sha)));
+                if let Some(why) = skip_reason(changed.as_deref(), &co.paths, label.as_deref()) {
+                    self.debug_line(
+                        sid,
+                        token,
+                        &format!("conductor: skipped `{}`: {why}", p.cmd),
+                    );
+                    out.skipped = Some(why.clone());
+                    ok = true;
+                    return Ok(CommandResult {
+                        exit_code: Some(0),
+                        signal: None,
+                        timed_out: false,
+                        duration_ms: 0,
+                        output_tail: why,
+                    });
+                }
+            }
+            if !held.setup_done {
                 // TD-177: the missing-manager guards here are unit-tested only.
-                if let Some(setup) = detect_setup(&c.dir, co.setup.as_deref()) {
+                if let Some(setup) = detect_setup(&held.dir, co.setup.as_deref()) {
                     let failed = if let Some(missing) = missing_manager(&setup, None) {
                         Some(self.not_run(sid, token, &missing))
                     } else {
@@ -2652,7 +2655,7 @@ impl Core {
                             token,
                             &format!("conductor: setup `{setup}` in a fresh checkout of {want}"),
                         );
-                        let sr = exec(setup.clone(), c.dir.clone()).await?;
+                        let sr = exec(setup.clone(), held.dir.clone()).await?;
                         (sr.exit_code != Some(0) || sr.timed_out).then_some(sr)
                     };
                     if let Some(r) = failed {
@@ -2668,9 +2671,11 @@ impl Core {
                         return Ok(r);
                     }
                 }
+                let mut st = self.lock();
+                if let Some(c) = st.checkouts.get_mut(&sid).filter(|c| c.id == held.id) {
+                    c.setup_done = true;
+                }
             }
-            let held = held.expect("set above");
-            mine = Some(held.clone());
             let (at, inside) = resolve_inside(&held.dir, p.cwd.as_deref());
             if !inside {
                 out.not_run = Some("invalid cwd".into());

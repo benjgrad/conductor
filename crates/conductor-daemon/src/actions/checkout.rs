@@ -120,16 +120,17 @@ pub async fn no_commits_ahead(
 
 // ---------------------------------------------------------------- diff-aware checks (R3)
 
-/// The paths that differ between the session's recorded base commit and `sha` (R3, TD-221).
-/// The base is the commit this daemon created the branch at, kept in its own store, so nothing in
-/// the agent's worktree (refs, `origin/HEAD`) chooses what the diff is against. It is a tree diff
-/// of the two commits: no history walk, so grafts and shallow files don't bend it, and
-/// `--no-replace-objects` keeps replace refs from swapping either object. A branch that merged a
-/// newer default branch diffs bigger, which only runs more. None when it can't be told (not
-/// commits, any git error, an output over the buffer): the check then runs. Hooks off, no external
-/// diff or textconv. `--no-renames`: a rename touches its old and its new path.
+/// The paths that differ between the session's recorded base commit and `sha` (R3, TD-221), read
+/// in `repo`: the conductor-owned fresh checkout, whose objects came in through the hardened fetch
+/// (index-pack checks every object's hash), never the agent's object store, where a forged pack or
+/// commit-graph could map a commit to another tree. The base is the commit this daemon created the
+/// branch at, kept in its own store. It is a tree diff of the two commits (no history walk), with
+/// replace refs and the commit-graph off. A branch that merged a newer default branch diffs bigger,
+/// which only runs more. None when it can't be told (the base isn't in the checkout because the
+/// branch was rebased, not commits, any git error, an output over the buffer): the check then runs.
+/// Hooks off, no external diff or textconv. `--no-renames`: a rename touches its old and new path.
 pub async fn changed_since_base(
-    worktree: &Path,
+    repo: &Path,
     base: &str,
     sha: &str,
     env: Option<&[(String, String)]>,
@@ -140,6 +141,8 @@ pub async fn changed_since_base(
     let mut a = no_hooks();
     a.extend(sv(&[
         "--no-replace-objects",
+        "-c",
+        "core.commitGraph=false",
         "-c",
         "core.quotepath=off",
         "diff",
@@ -152,7 +155,7 @@ pub async fn changed_since_base(
         sha,
         "--",
     ]));
-    let diff = exec::run("git", &a, worktree, env).await;
+    let diff = exec::run("git", &a, repo, env).await;
     if diff.code != Some(0) || diff.spawn_error.is_some() {
         return None;
     }

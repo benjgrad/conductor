@@ -691,7 +691,12 @@ export class EngineServiceImpl implements EngineService {
                   // ADR-0043: `review` for a triage on a daemon without the `triage` alias.
                   await withTriageFeature(
                     tx,
-                    await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+                    await withStartAttachments(
+                      tx,
+                      cmd.payload as JsonObject,
+                      ticket.id,
+                      cmd.target,
+                    ),
                     cmd.target,
                   ),
                   cmd.target,

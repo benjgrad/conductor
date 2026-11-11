@@ -69,6 +69,7 @@ import { registerTeamRoutes } from './team.js';
 import { cancelTicket, reopenTicket } from './ticket-lifecycle.js';
 import { registerAttachmentRoutes } from './attachments.js';
 import { registerPageRoutes } from './pages.js';
+import { registerRunGateRoutes } from './run-gate.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
 
@@ -175,6 +176,7 @@ export const createApi = (({
   void app.register(registerAttachmentRoutes, { db, auth, boardBus });
   // ADR-0038: hosted pages (the daemon's publish_page, the card's list and Share, GET /p/:id).
   void app.register(registerPageRoutes, { db, auth, now });
+  void app.register(registerRunGateRoutes, { db, auth });
   // The create-ticket form's repo suggestions.
   void app.register(registerRepoRoutes, { db });
   // ADR-0030: per-repo check overrides (also MCP's list/get/set/clear_repo_checks).

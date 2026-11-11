@@ -119,6 +119,16 @@ export interface AdvisorRows {
   preset_texts?: PresetTextRow[];
   /** ADR-0037 P4: the concurrency holds that ended in the window (`concurrency.released` rows). */
   holds?: HoldRow[];
+  /** R4: the agents' `run_gate` self-checks started in the window (`self_check_run` rows). */
+  self_checks?: SelfCheckRow[];
+}
+
+/** R4: one `run_gate` call that reached the orchestrator. `passed` null = it never reported. */
+export interface SelfCheckRow {
+  session_id: string;
+  ticket_id: string;
+  transition: string;
+  passed: boolean | null;
 }
 
 /**
@@ -760,6 +770,27 @@ export const ProcessMetricsSchema = z.object({
     })
     .optional(),
   /**
+   * R4: the agents' `run_gate` self-checks (the gate's checks run before taking a transition),
+   * to set against `totals.check_runs` (the gates' own runs). `unfinished`: started, never
+   * reported (killed, daemon gone). Absent when no agent ran one in the window.
+   */
+  self_checks: z
+    .object({
+      runs: z.number().int().nonnegative(),
+      passed: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+      unfinished: z.number().int().nonnegative(),
+      tickets: z.number().int().nonnegative(),
+      by_transition: z.array(
+        z.object({
+          transition: z.string(),
+          runs: z.number().int().nonnegative(),
+          passed: z.number().int().nonnegative(),
+        }),
+      ),
+    })
+    .optional(),
+  /**
    * ADR-0037 P4: moves queued behind other tickets on their repo (`requires.concurrency`) whose
    * hold ended in the window: their time (taken out of the state groups, never slow) and how the
    * holds ended (`concurrency_released`, `timeout`, `left`). Absent when nothing was held.
@@ -914,6 +945,31 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     ...presetUses(rows.preset_texts ?? []),
     ...pushCounts(rows.moves),
     ...queuedTime(rows.holds ?? []),
+    ...selfCheckCounts(rows.self_checks ?? []),
+  };
+}
+
+/** R4: `{self_checks}` for ProcessMetrics, or nothing when no agent ran `run_gate`. */
+export function selfCheckCounts(rows: readonly SelfCheckRow[]): Pick<ProcessMetrics, 'self_checks'> {
+  if (rows.length === 0) return {};
+  const byTransition = new Map<string, { runs: number; passed: number }>();
+  for (const r of rows) {
+    const t = byTransition.get(r.transition) ?? { runs: 0, passed: 0 };
+    t.runs += 1;
+    if (r.passed === true) t.passed += 1;
+    byTransition.set(r.transition, t);
+  }
+  return {
+    self_checks: {
+      runs: rows.length,
+      passed: rows.filter((r) => r.passed === true).length,
+      failed: rows.filter((r) => r.passed === false).length,
+      unfinished: rows.filter((r) => r.passed === null).length,
+      tickets: new Set(rows.map((r) => r.ticket_id)).size,
+      by_transition: [...byTransition]
+        .map(([transition, c]) => ({ transition, ...c }))
+        .sort((a, b) => b.runs - a.runs || a.transition.localeCompare(b.transition)),
+    },
   };
 }
 

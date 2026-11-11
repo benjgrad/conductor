@@ -31,6 +31,7 @@ export {
   PLAN_TEMPLATE,
   PROMPT_TEMPLATES,
   renderPrompt,
+  RUN_GATE_INSTRUCTION,
   TICKET_TEMPLATE,
   type PromptAttachment,
   type RenderPromptInput,
@@ -54,6 +55,7 @@ export * from './machines/index.js';
 export * from './api/rest.js';
 export * from './api/proposals.js';
 export * from './api/pages.js';
+export * from './api/run-gate.js';
 export * from './api/planned-files.js';
 export * from './api/plan-base.js';
 export * from './api/base-label.js';

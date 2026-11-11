@@ -65,6 +65,8 @@ pub struct ActionResultEventData {
 ///`AgentTransitionOption`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct AgentTransitionOption {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub checks: ::std::option::Option<bool>,
     pub name: AgentTransitionOptionName,
     pub question: bool,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
@@ -6440,6 +6442,7 @@ pub const DAEMON_FEATURE_AGENT_ATTACHMENTS: &str = "agent_attachments";
 pub const DAEMON_FEATURE_ASSISTANT_JOB: &str = "assistant_job";
 pub const DAEMON_FEATURE_PAGES: &str = "pages";
 pub const DAEMON_FEATURE_PERMISSION_MODE: &str = "permission_mode";
+pub const DAEMON_FEATURE_RUN_GATE: &str = "run_gate";
 pub const DAEMON_FEATURE_TICKET_ATTACHMENTS: &str = "ticket_attachments";
 pub const DAEMON_TARBALL_MAX_BYTES: usize = 104857600;
 pub const DAEMON_TARBALL_RE: &str = "^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$";

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { applyRepoChecks, PIN_CHECK, type GateSpec } from '../engine/move-step.js';
 import { repoChecksKey } from '../api/rest.js';
 import { CONDUCTOR_V4_DEF } from './conductor.js';
-import { checksGatesOf, RepoChecksSchema, type RepoChecks } from './repo-checks.js';
+import { checksGatesOf, RepoChecksSchema, selfCheckSpecOf, type RepoChecks } from './repo-checks.js';
+import { agentTransitionOptions, transitionChecks } from './transition-rules.js';
+import type { WorkflowDefinition } from './schema.js';
 
 // ADR-0030: per-repo check overrides: the schema, what they replace, the repo key.
 
@@ -94,5 +96,69 @@ describe('repoChecksKey', () => {
     expect(repoChecksKey('https://github.com/Acme/MethodUI.git')).toBe('github.com/acme/methodui');
     expect(repoChecksKey(' git@github.com:Acme/MethodUI.git ')).toBe('github.com/acme/methodui');
     expect(repoChecksKey('/tmp/Fixture')).toBe('/tmp/fixture');
+  });
+});
+
+describe('R4: the checks a transition runs (run_gate)', () => {
+  it('a requires.checks transition: its checks and setup, titled', () => {
+    const s = selfCheckSpecOf(CONDUCTOR_V4_DEF, 'implementing', 'pr_ready_for_review', null)!;
+    expect(s.title).toBe('PR ready for review');
+    expect(s.checks.map((c) => c.name)).toEqual(
+      transitionChecks(CONDUCTOR_V4_DEF, 'implementing', 'pr_ready_for_review')!.checks.map(
+        (c) => c.name,
+      ),
+    );
+    expect(s.checks.length).toBeGreaterThan(0);
+    expect(s.setup).toBeNull();
+  });
+
+  it('the repo override replaces the checks and the setup, as for a gate step', () => {
+    const s = selfCheckSpecOf(CONDUCTOR_V4_DEF, 'implementing', 'pr_ready_for_review', OVERRIDE)!;
+    expect(s.checks).toEqual(OVERRIDE.checks);
+    expect(s.setup).toBe('');
+    const noSetup = selfCheckSpecOf(CONDUCTOR_V4_DEF, 'implementing', 'pr_ready_for_review', {
+      checks: OVERRIDE.checks,
+    })!;
+    expect(noSetup.setup).toBeNull();
+  });
+
+  it('a transition without checks has none, override or not', () => {
+    expect(selfCheckSpecOf(CONDUCTOR_V4_DEF, 'implementing', 'ask_user', OVERRIDE)).toBeNull();
+    expect(
+      selfCheckSpecOf(CONDUCTOR_V4_DEF, 'implementing', 'needs_approval_to_message', OVERRIDE),
+    ).toBeNull();
+    expect(selfCheckSpecOf(CONDUCTOR_V4_DEF, 'implementing', 'nope', null)).toBeNull();
+    expect(selfCheckSpecOf(CONDUCTOR_V4_DEF, 'nowhere', 'done', null)).toBeNull();
+  });
+
+  it('without requires.checks, the target state\'s entry checks count', () => {
+    const def = {
+      states: {
+        work: { type: 'agent', prompt: 'p', on: { ship: { goto: 'shipped' }, ask_user: 'stop' } },
+        shipped: {
+          type: 'terminal',
+          entry: {
+            checks: [{ name: 'Tests pass', cmd: 'npm test' }],
+            setup: 'npm ci',
+            on_unmet: { goto: 'work', retries: 1, else: 'stop' },
+          },
+        },
+        stop: { type: 'terminal' },
+      },
+    } as unknown as WorkflowDefinition;
+    expect(selfCheckSpecOf(def, 'work', 'ship', null)).toEqual({
+      title: 'Ship',
+      setup: 'npm ci',
+      checks: [{ name: 'Tests pass', cmd: 'npm test' }],
+    });
+    expect(selfCheckSpecOf(def, 'work', 'ask_user', null)).toBeNull();
+  });
+
+  it('agentTransitionOptions marks the transitions that run checks', () => {
+    const opts = agentTransitionOptions(CONDUCTOR_V4_DEF, 'implementing', 'work');
+    const byName = Object.fromEntries(opts.map((o) => [o.name, o]));
+    expect(byName.pr_ready_for_review!.checks).toBe(true);
+    expect(byName.needs_approval_to_message).not.toHaveProperty('checks');
+    expect(byName.ask_user).not.toHaveProperty('checks');
   });
 });

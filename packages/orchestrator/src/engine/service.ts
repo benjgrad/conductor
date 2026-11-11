@@ -54,6 +54,7 @@ import { storeProposedChecks } from './check-proposals.js';
 import { withStartAttachments } from './attachments.js';
 import { withSkipPermissions } from './skip-permissions.js';
 import { withPagesFeature } from './pages.js';
+import { withRunGateFeature } from './run-gate.js';
 
 /** Session statuses after which apply ignores every event. */
 const TERMINAL: ReadonlySet<string> = new Set(['done', 'failed', 'lost']);
@@ -664,13 +665,18 @@ export class EngineServiceImpl implements EngineService {
       // 06 §Attachments: the ticket's files (or a note, for a daemon that can't fetch them).
       // ADR-0038: no `pages` tool for a daemon without publish_page (a note instead).
       // ADR-0039: skip permissions (a working agent on a daemon that honours it).
+      // R4: a note instead of `run_gate` for a daemon without it.
       const payload =
         cmd.kind === 'start_session'
           ? await withSkipPermissions(
               tx,
-              await withPagesFeature(
+              await withRunGateFeature(
                 tx,
-                await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+                await withPagesFeature(
+                  tx,
+                  await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),
+                  cmd.target,
+                ),
                 cmd.target,
               ),
               ticket.id,

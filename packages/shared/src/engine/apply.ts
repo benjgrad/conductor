@@ -163,6 +163,7 @@ export {
   PLAN_TEMPLATE,
   PROMPT_TEMPLATES,
   renderPrompt,
+  RUN_GATE_INSTRUCTION,
   TICKET_TEMPLATE,
 } from './render.js';
 export type { PromptAttachment, RenderPromptInput } from './render.js';

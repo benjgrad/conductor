@@ -819,6 +819,10 @@
         },
         "question": {
           "type": "boolean"
+        },
+        "checks": {
+          "type": "boolean",
+          "const": true
         }
       },
       "required": [

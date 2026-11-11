@@ -14,6 +14,7 @@ import {
   WorkflowDefinitionSchema,
   type AdvisorDefs,
   type AdvisorRows,
+  type SelfCheckRow,
   type CheckRunRow,
   type InputRow,
   type JsonObject,
@@ -289,6 +290,15 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     args,
   );
 
+  // R4: the agents' run_gate self-checks started in the window.
+  const selfChecks = await db.query<SelfCheckRow>(
+    'SELECT r.session_id, r.ticket_id, r.transition, r.passed ' +
+      `${SCOPE.replace('FROM session s', 'FROM self_check_run r JOIN session s ON s.id = r.session_id')} ` +
+      'AND r.started_at >= $2 AND ($7::timestamptz IS NULL OR r.started_at < $7) ' +
+      'ORDER BY r.started_at DESC LIMIT $5',
+    args,
+  );
+
   const truncated: LoadedRows['truncated'] = [];
   if (moves.rows.length >= ROW_LIMIT) truncated.push('moves');
   if (checks.truncated) truncated.push('checks');
@@ -390,6 +400,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     ...(pages.length > 0 ? { pages } : {}),
     ...(presetTexts.length > 0 ? { preset_texts: presetTexts } : {}),
     ...(holds.length > 0 ? { holds } : {}),
+    ...(selfChecks.rows.length > 0 ? { self_checks: selfChecks.rows } : {}),
     moves: moveRows,
     checks: checkRows,
     inputs: inputRows.map((r) => r.row),

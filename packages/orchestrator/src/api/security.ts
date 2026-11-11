@@ -162,6 +162,9 @@ const DAEMON_POSTS: ReadonlySet<string> = new Set([
   API_PATHS.daemonSessionAttachments(':id'),
   // ADR-0038: the daemon publishing its agent's page (JSON).
   API_PATHS.daemonSessionPages(':id'),
+  // R4: the daemon's run_gate spec request and its outcome (JSON).
+  API_PATHS.daemonSessionGate(':id'),
+  API_PATHS.daemonSessionGateResult(':id'),
 ]);
 const isDaemonRequest = (req: FastifyRequest): boolean =>
   req.method === 'POST' && DAEMON_POSTS.has(policyPath(req));

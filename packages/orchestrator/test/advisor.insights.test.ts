@@ -8,14 +8,18 @@ import {
 } from '@conductor/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  DAILY_CAP,
+  analystSetting,
+  analystUsage,
+  BACKFILL_DAYS,
   getInsight,
   handleAssistantResult,
   insightKey,
   JOB_EXPIRY_MIN,
   loadInsights,
+  MAX_ATTEMPTS,
   onAssistantJobAck,
   RETENTION_DAYS,
+  SAMPLE_DAILY_CAP_DEFAULT,
   scheduleInsightJobs,
   sweepInsights,
 } from '../src/advisor/insights.js';
@@ -23,7 +27,7 @@ import type { AssistantJobRow, OutboxRow } from '../src/db/types.js';
 import { useTestDatabase } from './db.js';
 
 // ADR-0033 P2 (MA-T04): the scheduler's SQL (the account scope, the machine feature gate, the
-// idempotency key and the cap), the result handling and the sweep run against a real migrated
+// idempotency key, the pacing, the retry and the sampling cap), the result handling and the sweep run against a real migrated
 // database, since the constraints and joins are what's under test. The prompt, schema and
 // findings are covered by pure tests in shared (advisor/insight.test.ts).
 
@@ -173,16 +177,41 @@ describe('scheduleInsightJobs', () => {
     expect(await jobsOf(a)).toHaveLength(1);
   });
 
-  it('skips sessions still running, too old, or without a transcript gets the digest only', async () => {
+  it('skips sessions still running or too old; without a transcript gets the digest only', async () => {
     const a = await account();
     const m = await machine(a);
     await finished(a, m, { status: 'running' });
-    await finished(a, m, { endedAgoDays: 8 });
+    await finished(a, m, { endedAgoDays: BACKFILL_DAYS + 1 });
     const failed = await finished(a, m, { status: 'failed', claude: false });
     const jobs = await schedule(a);
     expect(jobs.map((j) => j.session_id)).toEqual([failed.sessionId]);
     const p = AssistantJobPayloadSchema.parse((await outboxOf(jobs[0]!.command_id))!.payload);
     expect(p.transcript).toBeUndefined();
+  });
+
+  it('R13: backfills a week-old session (the window is 30 days)', async () => {
+    const a = await account();
+    const m = await machine(a);
+    const old = await finished(a, m, { endedAgoDays: 8 });
+    expect((await schedule(a)).map((j) => j.session_id)).toEqual([old.sessionId]);
+  });
+
+  it('R13: paces one open job per machine; the next follows when it finishes', async () => {
+    const a = await account();
+    const m = await machine(a);
+    const other = await machine(a);
+    for (let i = 0; i < 3; i++) await finished(a, m);
+    await finished(a, other);
+    let jobs = await schedule(a);
+    expect(jobs).toHaveLength(2);
+    expect(new Set(jobs.map((j) => j.machine_id))).toEqual(new Set([m, other]));
+    await db.pool.query(
+      "UPDATE assistant_job SET status = 'done', finished_at = now() WHERE account_id = $1",
+      [a],
+    );
+    jobs = await schedule(a);
+    expect(jobs).toHaveLength(3);
+    expect(jobs.filter((j) => j.status === 'queued').map((j) => j.machine_id)).toEqual([m]);
   });
 
   it('only for a machine of the same account that is online and has the feature', async () => {
@@ -201,11 +230,10 @@ describe('scheduleInsightJobs', () => {
     expect(await jobsOf(b)).toEqual([]);
   });
 
-  it(`caps an account at ${DAILY_CAP} jobs in 24 h`, async () => {
-    const a = await account();
-    const m = await machine(a);
-    for (let i = 0; i < DAILY_CAP - 1; i++) {
-      const { sessionId, ticketId } = await finished(a, m, { endedAgoDays: 30 });
+  /** `n` finished jobs written in the last 24 h for the account, on sessions of their own. */
+  async function doneJobs(a: string, m: string, n: number) {
+    for (let i = 0; i < n; i++) {
+      const { sessionId, ticketId } = await finished(a, m, { endedAgoDays: BACKFILL_DAYS + 5 });
       await db.pool.query(
         `INSERT INTO assistant_job (account_id, kind, session_id, ticket_id, schema_version,
            machine_id, command_id, idempotency_key, status)
@@ -213,11 +241,52 @@ describe('scheduleInsightJobs', () => {
         [a, sessionId, ticketId, m, insightKey(sessionId)],
       );
     }
-    await finished(a, m);
+  }
+
+  it(`R13: analyses every session by default, past the old ${SAMPLE_DAILY_CAP_DEFAULT} a day`, async () => {
+    const a = await account();
+    const m = await machine(a);
+    await doneJobs(a, m, SAMPLE_DAILY_CAP_DEFAULT);
     await finished(a, m);
     const jobs = await schedule(a);
-    expect(jobs).toHaveLength(DAILY_CAP);
     expect(jobs.filter((j) => j.status === 'queued')).toHaveLength(1);
+    expect(await analystSetting(db.pool, a)).toEqual({ mode: 'all', daily_cap: null });
+  });
+
+  it('R13: an account that samples is capped at its analyst_daily_cap jobs in 24 h', async () => {
+    const a = await account();
+    await db.pool.query('UPDATE account SET analyst_daily_cap = 3 WHERE id = $1', [a]);
+    expect(await analystSetting(db.pool, a)).toEqual({ mode: 'sample', daily_cap: 3 });
+    const m1 = await machine(a);
+    const m2 = await machine(a);
+    await doneJobs(a, m1, 2);
+    await finished(a, m1);
+    await finished(a, m2);
+    const jobs = await schedule(a);
+    // Two machines, so pacing would allow two: the cap allows one.
+    expect(jobs).toHaveLength(3);
+    expect(jobs.filter((j) => j.status === 'queued')).toHaveLength(1);
+  });
+
+  it(`R13: retries a failed job once (${MAX_ATTEMPTS} attempts), under its own key`, async () => {
+    const a = await account();
+    const m = await machine(a);
+    const { sessionId } = await finished(a, m);
+    const [first] = await schedule(a);
+    await onAssistantJobAck(db.pool, first!.command_id, false, 'light_slot_busy');
+    const jobs = await schedule(a);
+    expect(jobs).toHaveLength(2);
+    expect(jobs[1]).toMatchObject({
+      session_id: sessionId,
+      attempt: 2,
+      status: 'queued',
+      idempotency_key: insightKey(sessionId, 1, 2),
+    });
+    expect((await outboxOf(jobs[1]!.command_id))!.idempotency_key).toBe(
+      insightKey(sessionId, 1, 2),
+    );
+    await onAssistantJobAck(db.pool, jobs[1]!.command_id, false, 'light_slot_busy');
+    expect(await schedule(a)).toHaveLength(2);
   });
 });
 
@@ -237,7 +306,7 @@ describe('acks and results', () => {
     result: result as Record<string, never>,
   });
 
-  it('an accepted ack marks the job sent; a refusal fails it, never rescheduled', async () => {
+  it('an accepted ack marks the job sent; a refusal fails it (retried once, R13)', async () => {
     const { a, j } = await sentJob();
     await onAssistantJobAck(db.pool, j.command_id, true, null);
     expect((await jobsOf(a))[0]!.status).toBe('sent');
@@ -247,7 +316,7 @@ describe('acks and results', () => {
       error: 'refused: light_slot_busy',
     });
     await scheduleInsightJobs(db.pool, new Date());
-    expect(await jobsOf(a)).toHaveLength(1);
+    expect((await jobsOf(a)).map((j) => j.attempt)).toEqual([1, 2]);
   });
 
   it('stores a valid result once; a replayed seq or another machine changes nothing', async () => {
@@ -278,7 +347,7 @@ describe('acks and results', () => {
     expect(listed.map((i) => i.session_id)).toEqual([s.sessionId]);
   });
 
-  it('drops a malformed result and fails an error result; neither is retried', async () => {
+  it('drops a malformed result (never retried) and fails an error result (retried once)', async () => {
     const one = await sentJob();
     expect(
       await handleAssistantResult(
@@ -306,7 +375,27 @@ describe('acks and results', () => {
 
     await scheduleInsightJobs(db.pool, new Date());
     expect(await jobsOf(one.a)).toHaveLength(1);
-    expect(await jobsOf(two.a)).toHaveLength(1);
+    expect((await jobsOf(two.a)).map((j) => j.attempt)).toEqual([1, 2]);
+  });
+
+  it('R13: records the cost and duration, and the report sums them', async () => {
+    const { a, m, j } = await sentJob();
+    await handleAssistantResult(db.pool, { machineId: m, accountId: a }, ++seq, {
+      ...ok(j, INSIGHT),
+      cost_usd: 0.0006,
+    });
+    expect((await jobsOf(a))[0]).toMatchObject({ cost_usd: '0.000600', duration_ms: 10 });
+    expect(
+      await analystUsage(db.pool, { accountId: a, since: new Date(Date.now() - DAY) }),
+    ).toEqual({
+      jobs: 1,
+      done: 1,
+      failed: 0,
+      dropped: 0,
+      open: 0,
+      cost_usd: 0.0006,
+      priced_jobs: 1,
+    });
   });
 });
 

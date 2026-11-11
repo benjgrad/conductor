@@ -188,7 +188,7 @@ export class Harness {
 export const QA_PR_URL = 'https://github.com/benjgrad/fixture-app/pull/7';
 
 /**
- * ADR-0041: a gate whose failures go to a triage state with the four verdicts: `send_back`
+ * ADR-0043: a gate whose failures go to a triage state with the four verdicts: `send_back`
  * (`$return_to`), `rerun` (`$gate`), `fix_env` (a command that retries the gate) and `escalate`.
  * `implementing`'s gate sends one failure straight back (retries 1), then triage.
  */

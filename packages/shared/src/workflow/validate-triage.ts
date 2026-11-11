@@ -10,7 +10,7 @@ import {
 import { isCountedTransition, transitionObject } from './transition-rules.js';
 import type { WorkflowValidationError } from './validate.js';
 
-// ADR-0041, rule 29: the triage role. A `role: 'triage'` agent state may be a failure leg's target
+// ADR-0043, rule 29: the triage role. A `role: 'triage'` agent state may be a failure leg's target
 // (`on_unmet.goto` / `else`, an entry's, a watch's `on_broken`); it reads the evidence and picks a
 // declared verdict. Its verdicts (and those of its "legs", e.g. a `fix_env` command reached only
 // from triage) may name `$return_to` (back to the state that failed) and `$gate` (retry the move
@@ -173,7 +173,7 @@ export function triagePseudoEdges(def: WorkflowDefinition): PseudoEdge[] {
 }
 
 /**
- * Rule 29 (ADR-0041), the triage role:
+ * Rule 29 (ADR-0043), the triage role:
  * - a triage state is not the start state, has no `entry`, `checkout` or `follow_ups`, and its
  *   `tools` are absent or exactly `["triage"]` (the engine always runs it with that alias);
  * - it is the target of at least one failure leg or route (else nothing ever triages);

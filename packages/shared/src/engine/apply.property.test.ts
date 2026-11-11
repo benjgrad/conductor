@@ -644,7 +644,7 @@ const WORKFLOWS: [string, () => WorkflowDefinition, TicketKind | null][] = [
   ['conductor v2 (no kind)', () => CONDUCTOR_V2_DRAFT_DEF, null],
   // ADR-0020 §2 (M2r-T03): a `role: 'qa'` state behind a move step.
   ['qa flow', qaDefinition, null],
-  // ADR-0041: a gate whose failures go to a triage state with `$return_to` / `$gate` verdicts.
+  // ADR-0043: a gate whose failures go to a triage state with `$return_to` / `$gate` verdicts.
   ['triage flow', triageDefinition, null],
   // WF-T06: the definition tickets actually run on (plan_review, in_review).
   ['conductor v5 live (work)', conductorV5Live, 'work'],

@@ -455,7 +455,7 @@ describe('/mcp', () => {
     const names = (list.json.result as { tools: { name: string }[] }).tools.map((t) => t.name);
     // The tool set Ben approved (2026-10-30), plus ADR-0030's workflow tools, ADR-0032's
     // schedules and ADR-0033's advisor tools (P2: get_process_report, get_insight; P3:
-    // propose_change, list_change_proposals, apply_change): nothing else.
+    // propose_change, list_change_proposals, apply_change) and R17's simulate_workflow: nothing else.
     expect(names.sort()).toEqual([
       'adopt_default_workflow',
       'answer_input',
@@ -487,16 +487,18 @@ describe('/mcp', () => {
       'save_workflow',
       'search_tickets',
       'set_repo_checks',
+      'simulate_workflow',
       'take_transition',
       'wait_for_updates',
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
     for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(700);
-    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 32 tools (06 §Queue order added reorder_queue); the list is what every client loads first, so it
+    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 33 tools (06 §Queue order added reorder_queue, R17
+    // simulate_workflow); the list is what every client loads first, so it
     // stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the advisor tools, and its
     // P3 amendment to 22 KB for the change-proposal tools, and ADR-0034 to 23 KB for
-    // decide_proposed_ticket.
-    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(23 * 1024);
+    // decide_proposed_ticket, and R17 (Ben, 2026-11-11) to 24 KB for simulate_workflow.
+    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(24 * 1024);
 
     const created = await call(a.access, 'create_ticket', {
       title: 'From MCP',

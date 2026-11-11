@@ -147,7 +147,7 @@ async fn run_registers_and_exits_0_on_sigterm() {
             "pages",
             // ADR-0039: it honours start_session.permission_mode.
             "permission_mode",
-            // ADR-0041: it knows the `triage` tool alias.
+            // ADR-0043: it knows the `triage` tool alias.
             "triage"
         ]),
         "{register}"

@@ -79,7 +79,7 @@ export const DAEMON_FEATURE_PAGES = 'pages';
  */
 export const DAEMON_FEATURE_PERMISSION_MODE = 'permission_mode';
 /**
- * ADR-0041: the daemon knows the `triage` tool alias (read-only git and `gh`). A machine without it
+ * ADR-0043: the daemon knows the `triage` tool alias (read-only git and `gh`). A machine without it
  * gets a triage session with the `review` alias instead (read-only git, no `gh`).
  */
 export const DAEMON_FEATURE_TRIAGE = 'triage';
@@ -867,6 +867,14 @@ export const StartSessionPayloadSchema = z.object({
    * DAEMON_FEATURE_PERMISSION_MODE. Absent = auto. A literal, so nothing else can be pushed.
    */
   permission_mode: z.literal('bypassPermissions').optional(),
+  /**
+   * R2 (07 §Worktree setup): the setup the daemon runs in the agent's worktree before it starts
+   * Claude: the repo checks override's `setup` (ADR-0030). Absent or null = auto-detect from the
+   * worktree's lockfile (as the check checkout does), '' = none. Set only on a working agent's
+   * start (never with `review` or `checkout`) and only when the repo has an override; the daemon
+   * skips it when the lockfiles and the command are unchanged since its last successful run there.
+   */
+  worktree_setup: z.string().max(2_000).nullable().optional(),
 });
 export const StartSessionMessageSchema = msg(
   'start_session',

@@ -8,7 +8,7 @@ import { qaFenceChanged } from './qa.js';
 import { TRIAGE_CONTEXT_KEY, triageOf, type TriageContext } from './triage.js';
 import type { Effect } from './types.js';
 
-// ADR-0041: a gate failure goes to a `role: 'triage'` state with the evidence; its verdicts send
+// ADR-0043: a gate failure goes to a `role: 'triage'` state with the evidence; its verdicts send
 // the work back (`$return_to`), rerun the gate (`$gate`), fix the environment (a command leg that
 // reruns the gate) or escalate to a human. Every loop through it is counted.
 
@@ -70,7 +70,7 @@ function triage(h: Harness): TriageContext {
   return t!;
 }
 
-describe('ADR-0041 the triage role', () => {
+describe('ADR-0043 the triage role', () => {
   it('the reference definition validates', () => {
     expect(validateWorkflow(triageDefinitionInput()).ok).toBe(true);
   });
@@ -325,7 +325,7 @@ describe('ADR-0041 the triage role', () => {
   });
 });
 
-describe('ADR-0041 every path through triage ends at a human (property)', () => {
+describe('ADR-0043 every path through triage ends at a human (property)', () => {
   const VERDICTS = ['send_back', 'rerun', 'fix_env', 'escalate'] as const;
 
   /** Drive the session: each step takes the next choice the place allows. */

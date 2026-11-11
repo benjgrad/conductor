@@ -1,4 +1,5 @@
 import { pagesSpec, resultKeys, type AgentState, type FollowUps } from '../workflow/schema.js';
+import { READONLY_SHELL_EXACT, READONLY_SHELL_PREFIXES } from '../workflow/tools.js';
 import type { SentBack } from './qa.js';
 import type { AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
@@ -128,6 +129,10 @@ export function renderPrompt(input: RenderPromptInput): string {
     parts.push(renderFollowUps(state.follow_ups, snapshot.ticket.repo));
   }
 
+  // R7: what a `bash_readonly` state may run, so it doesn't spend turns on denied commands.
+  const shell = renderReadOnlyShell(state);
+  if (shell !== null) parts.push(shell);
+
   // ADR-0038: only a state with a `{pages: {max}}` result entry gets this section.
   const pages = renderPages(state);
   if (pages !== null) parts.push(pages);
@@ -173,6 +178,21 @@ export function renderFollowUps(cfg: FollowUps, repo: string): string {
   ];
   if (cfg.guidance !== undefined) lines.push('', cfg.guidance);
   return lines.join('\n');
+}
+
+/** The heading of the R7 read-only shell section. */
+export const READONLY_SHELL_HEADING = '## Read-only shell';
+
+/** R7: the commands a state with the `bash_readonly` tool may run; null without it. */
+export function renderReadOnlyShell(state: Pick<AgentState, 'tools'>): string | null {
+  if (!(state.tools ?? []).includes('bash_readonly')) return null;
+  const cmds = [...READONLY_SHELL_EXACT, ...READONLY_SHELL_PREFIXES.map((c) => `${c} …`)];
+  return [
+    READONLY_SHELL_HEADING,
+    '',
+    `You may run these shell commands, with their arguments where shown: ${cmds.map((c) => `\`${c}\``).join(', ')}.`,
+    'Anything else (other commands, redirections, pipes, `;` or `&&` chains, `--output`, `git push`, `gh pr merge`) is denied without a prompt: run one command per call and do not retry a denied one.',
+  ].join('\n');
 }
 
 /** The heading of the ADR-0038 pages section. */
@@ -232,11 +252,22 @@ export const IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION =
 export const IMPLEMENT_TESTS_INSTRUCTION =
   'When you restructure UI or change a type that many tests match on, update the affected tests with each component or type change, not in one batch at the end, and run the targeted tests after each.';
 
+/** R7: the plan's required headings (PLAN_HEADINGS_INSTRUCTION). */
+export const PLAN_ASSUMPTIONS_HEADING = '## Assumptions';
+export const PLAN_MECHANISMS_HEADING = '## Existing mechanisms checked';
+
+/**
+ * R7 (I-7): every plan records the defaults it chose instead of asking, and which existing
+ * mechanisms it searched for, so a ticket an existing setting already covers is caught here.
+ */
+export const PLAN_HEADINGS_INSTRUCTION = `Start the plan with two headings. \`${PLAN_ASSUMPTIONS_HEADING}\`: the defaults you chose instead of asking a human (write \`None.\` if there are none). \`${PLAN_MECHANISMS_HEADING}\`: what you searched the repository for (existing tools, settings and workflow features that might already cover the ticket) and what you found.`;
+
 const PLAN_INSTRUCTIONS = [
   '## Your step: planning',
   '',
   'Read the repository and work out how to do this ticket. Do not change any files, run builds or commit: this step only plans.',
   'Write a plan another agent can follow: the files to change, the approach, the tests to add or update, and anything risky or unclear.',
+  PLAN_HEADINGS_INSTRUCTION,
   PLAN_FILES_INSTRUCTION,
   PROPOSALS_HINT,
   'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>", "files": ["<path or glob>", …]}`.',

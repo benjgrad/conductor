@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Queryable } from '../../src/contracts.js';
 import { triageTools, withTriageFeature } from '../../src/engine/triage-feature.js';
 
-// ADR-0041: a triage start on a daemon without the `triage` alias gets `review` instead (both are
+// ADR-0043: a triage start on a daemon without the `triage` alias gets `review` instead (both are
 // edit-free). Pure, with a fake query for the machine's features: no database is under test.
 
 function machines(features: Record<string, string[]>): Queryable {
@@ -18,7 +18,7 @@ function machines(features: Record<string, string[]>): Queryable {
   };
 }
 
-describe('ADR-0041 the triage alias and older daemons', () => {
+describe('ADR-0043 the triage alias and older daemons', () => {
   it('maps triage to review only without the feature', () => {
     expect(triageTools(['triage'], [])).toEqual(['review']);
     expect(triageTools(['triage', 'review'], ['pages'])).toEqual(['review']);

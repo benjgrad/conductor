@@ -3,6 +3,7 @@ import {
   RETRY_CHECKS,
   apply as sharedApply,
   commandPayloadForEffect,
+  eventPayload,
   moveSpecOf,
   notifyBucketKey,
   parseDuration,
@@ -77,28 +78,6 @@ export interface EngineServiceCoreDeps {
   pushEnabled?: boolean;
   /** Called after a wrapper-owned COMMIT that wrote push rows (wakes the push dispatcher). */
   onPushWritten?: () => void;
-}
-
-/**
- * The engine event row's payload: the event minus `type` (+ the ignore reason, if any).
- * Raw command output never goes in an event row (02-data-model §event, ADR-0003):
- * `command.exited.output_tail` is replaced by its UTF-8 byte length, `output_tail_bytes`, and
- * `agent.exited.stderr_tail` by `stderr_tail_bytes` (stderr may carry secrets; only apply's
- * clipped last line reaches the failure question).
- */
-function eventPayload(event: EngineEvent, ignored: string | null): JsonObject {
-  const payload = JSON.parse(JSON.stringify(event)) as JsonObject;
-  delete payload.type;
-  if (event.type === 'command.exited') {
-    delete payload.output_tail;
-    payload.output_tail_bytes = Buffer.byteLength(event.output_tail, 'utf8');
-  }
-  if (event.type === 'agent.exited' && event.stderr_tail !== undefined) {
-    delete payload.stderr_tail;
-    payload.stderr_tail_bytes = Buffer.byteLength(event.stderr_tail, 'utf8');
-  }
-  if (ignored !== null) payload.ignored = ignored;
-  return payload;
 }
 
 /** BoardCard minus `updated_at` (which moves on every applied event), for change detection. */
@@ -415,7 +394,7 @@ export class EngineServiceImpl implements EngineService {
                 ...(effect.reason !== undefined ? { reason: effect.reason } : {}),
                 ...(effect.actor !== undefined ? { actor: effect.actor } : {}),
                 cause: effect.cause,
-                // ADR-0041: a triage verdict's judged failure (metrics by cause).
+                // ADR-0043: a triage verdict's judged failure (metrics by cause).
                 ...(effect.triage !== undefined ? { triage: effect.triage } : {}),
                 // ADR-0037 P6: the notify policy's decision (absent in legacy mode).
                 ...(effect.notify_decision !== undefined ? { notify: effect.notify_decision } : {}),
@@ -673,7 +652,7 @@ export class EngineServiceImpl implements EngineService {
               tx,
               await withPagesFeature(
                 tx,
-                // ADR-0041: `review` for a triage on a daemon without the `triage` alias.
+                // ADR-0043: `review` for a triage on a daemon without the `triage` alias.
                 await withTriageFeature(
                   tx,
                   await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target),

@@ -199,7 +199,7 @@ const AGENT_ACTIVE: ReadonlySet<SessionStatus> = new Set(['assigned', 'running']
 class Step {
   readonly s: SessionSnapshot;
   readonly effects: Effect[] = [];
-  /** ADR-0041: the gate step `leaveStep` just ended (a triage state's evidence of what failed). */
+  /** ADR-0043: the gate step `leaveStep` just ended (a triage state's evidence of what failed). */
   lastStep: GateStep | null = null;
 
   constructor(
@@ -293,7 +293,7 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
         st.s.context = patchQa(st.s.context, { claude_session_id: e.claude_session_id });
         return null;
       }
-      // ADR-0041: so is the triage's, so `$return_to` resumes the worker's own conversation.
+      // ADR-0043: so is the triage's, so `$return_to` resumes the worker's own conversation.
       if (isTriageState(st.state)) {
         st.s.context = patchTriage(st.s.context, { claude_session_id: e.claude_session_id });
         return null;
@@ -1078,7 +1078,7 @@ function takeOutcome(
   const state = st.state;
   const t = state && state.type !== 'terminal' ? state.on?.[outcome] : undefined;
   const kind = opts.kind ?? kindForOutcome(outcome);
-  // ADR-0041: a triage's escalate verdict leads with its diagnosis and the evidence.
+  // ADR-0043: a triage's escalate verdict leads with its diagnosis and the evidence.
   const question =
     isTriageState(state) && kind === 'approval'
       ? triageQuestion(st, from, outcome, info)
@@ -1102,7 +1102,7 @@ function takeOutcome(
                 ? 'agent'
                 : 'system',
         });
-  // ADR-0041: a triage verdict (or a leg's) back to the failed state or gate.
+  // ADR-0043: a triage verdict (or a leg's) back to the failed state or gate.
   if (t !== undefined && isTriageTarget(transitionGoto(t))) {
     takeTriageRoute(st, from, outcome, t, record, info);
     return;
@@ -2522,7 +2522,7 @@ function onGateRetry(st: Step): ApplyIgnoreReason | null {
 }
 
 /**
- * Run a remembered gate step again from its source state (`gate.retry`, ADR-0041 `$gate`). The
+ * Run a remembered gate step again from its source state (`gate.retry`, ADR-0043 `$gate`). The
  * step runs on the session's machine, or requeues without one (enterStep).
  */
 function retryGate(st: Step, g: TriageGate, detail: string, record: MoveFields): void {
@@ -2684,7 +2684,7 @@ function stepUnmet(st: Step, spec: GateSpec, r: GateStep, unmet: ReviewFeedback[
     ...NO_ROUTE,
     kind: 'retries_exhausted',
     question: lines.join('\n'),
-    // A human target ignores it; a triage target (ADR-0041) keeps the unmet items as evidence.
+    // A human target ignores it; a triage target (ADR-0043) keeps the unmet items as evidence.
     feedback,
     auditFrom: label,
     skipEntry: true,
@@ -2956,7 +2956,7 @@ interface MoveFields {
   transition: string | null;
   reason: string | null;
   actor: MoveActor;
-  /** ADR-0041: a triage verdict's move: the failure it judged (the metrics' cause). */
+  /** ADR-0043: a triage verdict's move: the failure it judged (the metrics' cause). */
   triage?: { failure_cause: MoveCause; gate_transition: string };
 }
 
@@ -3562,7 +3562,7 @@ function watchBroken(st: Step, w: Watch, rt: WatchRuntime): void {
   });
 }
 
-// ---------------------------------------------------------------- triage (ADR-0041, triage.ts)
+// ---------------------------------------------------------------- triage (ADR-0043, triage.ts)
 
 /**
  * `context.__triage` on an entry: a failure route (an engine cause) into a triage state writes
@@ -3618,7 +3618,7 @@ function triageQuestion(st: Step, from: string, outcome: string, info: OutcomeIn
 }
 
 /**
- * ADR-0041: a verdict naming `$return_to` (back to the failed state, the instruction attached, the
+ * ADR-0043: a verdict naming `$return_to` (back to the failed state, the instruction attached, the
  * worker's own conversation resumed) or `$gate` (the failed gate step again). Counted per verdict
  * and failure under `<from>-><target>:<failed transition>`; past `retries` it takes `else` (a
  * human), never the loop. Without a recorded failure it goes to a human (`fallback`).

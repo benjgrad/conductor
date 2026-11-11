@@ -1,4 +1,4 @@
-# ADR-0041 · Triage role: conductor judges gate failures before they reach Ben
+# ADR-0043 · Triage role: conductor judges gate failures before they reach Ben
 
 - **Status**: proposed
 - **Date**: 2026-11-11

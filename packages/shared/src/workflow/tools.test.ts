@@ -5,7 +5,9 @@ import { evaluateGuard, GUARD_REGISTRY, isRegisteredGuard, type GuardInput } fro
 import { WorkflowDefinitionSchema } from './schema.js';
 import {
   BACKGROUND_TOOLS,
+  forcesDontAsk,
   isToolAlias,
+  READONLY_SHELL_DENY,
   resolveToolPolicy,
   TOOL_ALIAS_NAMES,
   UnknownToolAliasError,
@@ -26,7 +28,7 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       }
     }
     expect(TOOL_ALIAS_NAMES).toEqual(
-      expect.arrayContaining(['edit', 'bash', 'git', 'pr_skill', 'qa', 'triage']),
+      expect.arrayContaining(['edit', 'bash', 'git', 'pr_skill', 'qa', 'bash_readonly', 'triage']),
     );
   });
 
@@ -152,7 +154,7 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       expect(p.allow.some((r) => r.startsWith(bad))).toBe(false);
   });
 
-  it('triage alias reads git and CI but can change neither the branch nor GitHub (ADR-0041)', () => {
+  it('triage alias reads git and CI but can change neither the branch nor GitHub (ADR-0043)', () => {
     const p = resolveToolPolicy(['triage']);
     expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash', ...BACKGROUND_TOOLS]);
     expect(p.allow).toEqual(
@@ -195,7 +197,7 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
   });
 
   it('gives every Bash alias the background-job tools, and the read base none (ADR-0035)', () => {
-    for (const alias of ['bash', 'git', 'review', 'qa', 'triage', 'pr_skill']) {
+    for (const alias of ['bash', 'git', 'review', 'qa', 'triage', 'pr_skill', 'bash_readonly']) {
       const p = resolveToolPolicy([alias]);
       expect(p.builtin).toEqual(expect.arrayContaining(['Bash', ...BACKGROUND_TOOLS]));
       expect(p.allow).toEqual(expect.arrayContaining([...BACKGROUND_TOOLS]));
@@ -208,6 +210,118 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     const p = resolveToolPolicy(['git', 'git', 'bash']);
     expect(new Set(p.builtin).size).toBe(p.builtin.length);
     expect(() => resolveToolPolicy(['edit', 'WebFetch'])).toThrow(UnknownToolAliasError);
+  });
+});
+
+/**
+ * A model of how Claude Code matches a Bash call against permission rules, for testing the
+ * allow-list design; it is not the enforcement (that is Claude Code in dontAsk). Conservative: a
+ * command with a shell operator, redirection or substitution matches no allow rule. Rules:
+ * `Bash(cmd)` exact, `Bash(prefix:*)` the prefix alone or followed by a space, `*` elsewhere a
+ * glob. Deny rules are checked first and win.
+ */
+function bashAllowed(command: string, policy: { allow: string[]; deny: string[] }): boolean {
+  const matches = (rule: string): boolean => {
+    const m = /^Bash\((.*)\)$/.exec(rule);
+    if (!m) return false;
+    const body = m[1]!;
+    if (body.endsWith(':*')) {
+      const prefix = body.slice(0, -2);
+      return command === prefix || command.startsWith(`${prefix} `);
+    }
+    if (body.includes('*')) {
+      const re = body
+        .split('*')
+        .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .join('.*');
+      return new RegExp(`^${re}$`).test(command);
+    }
+    return command === body;
+  };
+  if (policy.deny.some(matches)) return false;
+  if (/[;&|<>`\n]|\$\(/.test(command)) return false;
+  return policy.allow.some(matches);
+}
+
+describe('bash_readonly (R7)', () => {
+  const p = resolveToolPolicy(['read', 'bash_readonly']);
+
+  it.each([
+    'git log --oneline -- packages/shared',
+    'git log',
+    'git show abc123',
+    'git diff main...HEAD',
+    'git grep -n foo',
+    'git blame README.md',
+    "git ls-files '*.ts'",
+    'gh pr view 12',
+    'gh pr checks 12',
+    'gh run view 99 --log',
+    'gh run list -L 5',
+    'rg -n TOOL_ALIASES packages',
+    'ls docs',
+    'cat README.md',
+    'git status',
+    'git branch --show-current',
+  ])('allows %s', (cmd) => {
+    expect(bashAllowed(cmd, p)).toBe(true);
+  });
+
+  it.each([
+    'git push',
+    'git push origin main',
+    'gh pr merge 12',
+    'gh pr create',
+    'gh api repos/x/y -X DELETE',
+    'git commit -m x',
+    'git checkout -b x',
+    'git reset --hard',
+    'rm -rf x',
+    'git log --output=/tmp/x',
+    'git log -n 5 --output=/tmp/x',
+    'git diff --output=/tmp/x',
+    'git grep -Osh foo',
+    'git grep -n foo -Osh',
+    'rg --pre sh x',
+    'rg x --pre sh',
+    'cat a > b',
+    'git log >> f',
+    'rg foo < input',
+    'ls; rm x',
+    'ls && rm x',
+    'cat x | tee y',
+    'echo $(rm x)',
+    'cat `rm x`',
+    'gh pr view --web',
+    'gh pr view 12 --web',
+    'lsof',
+    'catalog',
+  ])('denies %s', (cmd) => {
+    expect(bashAllowed(cmd, p)).toBe(false);
+  });
+
+  it('is Bash plus the read base: no edit tools, git push denied, nothing dropped by its denies', () => {
+    expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash', ...BACKGROUND_TOOLS]);
+    for (const t of ['Edit', 'Write']) {
+      expect(p.builtin).not.toContain(t);
+      expect(p.allow.some((r) => r.startsWith(t))).toBe(false);
+    }
+    expect(p.deny).toContain('Bash(git push:*)');
+    expect(p.deny).toEqual(expect.arrayContaining([...READONLY_SHELL_DENY]));
+    const own = resolveToolPolicy(['bash_readonly']);
+    expect(own.allow.length).toBe(new Set(own.allow).size);
+    expect(own.allow.some((r) => own.deny.includes(r))).toBe(false);
+    // A bare Bash rule would pre-approve everything.
+    expect(p.allow).not.toContain('Bash');
+  });
+
+  it('forces dontAsk only without a write alias', () => {
+    expect(forcesDontAsk(['bash_readonly'])).toBe(true);
+    expect(forcesDontAsk(['read', 'bash_readonly', 'pages'])).toBe(true);
+    expect(forcesDontAsk(['read'])).toBe(false);
+    expect(forcesDontAsk([])).toBe(false);
+    for (const w of ['edit', 'bash', 'git', 'pr_skill', 'qa'])
+      expect(forcesDontAsk(['bash_readonly', w])).toBe(false);
   });
 });
 

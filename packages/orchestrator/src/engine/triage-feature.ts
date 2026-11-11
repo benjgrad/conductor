@@ -1,7 +1,7 @@
 import { DAEMON_FEATURE_TRIAGE, type JsonObject } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 
-// ADR-0041: a triage session runs with the `triage` tool alias (read-only git and `gh`). A daemon
+// ADR-0043: a triage session runs with the `triage` tool alias (read-only git and `gh`). A daemon
 // older than the alias would refuse the start as an unknown alias, so a machine that doesn't
 // advertise DAEMON_FEATURE_TRIAGE gets `review` instead (read-only git, no `gh`). Both are
 // edit-free, so this only narrows what the triage can read. TD row: "triage degrades to review".

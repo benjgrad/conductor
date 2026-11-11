@@ -758,7 +758,7 @@ export const HoldEndCauseSchema = z.enum(['concurrency_released', 'timeout', 'le
 export type HoldEndCause = z.infer<typeof HoldEndCauseSchema>;
 
 /**
- * ADR-0041: what a triage verdict's `state_entered` records about the failure it judged: why the
+ * ADR-0043: what a triage verdict's `state_entered` records about the failure it judged: why the
  * gate failed (`failure_cause`) and which transition (`gate_transition`). Metrics break triage
  * verdicts down by it (FR-5).
  */
@@ -922,7 +922,7 @@ export const EffectSchema = z.discriminatedUnion('type', [
     actor: MoveActorSchema.nullable().optional(),
     /** ADR-0037 P7: why the session entered `to`. Always set. */
     cause: MoveCauseSchema,
-    /** ADR-0041: a triage verdict's move: the failure it judged (its cause and transition). */
+    /** ADR-0043: a triage verdict's move: the failure it judged (its cause and transition). */
     triage: TriageMoveSchema.optional(),
     /**
      * The transition that led here has `notify: true` (its name): the wrapper writes a
@@ -1191,7 +1191,7 @@ export const StateEnteredPayloadSchema = z.object({
   cause: MoveCauseSchema.nullable().optional(),
   /** ADR-0037 P6: the notify decision (`notify_decision`); absent in legacy mode. */
   notify: NotifyDecisionSchema.nullable().optional(),
-  /** ADR-0041: on a triage verdict's move, the failure it judged; absent elsewhere. */
+  /** ADR-0043: on a triage verdict's move, the failure it judged; absent elsewhere. */
   triage: TriageMoveSchema.nullable().optional(),
 });
 export type StateEnteredPayload = z.infer<typeof StateEnteredPayloadSchema>;

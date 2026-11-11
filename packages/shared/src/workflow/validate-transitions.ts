@@ -40,7 +40,7 @@ export function checkTransitions(
     has(name) ? def.states[name] : undefined;
   const isHuman = (name: string) => stateOf(name)?.type === 'human';
   const mergeAware = isMergeAware(def);
-  // ADR-0041: rule 29 owns `$return_to` / `$gate` on a triage state and its legs.
+  // ADR-0043: rule 29 owns `$return_to` / `$gate` on a triage state and its legs.
   const legs = triageLegs(def);
 
   for (const [from, state] of Object.entries(def.states)) {
@@ -154,7 +154,7 @@ function checkQuestion(
 /**
  * Rule 12, every agent state can ask a human: it declares `ask_user` into a human state (the
  * built-in fallback, U-061), or at least one agent-actor `question: true` transition. A triage
- * state (ADR-0041) asks through its escalate verdict instead, which rule 29 requires.
+ * state (ADR-0043) asks through its escalate verdict instead, which rule 29 requires.
  */
 function checkCanAsk(
   errors: WorkflowValidationError[],
@@ -164,7 +164,7 @@ function checkCanAsk(
   on: NonNullable<Exclude<WorkflowState, { type: 'terminal' }>['on']>,
   isHuman: (name: string) => boolean,
 ): void {
-  // ADR-0041: a triage state asks through its escalate verdict (rule 29 requires one).
+  // ADR-0043: a triage state asks through its escalate verdict (rule 29 requires one).
   if (isTriageState(state)) return;
   const askUser = on.ask_user;
   if (askUser !== undefined && isHuman(transitionGoto(askUser))) return;

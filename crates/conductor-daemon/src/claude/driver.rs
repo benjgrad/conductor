@@ -83,6 +83,11 @@ pub struct DriverStartOptions {
     /// a working agent runs with `--permission-mode bypassPermissions` instead of auto. Ignored for
     /// a reviewer (it keeps dontAsk).
     pub skip_permissions: bool,
+    /// R7 (`forces_dont_ask`): the state's tools add `bash_readonly` and no write alias, so the
+    /// agent runs in `--permission-mode dontAsk` with no prompts, like a reviewer, and its shell
+    /// stays read-only. Skip permissions is ignored. Unlike `review`, it keeps its MCP servers,
+    /// attachments and conversation.
+    pub dont_ask: bool,
 }
 
 impl DriverStartOptions {
@@ -113,6 +118,7 @@ impl DriverStartOptions {
             attach: None,
             publish_pages: false,
             skip_permissions: false,
+            dont_ask: false,
         }
     }
 }

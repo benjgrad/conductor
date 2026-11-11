@@ -13,7 +13,7 @@ import { renderPrompt } from './render.js';
 import { promptTransitions, ticketKind } from './transitions.js';
 import type { Effect, GateStep, SessionSnapshot } from './types.js';
 
-// ADR-0041: the triage role. Pure helpers; apply.ts routes to them only for a `role: 'triage'`
+// ADR-0043: the triage role. Pure helpers; apply.ts routes to them only for a `role: 'triage'`
 // state (or a leg of one), so a definition without one never reaches this file.
 
 /** Session context key of the triage bookkeeping (TriageContext); in RESERVED_CONTEXT_KEYS. */

@@ -6,7 +6,7 @@ import { WorkflowDefinitionSchema } from './schema.js';
 import { validateWorkflow } from './validate.js';
 import { triageLegs, triagePseudoEdges, triageSources } from './validate-triage.js';
 
-// ADR-0041 rule 29 (the triage role), the relaxed "else is a human or triage state" of rules 8,
+// ADR-0043 rule 29 (the triage role), the relaxed "else is a human or triage state" of rules 8,
 // 9, 13 and 19, and rule 4 on the edges `$return_to` / `$gate` stand for.
 
 type Raw = { states: Record<string, any> } & Record<string, any>;

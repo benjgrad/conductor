@@ -228,11 +228,11 @@ export const ENGINE_CAUSES: readonly MoveCause[] = MOVE_CAUSES.filter(
 export const RETURN_TO = '$return_to';
 
 /**
- * ADR-0041: the `goto` of a triage transition that retries the move that failed (the gate step
+ * ADR-0043: the `goto` of a triage transition that retries the move that failed (the gate step
  * remembered in `context.__triage`). Only on a triage state's transitions and its legs (rule 29).
  */
 export const GATE = '$gate';
-/** ADR-0041: the pseudo-targets a triage state and its legs may name (rule 29). */
+/** ADR-0043: the pseudo-targets a triage state and its legs may name (rule 29). */
 export const TRIAGE_TARGETS: readonly string[] = [RETURN_TO, GATE];
 
 /**
@@ -395,6 +395,7 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * - `handoff` (P8, T3, available): `handoff: true`.
  * - `bases` (ADR-0039, B1 → B2): `bases`, `base_default`, `$base` / `$base_sha` substitution, and a
  *   ticket's or planning result's `base`.
+ * - `answerer` (ADR-0040, R5a-2): the workflow `answerer` block.
  */
 export const WORKFLOW_FEATURES = [
   'watch',
@@ -404,6 +405,7 @@ export const WORKFLOW_FEATURES = [
   'notify_policy',
   'handoff',
   'bases',
+  'answerer',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
 export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [
@@ -562,6 +564,42 @@ export const NotifyPolicySchema = z.strictObject({
   coalesce: DurationSchema.optional(),
 });
 export type NotifyPolicy = z.infer<typeof NotifyPolicySchema>;
+
+/**
+ * ADR-0040: question transitions conductor never answers itself, whatever `answerer.applies_to`
+ * says: each needs a human's authority (a plan that reverses an ADR or spends money, a message to
+ * a person) or ends the work (rule 28).
+ */
+export const NEVER_AUTO_ANSWERED = [
+  'plan_needs_approval',
+  'needs_approval_to_message',
+  'impossible',
+] as const;
+/** ADR-0040: `answerer.timeout` when omitted. */
+export const DEFAULT_ANSWERER_TIMEOUT = '10m';
+/** ADR-0040: the shortest `answerer.timeout` (rule 28). */
+export const MIN_ANSWERER_TIMEOUT = '1m';
+/** ADR-0040: the longest `answerer.timeout` (rule 28). */
+export const MAX_ANSWERER_TIMEOUT = '30m';
+
+/**
+ * ADR-0040: before an agent's question on one of `applies_to` reaches a human, a fresh read-only
+ * conductor agent tries to answer it from cited sources. It delivers its answer only with a
+ * confidence of at least `min_confidence` and at least one citation; otherwise (or on timeout or
+ * failure) the question opens as today, with its notes. Refused "not available yet" (rule 14,
+ * feature `answerer`) until the engine ticket lands.
+ */
+export const AnswererSchema = z.strictObject({
+  /** Question transition names (`ask_user`, or a `question: true` transition): rule 28. */
+  applies_to: z.array(z.string().min(1)).min(1).max(10),
+  /** The answerer's model; absent = the machine's default (as `review.model`). */
+  model: z.string().min(1).optional(),
+  /** The lowest confidence that is delivered without asking a human. */
+  min_confidence: z.enum(['medium', 'high']).default('high'),
+  /** How long the answerer may run before the question goes to a human (1m–30m, rule 28). */
+  timeout: DurationSchema.optional(),
+});
+export type Answerer = z.infer<typeof AnswererSchema>;
 
 /** ADR-0037 P6: the `via` of a watch's `notify: escalate` (T6): it always pushes. */
 export const NOTIFY_VIA_WATCH_ESCALATE = 'watch_escalate';
@@ -733,7 +771,7 @@ export const AgentStateSchema = z
     /**
      * ADR-0020 §2: `qa` runs the state as an independent QA session (fresh conversation every
      * visit, fenced, forced dontAsk, its Claude id in `context.__qa`, never the session's).
-     * ADR-0041: `triage` runs it as a fresh, read-only triage of a failed gate (the `triage` tool
+     * ADR-0043: `triage` runs it as a fresh, read-only triage of a failed gate (the `triage` tool
      * alias, its Claude id in `context.__triage`); it may be an `on_unmet` / `else` target, and
      * its transitions may name `$return_to` and `$gate` (rule 29).
      */
@@ -831,7 +869,7 @@ export type WorkflowState = z.infer<typeof StateSchema>;
 export type StateType = WorkflowState['type'];
 export type AgentState = z.infer<typeof AgentStateSchema>;
 
-/** ADR-0041: a `role: 'triage'` agent state. */
+/** ADR-0043: a `role: 'triage'` agent state. */
 export function isTriageState(
   state: WorkflowState | undefined,
 ): state is AgentState & { role: 'triage' } {
@@ -840,7 +878,7 @@ export function isTriageState(
 
 /**
  * Where a failure leg (`on_unmet.else`, an entry's, a watch's `on_broken.else`) may go: a human
- * state, or (ADR-0041) a triage state, whose own verdicts are counted and end at a human (rule 29).
+ * state, or (ADR-0043) a triage state, whose own verdicts are counted and end at a human (rule 29).
  */
 export function isFailureTarget(state: WorkflowState | undefined): boolean {
   return state?.type === 'human' || isTriageState(state);
@@ -1003,6 +1041,8 @@ export const WorkflowDefinitionSchema = z.strictObject({
   instructions: z.record(InstructionSlugSchema, InstructionTextSchema).optional(),
   /** ADR-0037 P6: the notification policy; absent = legacy mode. */
   notify: NotifyPolicySchema.optional(),
+  /** ADR-0040: conductor tries to answer listed questions before a human is asked. */
+  answerer: AnswererSchema.optional(),
   /**
    * ADR-0039: named places a ticket's branch can start from (and its PR go to). Refused "not
    * available yet" (rule 14, feature `bases`) until B2.

@@ -12,7 +12,7 @@ import {
 import { InventoryRepoSchema, isCanonicalRemote } from '../machines/inventory.js';
 import { LatestDaemonSchema } from '../machines/update.js';
 import { matchingPaths } from '../workflow/screenshots.js';
-import { resolveToolPolicy, UnknownToolAliasError } from '../workflow/tools.js';
+import { forcesDontAsk, resolveToolPolicy, UnknownToolAliasError } from '../workflow/tools.js';
 import {
   ClosePrArgsSchema,
   ClosePrResultSchema,
@@ -59,6 +59,7 @@ describe('shared vectors (also run by conductor-protocol)', () => {
         'capabilityKeys',
         'cliVersionAtLeast',
         'daemonAuthHeaderValue',
+        'forcesDontAsk',
         'isCanonicalRemote',
         'jsonByteLength',
         'matchingPaths',
@@ -113,6 +114,12 @@ describe('shared vectors (also run by conductor-protocol)', () => {
       expect(matchingPaths(c.input.paths, c.input.globs), JSON.stringify(c.input)).toEqual(
         c.expected,
       );
+    }
+  });
+
+  it('forcesDontAsk', () => {
+    for (const c of vector<string[], boolean>('forcesDontAsk')) {
+      expect(forcesDontAsk(c.input), JSON.stringify(c.input)).toBe(c.expected);
     }
   });
 

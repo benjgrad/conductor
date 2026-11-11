@@ -753,6 +753,8 @@ export const M2_WS_FIXTURES: {
     payload: {
       ...ORCHESTRATOR_FIXTURES.start_session.payload,
       working_copy: { repo_path: INVENTORY_REPO_FIXTURE.path, mode: 'reference' },
+      // R2: the repo override's setup for the agent's worktree.
+      worktree_setup: 'pnpm install --frozen-lockfile',
     },
   },
   inventory_empty: {

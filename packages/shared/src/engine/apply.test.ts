@@ -670,11 +670,13 @@ describe('spend, budget, cancel, terminal', () => {
 
   it('budget.exceeded → on_budget_exceeded (budget_exceeded kind, return_to)', () => {
     const h = runningImplement();
+    h.run({ type: 'spend.reported', claude_session_id: CLAUDE, total_usd: 2.1 });
     const r = h.run({ type: 'budget.exceeded', dimension: 'usd', spent: 2.1, limit: 2 });
     expect(r.snapshot).toMatchObject({ workflow_state: 'needs_input', return_to: 'implement' });
     expect(find(r.effects, 'create_input_request')).toMatchObject({ kind: 'budget_exceeded' });
+    // Parked in a human state: nothing is spending, so a second trip is stale.
     expect(h.run({ type: 'budget.exceeded', dimension: 'usd', spent: 3, limit: 2 }).ignored).toBe(
-      'wrong_status',
+      'within_budget',
     );
   });
 

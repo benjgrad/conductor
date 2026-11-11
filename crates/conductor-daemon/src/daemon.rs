@@ -1632,7 +1632,6 @@ impl Core {
         let mut env: BTreeMap<String, String> = p.env.clone();
         env.extend(port_env(range));
         env.extend(self.git_env());
-        // TD-022: max_budget_usd is not passed (U-018).
         let mut opts = DriverStartOptions::new(
             worktree.clone(),
             p.prompt.clone(),
@@ -1646,6 +1645,11 @@ impl Core {
         opts.max_turns = p
             .max_turns
             .map(|n| u32::try_from(n.get()).unwrap_or(u32::MAX));
+        // 09 §Budgets: the session's remaining budget, the CLI's own hard stop. U-018: the CLI
+        // caps what this process spends (not the cumulative total a resume reports), so the
+        // remaining budget is right for a resume too. 0 would stop at once: the engine routes an
+        // over-budget session to a human before starting it, so omit it rather than pass 0.
+        opts.max_budget_usd = p.max_budget_usd.filter(|v| *v > 0.0);
         // ADR-0009: a reviewer runs in dontAsk (the driver forces the mode).
         opts.review = review;
         // R7: a read-only-shell state (bash_readonly, no write alias) also runs in dontAsk.

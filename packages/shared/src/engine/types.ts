@@ -302,7 +302,9 @@ export const SessionSnapshotSchema = z.object({
   /**
    * Maintained by apply (10-contracts §Wall time): on every state transition it adds
    * `now - state_entered_at` for the state being left, except `human` and `event` states (parked
-   * time does not count toward `budget.minutes`, 09), then resets `state_entered_at = now`.
+   * time does not count toward `budget.minutes`, 09), then resets `state_entered_at = now`. A
+   * requeue banks the time so far and the re-claim restarts the clock, so queued time never
+   * counts.
    */
   wall_seconds: z.number().nonnegative(),
   /** state name → its `complete_state` result, e.g. `{open_pr: {pr_url}}`. */
@@ -534,8 +536,10 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     holders: z.array(z.object({ session_id: z.string(), ticket_id: z.string() })).max(50),
   }),
   /**
-   * O: budget exceeded → `def.on_budget_exceeded`, kind `budget_exceeded`.
-   * TD-015: routed by apply (T04) but nothing emits it in M1 (no enforcement trigger; 10-contracts).
+   * O: budget exceeded → `def.on_budget_exceeded`, kind `budget_exceeded` (09 §Budgets). The
+   * EngineService emits it after a `spend.reported` that crosses `budget.usd`, and the sweep when
+   * the running wall time reaches `budget.minutes` (`budgetVerdict`). apply re-checks the verdict
+   * on its own snapshot (`within_budget` otherwise); `spent` / `limit` are informational.
    */
   z.object({
     type: z.literal('budget.exceeded'),
@@ -1253,6 +1257,11 @@ export const APPLY_IGNORE_REASONS = [
    * routed to needs_input instead (M2r-T04).
    */
   'pr_open',
+  /**
+   * 09 §Budgets: `budget.exceeded` for a session that is not over its (possibly raised) budget on
+   * apply's own snapshot: a stale trip (the budget was raised, or the session parked meanwhile).
+   */
+  'within_budget',
 ] as const;
 export const ApplyIgnoreReasonSchema = z.enum(APPLY_IGNORE_REASONS);
 export type ApplyIgnoreReason = z.infer<typeof ApplyIgnoreReasonSchema>;

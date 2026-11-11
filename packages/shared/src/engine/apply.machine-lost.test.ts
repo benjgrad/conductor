@@ -517,6 +517,7 @@ describe('terminal sessions keep no pin (QA item 2)', () => {
 
   it('a pinned session parked again by the budget, then cancelled: the mark is stripped', () => {
     const h = continued(); // queued in `implement` with the mark (m1_basic)
+    run(h, { type: 'spend.reported', claude_session_id: 'c-over', total_usd: 3 });
     const r = run(h, { type: 'budget.exceeded', dimension: 'usd', spent: 3, limit: 2 });
     expect(r.snapshot.status).toBe('needs_input');
     // routed to a human by the budget: still pinned until it finishes

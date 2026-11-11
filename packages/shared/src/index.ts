@@ -44,6 +44,7 @@ export { applyRepoChecks, moveSpecOf, PIN_CHECK, type GateSpec } from './engine/
 export * from './engine/concurrency.js';
 export * from './engine/recorded.js';
 export * from './engine/simulate.js';
+export * from './engine/parallel.js';
 export * from './engine/spend.js';
 export * from './engine/qa.types.js';
 export * from './engine/fixtures.js';

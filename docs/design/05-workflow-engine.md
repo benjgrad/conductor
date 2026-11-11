@@ -54,7 +54,12 @@ Each key of `on` is a **transition name**; the value is a state name (shorthand 
       { "type": "jira_fields_set", "fields": ["resolution"], "enabled": false }    // M5, 1..20 fields
     ],
     "condition_timeout": "3d",         // → on_unmet.else when conditions stay pending (U-063)
-    "condition_poll": "2m"             // first poll interval, default 2m (DEFAULT_CONDITION_POLL), backoff to 15m
+    "condition_poll": "2m",            // first poll interval, default 2m (DEFAULT_CONDITION_POLL), backoff to 15m
+    "parallel": [                      // ADR-0042: 2..4 lanes at once, 1..5 legs each in order; refused by rule 14 until P1/P2
+      [{ "type": "checks" }],          // runs requires.checks (repo override applies)
+      [{ "type": "review" }],          // runs requires.review
+      [{ "type": "cmd", "name": "Windows tests", "cmd": "pnpm test", "needs": ["os:windows"] }]
+    ]
   },
   "on_unmet": { "goto": "implementing", "instruction": "…", "retries": 3, "else": "needs_input" }
 }
@@ -111,6 +116,7 @@ How `apply()` takes a named transition. Code: `shared/src/engine/transitions.ts`
   - `update_jira` / `slack_message` (refused by the validator until M5) go straight to `else`;
   - first, with `requires.concurrency`, the **held phase** ([§Self-healing primitives](#self-healing-primitives-adr-0037-proposed), P4);
   - then the **conditions phase**: [§Conditions](#conditions-adr-0011-m1b-t08).
+  - **Parallel legs** ([ADR-0042](../adr/0042-parallel-legs-in-a-move-step.md); parses, refused by rule 14, feature `parallel`, until P1/P2 run it). With `requires.parallel` the order is held → pin (`PIN_CHECK` binds `head_sha`; with a `cmd` leg the pin pushes `refs/conductor/<session>`) → **parallel** → actions → conditions, and the `checks` / `review` the legs name don't also run as sequential phases. Lanes run at once, a lane's legs in order. Join: every leg must pass; the first failure decides `unmet` (counted, `on_unmet.goto`), kills every running leg on its own machine, and pending legs never start. Each leg is fenced by its own `attempt` (results for another attempt, a finished leg, or after the verdict are ignored). Routing: `checks` and `review` on the session's machine; a `cmd` leg on any eligible machine of the account with the repo and every `needs` key (`os:<platform>` = `machine.os`), never added to the ticket's required capabilities. A lost leg machine re-sends the leg once; a second loss or `leg_timeout` (default 30m) decides `infra` (`on_unmet.else`, not counted). The pure join is `shared/src/engine/parallel.ts` (`startParallel`, `onLegResult`, `onLegLost`, `onLegTimeout`, `parallelFeedback`), with a bounded property test.
   
   Passed → the target is entered with the move record; a `question: true` target opens the agent's question; a human move's text reaches an agent target as an answer. Human moves run requirements too; the routes to a human (fallbacks, budget, `on_unmet`) never do.
 - **Repo check overrides** (ADR-0030) <a id="repo-check-overrides-adr-0030"></a>: a ticket whose repo has a `repo_checks` row runs that row's checks and `setup` instead of the definition's at every gate step (entry or move) that has at least one declared check (`applyRepoChecks`); the pin check, condition-only and review-only steps are unchanged. The EngineService reads the row with the session (`SessionSnapshot.repo_checks`), and `enterStep` pins it on the step (`GateStep.repo_checks`), so an edit mid-step can't shift `index`; the next attempt reads it again. The board's checklist shows the pinned checks' names. A repo check may carry `paths` like a workflow check ([§Diff-aware checks](#diff-aware-checks-r3)).
@@ -382,6 +388,8 @@ Rule 28 is [ADR-0040](../adr/0040-answerer-pass.md#9--validation-on-save-rule-28
 - `timeout` is 1m–30m (`answerer.timeout`).
 
 The answerer adds no edges, so rules 2–5 read the graph as before.
+
+Rule 29 is [ADR-0042](../adr/0042-parallel-legs-in-a-move-step.md#validation-rule-29-and-rollout-rule-14)'s (parallel legs), in `validate-parallel.ts` (`checkParallel`): a `checks` leg needs `requires.checks` and a `review` leg `requires.review`, each at most once across the lanes (`….requires.parallel.<lane>.<leg>`); a declared `requires.checks` / `requires.review` is run by a leg (`….requires.parallel`); `cmd` leg names are unique and differ from the check names, and a `cmd` isn't blank. Rule 13 counts `cmd` legs as requirements, rule 27 covers `$base` in a leg's `cmd`, and rule 14 refuses `requires.parallel` until P1/P2.
 
 **Warnings.** `validateWorkflow` also returns `warnings` (same shape as errors, present only when non-empty), which never block a save. Today there is one: a `cmd` base without `pr_into` (`bases.<name>.pr_into`, numbered 26), because B2 refuses a sha result it can't open a PR from. The save routes don't return warnings yet (B3).
 

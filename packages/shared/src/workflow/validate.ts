@@ -30,6 +30,7 @@ import {
 } from './validate-primitives.js';
 import { basesWarnings, checkBases, checkBasesAvailability } from './validate-bases.js';
 import { checkAnswerer, checkAnswererAvailability } from './validate-answerer.js';
+import { checkParallel } from './validate-parallel.js';
 
 // Workflow validation on save (M1-T03, 05 §Validation on save). The schema (T12) checks shape;
 // this adds the graph rules. Consumers: T08 (save/list → 400 with `errors`).
@@ -50,6 +51,7 @@ import { checkAnswerer, checkAnswererAvailability } from './validate-answerer.js
  * primitives P1–P8) are in `validate-primitives.ts`, with rule 14's "not available yet" refusals.
  * Rules 26–27 (ADR-0039, base refs) are in `validate-bases.ts`. Rule 28 (ADR-0040, the
  * answerer) is in `validate-answerer.ts`.
+ * Rule 29 (ADR-0042, parallel legs) is in `validate-parallel.ts`.
  */
 export type WorkflowRule =
   | 1
@@ -79,7 +81,8 @@ export type WorkflowRule =
   | 25
   | 26
   | 27
-  | 28;
+  | 28
+  | 29;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -195,7 +198,7 @@ export function checkAvailability(
   return errors;
 }
 
-/** Parse a workflow definition and check rules 1–17 and 19–28. Never throws. */
+/** Parse a workflow definition and check rules 1–17 and 19–29. Never throws. */
 export function validateWorkflow(
   input: unknown,
   opts: ValidateOptions = {},
@@ -269,6 +272,7 @@ export function validateWorkflow(
   errors.push(...checkPrimitives(def, has));
   errors.push(...checkBases(def));
   errors.push(...checkAnswerer(def));
+  errors.push(...checkParallel(def));
 
   // Graph rules 2–5 only on a graph whose start and targets all exist, so a missing target
   // reports once (rule 1) instead of cascading into unreachable/dead-end noise.

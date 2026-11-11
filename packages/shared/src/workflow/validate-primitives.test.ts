@@ -416,6 +416,14 @@ describe('rule 14: not available yet', () => {
     );
   });
 
+  it('R7: planning with the bash_readonly tool validates without allowUnavailable', () => {
+    const d = structuredClone(LIVE_V5);
+    d.states.planning!.tools = ['read', 'bash_readonly'];
+    const res = validateWorkflow(d);
+    expect(res.ok ? [] : res.errors).toEqual([]);
+    expect(AVAILABLE_TOOL_ALIASES).toContain('bash_readonly');
+  });
+
   it('v5 with pr_mergeable, a cmd and a no_checks policy validates without allowUnavailable', () => {
     const d = structuredClone(LIVE_V5);
     const conds = tr(d, 'implementing', 'pr_ready_for_review').requires.conditions;

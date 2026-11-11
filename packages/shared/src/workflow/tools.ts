@@ -90,6 +90,52 @@ const QA_TEST_EXACT = ['pnpm typecheck', 'pnpm lint'];
  */
 export const BACKGROUND_TOOLS: readonly string[] = ['TaskStop', 'BashOutput', 'KillShell'];
 
+/**
+ * R7 (`bash_readonly`): the read-only inspection commands, as prefix rules (`Bash(<c>:*)`), so the
+ * planner can run `git log -- <path>`, `git show <sha>`, `rg <pattern>`, `gh run view <id>`.
+ */
+export const READONLY_SHELL_PREFIXES: readonly string[] = [
+  'git log',
+  'git show',
+  'git diff',
+  'git grep',
+  'git blame',
+  'git ls-files',
+  'gh pr view',
+  'gh pr checks',
+  'gh run view',
+  'gh run list',
+  'rg',
+  'ls',
+  'cat',
+];
+
+/** R7: exact read-only commands (`Bash(<c>)`). */
+export const READONLY_SHELL_EXACT: readonly string[] = ['git status', 'git branch --show-current'];
+
+/**
+ * R7: flags of the prefix commands above that write a file or run a program: `--output=<file>`
+ * (TD-082), `git grep -O<pager>`, `rg --pre <cmd>`, and `gh --web` (opens a browser). The
+ * `:*` prefix forms match the flag as the first argument followed by a space; the mid-command `*` forms rely on Claude Code's wildcard
+ * support, and a CLI that treats `*` literally simply never matches them (harmless). TD-221.
+ */
+export const READONLY_SHELL_DENY: readonly string[] = [
+  'Bash(git log --output:*)',
+  'Bash(git show --output:*)',
+  'Bash(git diff --output:*)',
+  'Bash(git grep -O:*)',
+  'Bash(git grep --open-files-in-pager:*)',
+  'Bash(rg --pre:*)',
+  // Glued values (`--output=/tmp/x`, `-Osh`, `--pre=sh`) and later positions need `*` globs.
+  'Bash(git * --output*)',
+  'Bash(git grep -O*)',
+  'Bash(git grep * -O*)',
+  'Bash(git grep * --open-files-in-pager*)',
+  'Bash(rg --pre*)',
+  'Bash(rg * --pre*)',
+  'Bash(gh * --web*)',
+];
+
 export const TOOL_ALIASES = {
   /** Read only (the base policy). */
   read: { builtin: [], allow: [], deny: [] },
@@ -175,6 +221,21 @@ export const TOOL_ALIASES = {
     deny: ['Edit', 'Write', 'Bash(git add:*)', 'Bash(git commit:*)', 'Bash(gh:*)'],
   },
   /**
+   * R7: a read-only shell for inspecting history and CI (git log/show/diff/grep/blame/ls-files,
+   * gh pr view/checks, gh run view/list, rg, ls, cat). With no write alias beside it
+   * (`forcesDontAsk`) the daemon runs the session in dontAsk: anything else is denied, never
+   * prompted. TD-221: prefix rules, so it relies on READONLY_SHELL_DENY; not a sandbox (U-004).
+   */
+  bash_readonly: {
+    builtin: ['Bash', ...BACKGROUND_TOOLS],
+    allow: [
+      ...BACKGROUND_TOOLS,
+      ...READONLY_SHELL_EXACT.map((c) => `Bash(${c})`),
+      ...READONLY_SHELL_PREFIXES.map((c) => `Bash(${c}:*)`),
+    ],
+    deny: [...READONLY_SHELL_DENY],
+  },
+  /**
    * The PR skill (pr_flow `open_pr`, M3). `gh pr create` can push the branch, so agents only get
    * the Skill tool and `gh pr view`; pushing and creating the PR belong to a trusted command or
    * connector state (TD-020).
@@ -228,4 +289,20 @@ export function resolveToolPolicy(tools: readonly string[]): {
     allow: uniq(frags.flatMap((f) => f.allow)).filter((r) => !deny.includes(r)),
     deny,
   };
+}
+
+/** R7: the aliases that let an agent change files or the repo (`forcesDontAsk`). */
+export const WRITE_TOOL_ALIASES: readonly ToolAlias[] = ['edit', 'bash', 'git', 'pr_skill', 'qa'];
+
+/**
+ * R7: whether a state's `tools` make its session run in dontAsk (`--permission-prompts none`):
+ * `bash_readonly` with no write alias, so its shell stays read-only (anything outside the
+ * allow-list is denied, never prompted). Beside a write alias it is only pre-approvals. The
+ * daemon decides from `start_session.tools` (`forces_dont_ask`, vectors/forcesDontAsk.json).
+ */
+export function forcesDontAsk(tools: readonly string[]): boolean {
+  return (
+    tools.includes('bash_readonly') &&
+    !tools.some((t) => (WRITE_TOOL_ALIASES as readonly string[]).includes(t))
+  );
 }

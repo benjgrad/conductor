@@ -1160,6 +1160,11 @@ fn agent_env_passes_only_allowlisted_state_keys_and_pins_connectors_and_safe_mod
     assert_eq!(get(&env, "BASH_MAX_TIMEOUT_MS").as_deref(), Some("1800000"));
     // ADR-0023: the MCP tool timeout outlasts a held prompt (30 min + 5).
     assert_eq!(get(&env, "MCP_TOOL_TIMEOUT").as_deref(), Some("2100000"));
+    // R2 (FR-4): corepack never waits on its download prompt.
+    assert_eq!(
+        get(&env, "COREPACK_ENABLE_DOWNLOAD_PROMPT").as_deref(),
+        Some("0")
+    );
     dropped.sort();
     assert_eq!(
         dropped,
@@ -1948,4 +1953,39 @@ async fn background_tasks_changed_from_the_cli_becomes_a_background_tasks_event(
     assert_eq!(counts, [1, 0]);
     s.end();
     t.exit().await;
+}
+
+/// R7: a read-only-shell state (`bash_readonly`, no write alias) runs in dontAsk with no prompts,
+/// like a reviewer, even with skip permissions on; unlike a reviewer it keeps the user's MCP
+/// servers. Its deny rules (`--output`, `git push`) go to `--disallowedTools`.
+#[test]
+fn read_only_shell_runs_in_dont_ask_and_keeps_mcp() {
+    let mut o = base_opts();
+    o.tools = resolve_tool_policy(&["read", "bash_readonly"]).unwrap();
+    o.mcp = Some(serde_json::from_value(json!({ "mode": "inherit" })).unwrap());
+    o.dont_ask = true;
+    for skip in [false, true] {
+        o.skip_permissions = skip;
+        let args = build_claude_args(&o, "{}", "s.json", &PermissionArgs::Host);
+        assert_eq!(
+            flag_of(&args, "--permission-mode"),
+            Some("dontAsk"),
+            "skip={skip}"
+        );
+        assert_eq!(flag_of(&args, "--permission-prompts"), Some("none"));
+        assert!(!args.iter().any(|a| a == "--permission-prompt-tool"));
+        assert!(!args.iter().any(|a| a == "--strict-mcp-config"));
+        let allowed = flag_of(&args, "--allowedTools").unwrap_or("");
+        assert!(allowed.split(',').any(|r| r == "Bash(git log:*)"));
+        assert!(allowed.split(',').any(|r| r == "Bash(gh pr checks:*)"));
+        let deny = flag_of(&args, "--disallowedTools").unwrap_or("");
+        assert!(deny.split(',').any(|r| r == "Bash(git push:*)"));
+        assert!(deny.split(',').any(|r| r == "Bash(git log --output:*)"));
+    }
+    // Without the flag: a worker in auto mode, as before.
+    o.dont_ask = false;
+    o.skip_permissions = false;
+    let args = build_claude_args(&o, "{}", "s.json", &PermissionArgs::Host);
+    assert_eq!(flag_of(&args, "--permission-mode"), Some("auto"));
+    assert_eq!(flag_of(&args, "--permission-prompts"), Some("host"));
 }

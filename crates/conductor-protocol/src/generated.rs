@@ -5617,6 +5617,13 @@ pub struct StartSessionPayload {
     pub workflow_state: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub working_copy: ::std::option::Option<WorkingCopy>,
+    #[serde(
+        default,
+        skip_serializing_if = "::std::option::Option::is_none",
+        with = "crate::wire::double_option"
+    )]
+    pub worktree_setup:
+        ::std::option::Option<::std::option::Option<StartSessionPayloadWorktreeSetup>>,
 }
 ///`StartSessionPayloadAttachmentsItem`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
@@ -5953,6 +5960,56 @@ impl ::std::convert::TryFrom<::std::string::String> for StartSessionPayloadMcpMo
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`StartSessionPayloadWorktreeSetup`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StartSessionPayloadWorktreeSetup(::std::string::String);
+impl ::std::ops::Deref for StartSessionPayloadWorktreeSetup {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StartSessionPayloadWorktreeSetup> for ::std::string::String {
+    fn from(value: StartSessionPayloadWorktreeSetup) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StartSessionPayloadWorktreeSetup {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2000usize {
+            return Err("longer than 2000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for StartSessionPayloadWorktreeSetup {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StartSessionPayloadWorktreeSetup {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StartSessionPayloadWorktreeSetup {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`StartedEventData`
@@ -6524,6 +6581,47 @@ pub const TOOL_ALIASES: &[(&str, ToolPolicyFragment)] = &[
                 "Bash(chmod +x:*)",
             ],
             deny: &[],
+        },
+    ),
+    (
+        "bash_readonly",
+        ToolPolicyFragment {
+            builtin: &["Bash", "TaskStop", "BashOutput", "KillShell"],
+            allow: &[
+                "TaskStop",
+                "BashOutput",
+                "KillShell",
+                "Bash(git status)",
+                "Bash(git branch --show-current)",
+                "Bash(git log:*)",
+                "Bash(git show:*)",
+                "Bash(git diff:*)",
+                "Bash(git grep:*)",
+                "Bash(git blame:*)",
+                "Bash(git ls-files:*)",
+                "Bash(gh pr view:*)",
+                "Bash(gh pr checks:*)",
+                "Bash(gh run view:*)",
+                "Bash(gh run list:*)",
+                "Bash(rg:*)",
+                "Bash(ls:*)",
+                "Bash(cat:*)",
+            ],
+            deny: &[
+                "Bash(git log --output:*)",
+                "Bash(git show --output:*)",
+                "Bash(git diff --output:*)",
+                "Bash(git grep -O:*)",
+                "Bash(git grep --open-files-in-pager:*)",
+                "Bash(rg --pre:*)",
+                "Bash(git * --output*)",
+                "Bash(git grep -O*)",
+                "Bash(git grep * -O*)",
+                "Bash(git grep * --open-files-in-pager*)",
+                "Bash(rg --pre*)",
+                "Bash(rg * --pre*)",
+                "Bash(gh * --web*)",
+            ],
         },
     ),
     (

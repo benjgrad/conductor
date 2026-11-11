@@ -7,6 +7,8 @@ import {
   GROUPS_MAX,
   inputStats,
   loopCounts,
+  machineHealth,
+  machineHealthFindings,
   median,
   percentile,
   permissionStats,
@@ -791,5 +793,132 @@ describe('queued: concurrency holds (ADR-0037 P4, T7)', () => {
     expect(
       out.find((sp) => sp.session_id === 's-b' && sp.state === 'implementing.pr_ready')!.minutes,
     ).toBe(190);
+  });
+});
+
+describe('machine_health (R13)', () => {
+  /** `n` sessions on `machine`, each one stay of `mins`, with `stops` stops spread over them. */
+  function machineRows(
+    machine: string,
+    n: number,
+    o: { stops?: number; checks?: [runs: number, fails: number]; mins?: number } = {},
+  ): AdvisorRows {
+    const tickets = Array.from({ length: n }, (_, i) => `${machine}-t${i}`);
+    const moves = tickets.flatMap((t) =>
+      walk(
+        t,
+        [
+          ['implementing', 0],
+          ['done', o.mins ?? 10],
+        ],
+        { machine_id: machine },
+      ),
+    );
+    const inputs: InputRow[] = Array.from({ length: o.stops ?? 0 }, (_, i) => ({
+      ...question(tickets[i % n]!, 'implementing', null),
+      machine_id: machine,
+      kind: 'engine_timeout',
+      class: 'stop',
+    }));
+    const [runs, fails] = o.checks ?? [0, 0];
+    const checks = Array.from({ length: runs }, (_, i) =>
+      check(tickets[i % n]!, 'pnpm test', i < fails ? 1 : 0, { machine_id: machine }),
+    );
+    return { moves, checks, inputs, permissions: [] };
+  }
+  const merge = (...rs: AdvisorRows[]): AdvisorRows => ({
+    moves: rs.flatMap((r) => r.moves),
+    checks: rs.flatMap((r) => r.checks),
+    inputs: rs.flatMap((r) => r.inputs),
+    permissions: [],
+  });
+
+  it('counts sessions, stops and check failures per machine (not the pin check)', () => {
+    const rows = machineRows('m1', 4, { stops: 6, checks: [4, 1] });
+    rows.checks.push(check('m1-t0', 'git rev-parse', 1, { machine_id: 'm1', role: 'pin' }));
+    const [m] = machineHealth(rows);
+    expect(m).toMatchObject({
+      machine_id: 'm1',
+      sessions: 4,
+      tickets: 4,
+      stops: 6,
+      stops_per_session: 1.5,
+      check_runs: 4,
+      check_failures: 1,
+      check_failure_rate: 0.25,
+      p90_minutes: 10,
+    });
+  });
+
+  it('flags the ea6d442e case: 21 stops over 6 sessions and 3 of 3 checks failed', () => {
+    const rows = {
+      ...merge(
+        machineRows('ea6d442e-0000', 6, { stops: 21, checks: [3, 3], mins: 103 }),
+        machineRows('m-good', 10, { stops: 3, checks: [10, 0] }),
+        machineRows('m-ok', 5, { stops: 2, checks: [5, 1] }),
+      ),
+      machines: { 'ea6d442e-0000': 'gradymini' },
+    };
+    const found = rankFindings(rows).filter((f) => f.category === 'machine_health');
+    expect(found).toHaveLength(1);
+    const f = found[0]!;
+    expect(FindingSchema.parse(f)).toEqual(f);
+    expect(f).toMatchObject({
+      id: 'machine_health:ea6d442e-0000',
+      severity: 3,
+      suggested_tool: 'board',
+      title: 'Machine gradymini stops and fails checks more than the others',
+    });
+    expect(f.evidence).toBe(
+      '6 sessions (6 tickets) on gradymini (ea6d442e): 21 stops (3.5 per session, median 0.4), ' +
+        '3 of 3 checks failed (100 %, median 20 %), p90 stay 103 min.',
+    );
+    expect(f.example_ticket_ids[0]).toMatch(/^ea6d442e-0000-t/);
+    expect(JSON.stringify(f).length).toBeLessThan(700);
+  });
+
+  it('stops at 2× the median trip it; the floor keeps a median of 0 from flagging one stop', () => {
+    const base = machineRows('m-a', 4);
+    const twice = merge(
+      base,
+      machineRows('m-b', 4, { stops: 4 }),
+      machineRows('m-c', 4, { stops: 2 }),
+    );
+    // Medians: 0, 0.5, 1 → median 0.5; m-b at 1 = 2×, m-c at 0.5 = the floor but not 2× (1).
+    expect(machineHealthFindings(twice).map((f) => f.id)).toEqual(['machine_health:m-b']);
+    const one = merge(base, machineRows('m-b', 3, { stops: 1 }));
+    expect(machineHealthFindings(one)).toEqual([]);
+  });
+
+  it('a failing check rate trips through its floor when the others pass', () => {
+    const rows = merge(
+      machineRows('m-a', 3, { checks: [3, 0] }),
+      machineRows('m-b', 3, { checks: [3, 3] }),
+      machineRows('m-c', 3, { checks: [3, 0] }),
+    );
+    const [f] = machineHealthFindings(rows);
+    expect(f).toMatchObject({
+      id: 'machine_health:m-b',
+      severity: 3,
+      title: 'Machine m-b fails checks more than the others',
+    });
+    expect(f!.evidence).toContain('3 of 3 checks failed (100 %, median 0 %)');
+  });
+
+  it('needs 3 sessions on the machine and another machine to compare with', () => {
+    const few = merge(machineRows('m-a', 3), machineRows('m-b', 2, { stops: 10 }));
+    expect(machineHealthFindings(few)).toEqual([]);
+    expect(machineHealthFindings(machineRows('m-a', 5, { stops: 10 }))).toEqual([]);
+  });
+
+  it('ranks with the other findings by severity', () => {
+    const rows = merge(
+      machineRows('m-a', 4),
+      machineRows('m-b', 4, { stops: 3 }),
+      machineRows('m-c', 4),
+    );
+    const all = rankFindings(rows);
+    expect(all.map((f) => f.category)).toContain('machine_health');
+    expect(all.find((f) => f.category === 'machine_health')!.severity).toBe(3);
   });
 });

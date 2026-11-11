@@ -335,6 +335,7 @@ const account: ColumnSpec<AccountRow> = {
   id: col('uuid', NN),
   name: col(t, NN),
   created_at: col('timestamptz', NN),
+  analyst_daily_cap: col('int4', NULL),
 };
 const app_user: ColumnSpec<AppUserRow> = {
   id: col('uuid', NN),
@@ -490,6 +491,9 @@ const assistant_job: ColumnSpec<AssistantJobRow> = {
   idempotency_key: col(t, NN),
   created_at: col('timestamptz', NN),
   finished_at: col('timestamptz', NULL),
+  attempt: col('int4', NN),
+  cost_usd: col('numeric', NULL),
+  duration_ms: col('int4', NULL),
 };
 const session_insight: ColumnSpec<SessionInsightRow> = {
   id: col('uuid', NN),

@@ -42,7 +42,8 @@ async function enqueuePush(
   p: {
     kind: PushKind;
     accountId: string;
-    sessionId: string;
+    /** null: a notification no session caused (a failed deploy, R14). */
+    sessionId: string | null;
     payload: PushOutboxPayload;
     idempotencyKey: string;
     now: Date;
@@ -225,6 +226,31 @@ export async function enqueueDefaultTakenPush(
     kind: 'push_transition',
     accountId: p.accountId,
     sessionId: p.sessionId,
+    payload: { ticket_id: p.ticketId, notification: p.notification, delivered: [] },
+    idempotencyKey: p.idempotencyKey,
+    now: p.now,
+  });
+}
+
+/**
+ * R14: a failed deploy of main (deploy/failure-report.ts). No session caused it, so no
+ * `session_id`; keyed per failed attempt (`deploy:<sha>:<n>`), so a re-run of the same report
+ * enqueues nothing. Returns how many rows it wrote.
+ */
+export async function enqueueDeployFailurePush(
+  tx: Queryable,
+  p: {
+    accountId: string;
+    ticketId: string;
+    notification: PushNotification;
+    idempotencyKey: string;
+    now: Date;
+  },
+): Promise<number> {
+  return enqueuePush(tx, {
+    kind: 'push_transition',
+    accountId: p.accountId,
+    sessionId: null,
     payload: { ticket_id: p.ticketId, notification: p.notification, delivered: [] },
     idempotencyKey: p.idempotencyKey,
     now: p.now,

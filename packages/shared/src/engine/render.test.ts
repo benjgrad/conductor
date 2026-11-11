@@ -13,11 +13,15 @@ import {
   IMPLEMENT_SCOPE_NO_PROPOSALS_INSTRUCTION,
   IMPLEMENT_TEMPLATE,
   IMPLEMENT_TESTS_INSTRUCTION,
+  PLAN_ASSUMPTIONS_HEADING,
   PLAN_FILES_INSTRUCTION,
+  PLAN_HEADINGS_INSTRUCTION,
+  PLAN_MECHANISMS_HEADING,
   PLAN_SIZE_INSTRUCTION,
   PLAN_SIZE_NO_PROPOSALS_INSTRUCTION,
   PLAN_TEMPLATE,
   PROPOSALS_HINT,
+  READONLY_SHELL_HEADING,
   renderPrompt,
   TICKET_TEMPLATE,
   WORK_REPOSITORY_HEADING,
@@ -232,6 +236,50 @@ describe('planned files (ADR-0037 P4)', () => {
     const state: AgentState = { type: 'agent', prompt: IMPLEMENT_TEMPLATE, tools: ['edit'] };
     const p = renderPrompt({ stateName: 'implementing', state, snapshot: SNAPSHOT_FIXTURE });
     expect(p).not.toContain(PLAN_FILES_INSTRUCTION);
+  });
+});
+
+describe('plan headings and the read-only shell (R7)', () => {
+  const planning: AgentState = { type: 'agent', prompt: PLAN_TEMPLATE, tools: ['read'] };
+  const render = (state: AgentState, stateName = 'planning') =>
+    renderPrompt({ stateName, state, snapshot: SNAPSHOT_FIXTURE });
+
+  it('the plan template requires Assumptions and Existing mechanisms checked, before ## Files', () => {
+    const p = render(planning);
+    expect(p).toContain(PLAN_HEADINGS_INSTRUCTION);
+    expect(p).toContain(`\`${PLAN_ASSUMPTIONS_HEADING}\``);
+    expect(p).toContain(`\`${PLAN_MECHANISMS_HEADING}\``);
+    expect(PLAN_ASSUMPTIONS_HEADING).toBe('## Assumptions');
+    expect(PLAN_MECHANISMS_HEADING).toBe('## Existing mechanisms checked');
+    expect(PLAN_HEADINGS_INSTRUCTION).toContain('`None.`');
+    expect(p.indexOf(PLAN_HEADINGS_INSTRUCTION)).toBeLessThan(p.indexOf(PLAN_FILES_INSTRUCTION));
+  });
+
+  it('the implement and ticket templates do not ask for them', () => {
+    for (const [name, prompt] of [
+      ['implementing', IMPLEMENT_TEMPLATE],
+      ['implement', TICKET_TEMPLATE],
+    ] as const) {
+      const p = render({ type: 'agent', prompt, tools: ['edit'] }, name);
+      expect(p).not.toContain(PLAN_HEADINGS_INSTRUCTION);
+      expect(p).not.toContain(PLAN_MECHANISMS_HEADING);
+    }
+  });
+
+  it('a bash_readonly state is told what it may run, before how to finish', () => {
+    const p = render({ ...planning, tools: ['read', 'bash_readonly'] });
+    expect(p).toContain(READONLY_SHELL_HEADING);
+    for (const c of [
+      '`git log …`',
+      '`gh pr checks …`',
+      '`gh run view …`',
+      '`rg …`',
+      '`git status`',
+    ])
+      expect(p).toContain(c);
+    expect(p).toContain('denied without a prompt');
+    expect(p.indexOf(READONLY_SHELL_HEADING)).toBeLessThan(p.indexOf('## When you are done'));
+    expect(render(planning)).not.toContain(READONLY_SHELL_HEADING);
   });
 });
 

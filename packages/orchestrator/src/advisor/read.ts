@@ -7,7 +7,14 @@ import {
   type AdvisorGroupBy,
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
-import { getInsight, insightCoverage, insightsEnabled, loadInsights } from './insights.js';
+import {
+  analystSetting,
+  analystUsage,
+  getInsight,
+  insightCoverage,
+  insightsEnabled,
+  loadInsights,
+} from './insights.js';
 import { clampWindow, loadAdvisorRows } from './queries.js';
 
 // ADR-0033, UXR-84: the advisor's reads, shared by the MCP tools (get_process_metrics,
@@ -77,10 +84,12 @@ export async function readFindings(
 export async function readProcessReport(db: Queryable, accountId: string, a: AdvisorReadArgs) {
   const rows = await loadRows(db, accountId, a);
   const f = insightFilter(accountId, a, rows.since);
-  const [insights, coverage, enabled] = await Promise.all([
+  const [insights, coverage, enabled, usage, setting] = await Promise.all([
     loadInsights(db, f),
     insightCoverage(db, f),
     insightsEnabled(db, accountId),
+    analystUsage(db, f),
+    analystSetting(db, accountId),
   ]);
   return {
     window_days: clampWindow(a.window_days),
@@ -94,7 +103,9 @@ export async function readProcessReport(db: Queryable, accountId: string, a: Adv
             'deterministic metrics are available.',
         }),
     ...coverage,
-    ...sampleNote(coverage),
+    ...sampleNote({ ...coverage, ...setting, open: usage.open }),
+    // R13: what the analysts cost, and whether the account samples.
+    analyst: { ...setting, ...usage },
     totals: processMetrics(rows, 'state').totals,
     ...frictionReport(insights),
   };

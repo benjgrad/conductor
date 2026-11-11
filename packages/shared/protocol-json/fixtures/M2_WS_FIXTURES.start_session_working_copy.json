@@ -23,6 +23,7 @@
     "working_copy": {
       "repo_path": "/Users/ben/code/fixture-app",
       "mode": "reference"
-    }
+    },
+    "worktree_setup": "pnpm install --frozen-lockfile"
   }
 }

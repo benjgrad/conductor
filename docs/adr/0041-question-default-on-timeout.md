@@ -5,7 +5,7 @@
 - **Deciders**: Ben (ticket R6, workflow retrospective I-1) + Claude (conductor session)
 - **Resolves**: retrospective R6 / I-1
 
-Numbering: ADR-0040 is the R5a answerer pass (open PR at the time of writing). It also claims validator rule 28, so this ADR's rule is **29**.
+Numbering: ADR-0040 is the R5a answerer pass (#224), which also took validator rule 28, so this ADR's rule is **29**.
 
 ## Context
 The workflow retrospective (`docs/reports/2026-11-workflow-retrospective.html`, R6 / I-1) found that `needs_input` has a median stay of 12.7 min but a p90 of 439 min. Most questions are answered quickly. The long tail is questions asked late in the day that hold a ticket overnight, although the agent had already said what it would do.

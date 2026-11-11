@@ -294,6 +294,14 @@ const PLAN_INSTRUCTIONS = [
 export const CHECK_CONFIG_HINT =
   "If a check or its setup fails because of conductor's check config rather than your branch (for example a setup command that can't work in a fresh checkout), don't retry: propose the fix with `ask_user`'s `proposed_checks` (the repo's full corrected checks) and Ben confirms it.";
 
+/**
+ * R4 (FR-4): the implement prompt's line on `run_gate`, the outcome server's tool that runs a
+ * transition's gate checks in a fresh checkout before the agent takes it. A machine whose daemon
+ * lacks the tool gets RUN_GATE_FALLBACK_NOTE after it (orchestrator `withRunGateFeature`).
+ */
+export const RUN_GATE_INSTRUCTION =
+  'Before you call `complete_state` with a transition that runs checks, call `run_gate` with that `transition` and fix what fails (commit each fix) until it passes: it runs exactly the checks conductor runs when you take it, setup included, in a fresh checkout of your last commit. Do not guess the build or lint commands.';
+
 const IMPLEMENT_INSTRUCTIONS = [
   '## Your step: implementing',
   '',
@@ -302,6 +310,7 @@ const IMPLEMENT_INSTRUCTIONS = [
   ASK_BEFORE_HANDOFF_INSTRUCTION,
   IMPLEMENT_TESTS_INSTRUCTION,
   'Add or update tests. Before you finish, commit everything on the current branch (`git add` and `git commit`) so that `git status` is clean: only committed changes are checked and pushed, and a worktree with uncommitted changes is sent back to you. Do not push. Conductor then checks that the build and the tests pass on your last commit, pushes it and opens the pull request itself.',
+  RUN_GATE_INSTRUCTION,
   CHECK_CONFIG_HINT,
   PROPOSALS_HINT,
   'Finish with `complete_state` and a result that includes `"summary"`: a short description of the change, used as the pull request description.',

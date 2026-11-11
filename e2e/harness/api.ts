@@ -118,6 +118,14 @@ export class Api {
     return this.call<unknown>('PUT', '/api/repo-checks', body, 200);
   }
 
+  /** GET /api/insights/metrics (process metrics, `get_process_metrics`). */
+  processMetrics(windowDays = 1) {
+    return this.call<{ totals: { check_runs: number }; self_checks?: { runs: number } }>(
+      'GET',
+      `/api/insights/metrics?window_days=${windowDays}`,
+    );
+  }
+
   /** GET /api/repo-checks?repo= (`override` is null without one). */
   repoChecks(repo: string) {
     return this.call<{ override: unknown }>(

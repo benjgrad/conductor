@@ -563,6 +563,25 @@ The bytes of one `attachment` (`attachment_id` pk, FK CASCADE; `account_id` fk a
 | created_at | timestamptz | |
 | expires_at | timestamptz | indexed (the sweep) |
 
+### self_check_run
+
+R4, 05 §[Self-checks](05-workflow-engine.md#self-checks-run_gate-r4). Migration `1764100000003_self-check-run`. One agent `run_gate` that reached the orchestrator: inserted when the daemon asks for the checks, finished when it reports the outcome. Read only by process metrics (`self_checks`); the engine never sees it.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | `RunGateSpec.run_id` |
+| account_id | uuid fk account | `(account_id, started_at)` indexed |
+| ticket_id | uuid fk ticket | CASCADE |
+| session_id | uuid fk session | CASCADE; indexed |
+| workflow_state | text | the agent state it ran from |
+| transition | text | the transition whose checks ran |
+| sha | text | the commit checked |
+| started_at | timestamptz | |
+| finished_at | timestamptz null | null until reported (forever, if the run was killed) |
+| passed | bool null | set with `finished_at` (CHECK) |
+| duration_ms | int null | |
+| results | jsonb null | the `RunGateResult` minus `run_id`, `passed`, `duration_ms` |
+
 ### github_webhook
 
 R11 ([ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md) Q1 amended, [setup](../setup/github-webhooks.md)). Migration `1764100000001_github-webhook`. The account's GitHub webhook signing secret; deliveries to `/api/webhooks/github/<account_id>` are verified against it. Rotating (`POST /api/github-webhook/secret`, `conductor-admin github-webhook`) replaces it.

@@ -756,6 +756,26 @@ export interface AttachmentRow {
   created_at: Date;
 }
 
+/** R4: one `run_gate` self-check an agent ran (migration 1764100000003). */
+export interface SelfCheckRunRow {
+  id: string;
+  account_id: string;
+  ticket_id: string;
+  session_id: string;
+  /** The agent state the session was in. */
+  workflow_state: string;
+  transition: string;
+  /** The commit checked. */
+  sha: string;
+  started_at: Date;
+  /** null until the daemon reports the outcome (and forever if it never does). */
+  finished_at: Date | null;
+  passed: boolean | null;
+  duration_ms: number | null;
+  /** RunGateResult minus `run_id`, as reported. */
+  results: unknown;
+}
+
 /** ADR-0038: one conductor-hosted page (an agent's `publish_page`; TD-215: the HTML in Postgres). */
 export interface PageRow {
   id: string;
@@ -842,6 +862,7 @@ export interface Tables {
   attachment: AttachmentRow;
   attachment_content: AttachmentContentRow;
   page: PageRow;
+  self_check_run: SelfCheckRunRow;
   github_webhook: GithubWebhookRow;
   github_webhook_delivery: GithubWebhookDeliveryRow;
 }

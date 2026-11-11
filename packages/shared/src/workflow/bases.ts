@@ -35,7 +35,7 @@ export function substituteBase(text: string, values: BaseValues): string {
 
 /**
  * Every field `$base` / `$base_sha` is substituted in (ADR-0039 FR-4), as `[path, text]`: check
- * `cmd`s (a transition's `requires.checks`, a state's `entry.checks`), ADR-0040 `cmd` leg `cmd`s
+ * `cmd`s (a transition's `requires.checks`, a state's `entry.checks`), ADR-0042 `cmd` leg `cmd`s
  * (`requires.parallel`), `cmd` condition `cmd`s
  * (`requires.conditions` and `watch.conditions`), the `instructions` map's texts, and literal
  * instruction fields (`on_unmet.instruction`, `on_broken.instruction`; a `$instructions.<slug>`

@@ -388,7 +388,8 @@ export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_COND
  * - `handoff` (P8, T3, available): `handoff: true`.
  * - `bases` (ADR-0039, B1 → B2): `bases`, `base_default`, `$base` / `$base_sha` substitution, and a
  *   ticket's or planning result's `base`.
- * - `parallel` (ADR-0040, R10): `requires.parallel` lanes of legs.
+ * - `answerer` (ADR-0040, R5a-2): the workflow `answerer` block.
+ * - `parallel` (ADR-0042, R10): `requires.parallel` lanes of legs.
  */
 export const WORKFLOW_FEATURES = [
   'watch',
@@ -398,6 +399,7 @@ export const WORKFLOW_FEATURES = [
   'notify_policy',
   'handoff',
   'bases',
+  'answerer',
   'parallel',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
@@ -496,7 +498,7 @@ export const ConcurrencySchema = z.strictObject({
 export type Concurrency = z.infer<typeof ConcurrencySchema>;
 
 /**
- * ADR-0040: what a `cmd` leg needs on the machine that runs it: an ADR-0013 capability key
+ * ADR-0042: what a `cmd` leg needs on the machine that runs it: an ADR-0013 capability key
  * (`cli:gh:authed`, `mcp:slack`, …) or `os:<platform>`, satisfied by the machine's `os`. Local to
  * legs on purpose: the claim's capability keys (REQUIREMENT_RE) never see `os:`, and leg needs
  * route the leg, never the ticket (`requiredCapabilitiesOf` ignores them).
@@ -508,7 +510,7 @@ export const LegNeedSchema = z.union([
 export type LegNeed = z.infer<typeof LegNeedSchema>;
 
 /**
- * ADR-0040: one leg of `requires.parallel`.
+ * ADR-0042: one leg of `requires.parallel`.
  * - `checks`: the transition's `requires.checks` (with the ADR-0030 repo override), session machine;
  * - `review`: the transition's `requires.review` (the fenced reviewer), session machine;
  * - `cmd`: a command in a fresh checkout of the pinned commit, on any eligible machine of the
@@ -530,7 +532,7 @@ export const ParallelLegSchema = z.discriminatedUnion('type', [
   }),
 ]);
 export type ParallelLeg = z.infer<typeof ParallelLegSchema>;
-/** ADR-0040: a lane's legs run one after another; the lanes of `requires.parallel` run at once. */
+/** ADR-0042: a lane's legs run one after another; the lanes of `requires.parallel` run at once. */
 export const ParallelLaneSchema = z.array(ParallelLegSchema).min(1).max(5);
 export type ParallelLane = z.infer<typeof ParallelLaneSchema>;
 
@@ -563,7 +565,7 @@ export const TransitionRequiresSchema = z.strictObject({
   /** ADR-0037 P4: the `held` phase, before `checks`. */
   concurrency: ConcurrencySchema.optional(),
   /**
-   * ADR-0040: lanes that run at the same time after the commit is pinned, joined (every leg must
+   * ADR-0042: lanes that run at the same time after the commit is pinned, joined (every leg must
    * pass; the first failure cancels the rest). Refused "not available yet" (rule 14, `parallel`).
    */
   parallel: z.array(ParallelLaneSchema).min(2).max(4).optional(),
@@ -601,6 +603,42 @@ export const NotifyPolicySchema = z.strictObject({
   coalesce: DurationSchema.optional(),
 });
 export type NotifyPolicy = z.infer<typeof NotifyPolicySchema>;
+
+/**
+ * ADR-0040: question transitions conductor never answers itself, whatever `answerer.applies_to`
+ * says: each needs a human's authority (a plan that reverses an ADR or spends money, a message to
+ * a person) or ends the work (rule 28).
+ */
+export const NEVER_AUTO_ANSWERED = [
+  'plan_needs_approval',
+  'needs_approval_to_message',
+  'impossible',
+] as const;
+/** ADR-0040: `answerer.timeout` when omitted. */
+export const DEFAULT_ANSWERER_TIMEOUT = '10m';
+/** ADR-0040: the shortest `answerer.timeout` (rule 28). */
+export const MIN_ANSWERER_TIMEOUT = '1m';
+/** ADR-0040: the longest `answerer.timeout` (rule 28). */
+export const MAX_ANSWERER_TIMEOUT = '30m';
+
+/**
+ * ADR-0040: before an agent's question on one of `applies_to` reaches a human, a fresh read-only
+ * conductor agent tries to answer it from cited sources. It delivers its answer only with a
+ * confidence of at least `min_confidence` and at least one citation; otherwise (or on timeout or
+ * failure) the question opens as today, with its notes. Refused "not available yet" (rule 14,
+ * feature `answerer`) until the engine ticket lands.
+ */
+export const AnswererSchema = z.strictObject({
+  /** Question transition names (`ask_user`, or a `question: true` transition): rule 28. */
+  applies_to: z.array(z.string().min(1)).min(1).max(10),
+  /** The answerer's model; absent = the machine's default (as `review.model`). */
+  model: z.string().min(1).optional(),
+  /** The lowest confidence that is delivered without asking a human. */
+  min_confidence: z.enum(['medium', 'high']).default('high'),
+  /** How long the answerer may run before the question goes to a human (1m–30m, rule 28). */
+  timeout: DurationSchema.optional(),
+});
+export type Answerer = z.infer<typeof AnswererSchema>;
 
 /** ADR-0037 P6: the `via` of a watch's `notify: escalate` (T6): it always pushes. */
 export const NOTIFY_VIA_WATCH_ESCALATE = 'watch_escalate';
@@ -1023,6 +1061,8 @@ export const WorkflowDefinitionSchema = z.strictObject({
   instructions: z.record(InstructionSlugSchema, InstructionTextSchema).optional(),
   /** ADR-0037 P6: the notification policy; absent = legacy mode. */
   notify: NotifyPolicySchema.optional(),
+  /** ADR-0040: conductor tries to answer listed questions before a human is asked. */
+  answerer: AnswererSchema.optional(),
   /**
    * ADR-0039: named places a ticket's branch can start from (and its PR go to). Refused "not
    * available yet" (rule 14, feature `bases`) until B2.

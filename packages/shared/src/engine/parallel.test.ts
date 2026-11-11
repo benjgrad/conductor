@@ -12,7 +12,7 @@ import {
   type ParallelState,
 } from './parallel.js';
 
-// ADR-0040 (R10): the join of `requires.parallel` legs. Engine cases of the ticket: all pass, one
+// ADR-0042 (R10): the join of `requires.parallel` legs. Engine cases of the ticket: all pass, one
 // fails (the others are cancelled), a lost machine on one leg.
 
 const NOW = '2026-11-11T12:00:00.000Z';

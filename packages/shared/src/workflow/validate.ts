@@ -29,6 +29,7 @@ import {
   type PrimitiveAvailability,
 } from './validate-primitives.js';
 import { basesWarnings, checkBases, checkBasesAvailability } from './validate-bases.js';
+import { checkAnswerer, checkAnswererAvailability } from './validate-answerer.js';
 import { checkParallel } from './validate-parallel.js';
 
 // Workflow validation on save (M1-T03, 05 §Validation on save). The schema (T12) checks shape;
@@ -48,8 +49,9 @@ import { checkParallel } from './validate-parallel.js';
  * still holds tickets can't be removed) needs the database, so the orchestrator checks it on save
  * (`insertWorkflowVersion`), never `validateWorkflow`. Rules 19–25 (ADR-0037, the workflow
  * primitives P1–P8) are in `validate-primitives.ts`, with rule 14's "not available yet" refusals.
- * Rules 26–27 (ADR-0039, base refs) are in `validate-bases.ts`. Rule 28 (ADR-0040, parallel legs)
- * is in `validate-parallel.ts`.
+ * Rules 26–27 (ADR-0039, base refs) are in `validate-bases.ts`. Rule 28 (ADR-0040, the
+ * answerer) is in `validate-answerer.ts`.
+ * Rule 29 (ADR-0042, parallel legs) is in `validate-parallel.ts`.
  */
 export type WorkflowRule =
   | 1
@@ -79,7 +81,8 @@ export type WorkflowRule =
   | 25
   | 26
   | 27
-  | 28;
+  | 28
+  | 29;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -166,6 +169,7 @@ export function checkAvailability(
       features,
     }),
     ...checkBasesAvailability(def, features),
+    ...checkAnswererAvailability(def, features),
   ];
   for (const [name, state] of Object.entries(def.states)) {
     if (state.type !== 'agent') continue;
@@ -194,7 +198,7 @@ export function checkAvailability(
   return errors;
 }
 
-/** Parse a workflow definition and check rules 1–17 and 19–28. Never throws. */
+/** Parse a workflow definition and check rules 1–17 and 19–29. Never throws. */
 export function validateWorkflow(
   input: unknown,
   opts: ValidateOptions = {},
@@ -267,6 +271,7 @@ export function validateWorkflow(
   errors.push(...checkTransitions(def, has));
   errors.push(...checkPrimitives(def, has));
   errors.push(...checkBases(def));
+  errors.push(...checkAnswerer(def));
   errors.push(...checkParallel(def));
 
   // Graph rules 2–5 only on a graph whose start and targets all exist, so a missing target

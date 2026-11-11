@@ -1,4 +1,4 @@
-# ADR-0040 · Parallel legs inside a move step
+# ADR-0042 · Parallel legs inside a move step
 
 - **Status**: proposed
 - **Date**: 2026-11-11
@@ -74,9 +74,9 @@ held → **pin** → **parallel** → the remaining `actions` → `conditions`.
 
 At most 4 lanes × 5 legs × 2 attempts. Every verdict ends at the target (via the actions and conditions), at the counted `on_unmet.goto`, or at a human (`on_unmet.else`). The engine's pure join (`shared/src/engine/parallel.ts`) carries a property test for it.
 
-### Validation (rule 28) and rollout (rule 14)
+### Validation (rule 29) and rollout (rule 14)
 
-Rule 28, per transition with `requires.parallel`:
+Rule 29, per transition with `requires.parallel`:
 - a `checks` leg needs `requires.checks`, a `review` leg needs `requires.review`, and each appears at most once across the lanes;
 - a declared `requires.checks` or `requires.review` must be run by a leg;
 - `cmd` leg names are unique and differ from the check names, and a `cmd` isn't blank.

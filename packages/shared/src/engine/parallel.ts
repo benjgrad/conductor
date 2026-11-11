@@ -7,7 +7,7 @@ import {
 } from '../workflow/schema.js';
 import type { GateSpec } from './move-step.js';
 
-// ADR-0040 (R10): the join of a move step's `requires.parallel` lanes, as a pure reducer. Lanes
+// ADR-0042 (R10): the join of a move step's `requires.parallel` lanes, as a pure reducer. Lanes
 // run at the same time; the legs inside a lane run one after another. Every leg must pass; the
 // first failure decides `unmet` and cancels every running leg (pending legs never start). Each
 // leg is fenced by its own `attempt`: a result, loss or timeout for another attempt, for a leg that
@@ -16,9 +16,9 @@ import type { GateSpec } from './move-step.js';
 // counted). No I/O: apply.ts turns `starts` into run_cmd / start_session effects and `cancels`
 // into kills (P1, P2). Bounded: at most 4 lanes × 5 legs × 2 attempts.
 
-/** ADR-0040: how long a `cmd` leg may wait for an eligible machine and run, by default. */
+/** ADR-0042: how long a `cmd` leg may wait for an eligible machine and run, by default. */
 export const DEFAULT_LEG_TIMEOUT = '30m';
-/** ADR-0040: a leg is sent out at most this many times (the first try and one re-dispatch). */
+/** ADR-0042: a leg is sent out at most this many times (the first try and one re-dispatch). */
 export const MAX_LEG_ATTEMPTS = 2;
 
 /** Where a leg runs: the session's machine, or any eligible machine with every `needs` key. */

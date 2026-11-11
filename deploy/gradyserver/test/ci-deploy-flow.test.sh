@@ -62,9 +62,31 @@ case "$1" in
     esac
     ;;
   ps) [[ -e "$S/orch_image" ]] && echo c-orchestrator ;;
+  # The board report (R14): `docker exec -i <id> node dist/admin-cli.js deploy-failed`, JSON on stdin.
+  exec)
+    if [[ " $* " == *" deploy-failed "* ]]; then
+      cat >>"$S/reports"
+      [[ "${FAKE_REPORT_RC:-0}" == 0 ]] && echo "created ticket t-1 (attempt 1, 1 push(es))"
+      [[ "${FAKE_REPORT_RC:-0}" == 0 ]] || echo "no database"
+      exit "${FAKE_REPORT_RC:-0}"
+    fi
+    ;;
 esac
 exit 0
 DOCKER
+
+# report <field>: that field of the only board report (JSON), or FAIL when there isn't exactly one.
+report() {
+  python3 -I - "$T/state/reports" "$1" <<'PY'
+import json, sys
+lines = [l for l in open(sys.argv[1]).read().splitlines() if l.strip()]
+if len(lines) != 1:
+    print("FAIL: %d reports" % len(lines))
+else:
+    v = json.loads(lines[0])[sys.argv[2]]
+    print(v if isinstance(v, str) else json.dumps(v))
+PY
+}
 
 # Fake curl: only the Discord webhook calls it (smoke.sh is faked below). Keeps the payload.
 cat >"$T/bin/curl" <<'CURL'
@@ -110,6 +132,7 @@ deploy() {
   shift
   : >"$T/state/calls"
   : >"$T/state/alerts"
+  : >"$T/state/reports"
   [[ -d "$T/dist/$sha" ]] || make_dist "$T/dist/$sha" "0.0.0+${sha:0:7}"
   OUT="$(cd "$T/repo" && env PATH="$T/bin:$PATH" HOME="$T/home" FAKE_STATE="$T/state" \
     DEPLOY_HEALTH_TIMEOUT=2 GITHUB_RUN_ID= CONDUCTOR_DAEMON_DIST="$T/dist/$sha" "$@" \
@@ -135,6 +158,7 @@ check "first deploy: $sha1 live, current and current.env switched" live "$sha1"
 check "first deploy: says deployed" has "$OUT" "^==> deployed $sha1\$"
 check "first deploy: smoke expects the sha" grep -qF "smoke https://conductor.gradyserver.com $sha1" "$T/state/calls"
 check "first deploy: no alert" test ! -s "$T/state/alerts"
+check "first deploy: no board report" test ! -s "$T/state/reports"
 check "first deploy: the daemon tarballs are in the release's daemon-dist" \
   "$KIT/daemon-dist-check.sh" "$ROOT/releases/$sha1/daemon-dist"
 
@@ -171,6 +195,16 @@ check "smoke failure: alert names both shas" has "$(cat "$T/state/alerts")" "${s
 check "smoke failure: the alert payload is valid JSON" python3 -I -c \
   'import json,sys; json.loads(open(sys.argv[1]).readline())' "$T/state/alerts"
 check "smoke failure: no 'deployed'" lacks "$OUT" '^==> deployed'
+check "smoke failure: one board report, for $sha4" test "$(report sha)" = "$sha4"
+check "smoke failure: report says rolled back" test "$(report outcome)" = rolled_back
+check "smoke failure: report names the running sha" test "$(report running)" = "$sha3"
+check "smoke failure: report names the failed step" test "$(report step)" = "smoke test of ${sha4:0:7}"
+check "smoke failure: report's log tail has the failure" has "$(report log_tail)" 'deploying'
+check "smoke failure: report's log tail is at most 50 lines" \
+  test "$(report log_tail | wc -l)" -le 50
+check "smoke failure: report's log tail stops before the rollback" lacks "$(report log_tail)" 'rolling back'
+check "smoke failure: the report reached the board" has "$OUT" '^==> reported on the board: created ticket t-1'
+check "smoke failure: the webhook URL is never in a report" lacks "$(cat "$T/state/reports")" 'discord\.invalid'
 
 # 5. A failed migration: the old orchestrator was never touched; still a rollback alert.
 sha5="$(commit five)"
@@ -178,12 +212,14 @@ deploy "$sha5" FAKE_MIGRATE_RC=1
 check "migration failure exits 1 (got $CODE)" test "$CODE" -eq 1
 check "migration failure: $sha3 still live" live "$sha3"
 check "migration failure: alert 'rolled back'" grep -q 'Deploy failed: rolled back' "$T/state/alerts"
+check "migration failure: report says rolled back" test "$(report outcome)" = rolled_back
 
 # 6. A rollback that fails too is the red alert.
 deploy "$sha4" FAKE_SMOKE_FAIL="$sha4 $sha3"
 check "double failure exits 1 (got $CODE)" test "$CODE" -eq 1
 check "double failure: red alert" grep -q 'rollback failed: conductor may be down' "$T/state/alerts"
 check "double failure: red colour" grep -q '"color": 15158332' "$T/state/alerts"
+check "double failure: report says the rollback failed" test "$(report outcome)" = rollback_failed
 
 # 7. The drill: redeploying what's live fails its first smoke on purpose, rolls back, and says so.
 deploy "$sha3" DEPLOY_DRILL=1
@@ -192,6 +228,8 @@ check "drill: smoke against the dead port first" grep -qF 'smoke http://127.0.0.
 check "drill: $sha3 still live" live "$sha3"
 check "drill: alert marked as a test" grep -q '"title": "TEST: Deploy failed: rolled back"' "$T/state/alerts"
 check "drill: alert says it's a drill" grep -q 'This is a drill' "$T/state/alerts"
+check "drill: no board report sent" test ! -s "$T/state/reports"
+check "drill: the report is logged instead" has "$OUT" '^==> drill: board report not sent: \{'
 
 # 8. A failure before the release (an empty dump) touches nothing and says the deploy didn't run.
 sha6="$(commit six packages/orchestrator/migrations/2-new.sql)"
@@ -200,6 +238,7 @@ check "failed dump exits non-zero (got $CODE)" test "$CODE" -ne 0
 check "failed dump: nothing built" test -z "$(calls_line ' build$')"
 check "failed dump: $sha3 still live" live "$sha3"
 check "failed dump: alert 'did not run'" grep -q 'Deploy did not run' "$T/state/alerts"
+check "failed dump: report says did not run" test "$(report outcome)" = did_not_run
 
 # 9. Without a webhook the alert goes to the log, and nothing is sent.
 sed -i.bak '/^DISCORD_WEBHOOK_URL=/d' "$ROOT/.env"
@@ -207,6 +246,12 @@ deploy "$sha4" FAKE_SMOKE_FAIL="$sha4"
 check "no webhook: exits 1 (got $CODE)" test "$CODE" -eq 1
 check "no webhook: nothing sent" test ! -s "$T/state/alerts"
 check "no webhook: the alert is in the log" has "$OUT" 'discord not configured\] Deploy failed: rolled back'
+check "no webhook: the board report is still sent" test "$(report outcome)" = rolled_back
+
+# 9a. A board report that can't be sent is logged; the deploy still fails, and Discord still hears.
+deploy "$sha4" FAKE_SMOKE_FAIL="$sha4" FAKE_REPORT_RC=1
+check "report failure: exits 1 (got $CODE)" test "$CODE" -eq 1
+check "report failure: logged" has "$OUT" '^!!> \[board report failed\] no database'
 
 # 9b. Missing or wrong daemon tarballs: nothing unpacked or built, and 'did not run' alerted.
 sed -i.bak 's|^DISCORD_WEBHOOK_URL=.*||' "$ROOT/.env"
@@ -221,11 +266,14 @@ for case in "unset:" "partial:$T/dist-partial" "other:$T/dist-other"; do
   check "${case%%:*} dist: nothing built" test -z "$(calls_line ' build$')"
   check "${case%%:*} dist: $sha3 still live" live "$sha3"
   check "${case%%:*} dist: alert 'did not run'" grep -q 'Deploy did not run' "$T/state/alerts"
+  check "${case%%:*} dist: report says did not run" test "$(report outcome)" = did_not_run
+  check "${case%%:*} dist: the report's step is why it stopped" has "$(report step)" 'daemon tarballs|CONDUCTOR_DAEMON_DIST'
 done
 
 # 10. And the sha deploys once it is fixed.
 deploy "$sha6"
 check "after the failures, $sha6 deploys (got $CODE)" test "$CODE" -eq 0
 check "after the failures: $sha6 live" live "$sha6"
+check "after the failures: no board report" test ! -s "$T/state/reports"
 
 finish

@@ -72,3 +72,15 @@ pub fn resolve_tool_policy<S: AsRef<str>>(tools: &[S]) -> Result<ToolPolicy, Unk
         deny,
     })
 }
+
+/// R7 `WRITE_TOOL_ALIASES` (`workflow/tools.ts`): the aliases that let an agent change files or
+/// the repo.
+pub const WRITE_TOOL_ALIASES: &[&str] = &["edit", "bash", "git", "pr_skill", "qa"];
+
+/// R7 `forcesDontAsk`: a state's `tools` run its session in dontAsk when they add `bash_readonly`
+/// and no write alias, so its shell stays read-only (anything off the allow-list is denied,
+/// never prompted).
+pub fn forces_dont_ask<S: AsRef<str>>(tools: &[S]) -> bool {
+    let has = |name: &str| tools.iter().any(|t| t.as_ref() == name);
+    has("bash_readonly") && !WRITE_TOOL_ALIASES.iter().any(|w| has(w))
+}

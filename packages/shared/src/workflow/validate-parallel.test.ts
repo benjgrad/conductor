@@ -4,7 +4,7 @@ import { requiredCapabilitiesOf } from './capabilities.js';
 import { AVAILABLE_WORKFLOW_FEATURES, WorkflowDefinitionSchema } from './schema.js';
 import { validateWorkflow, type WorkflowValidationError } from './validate.js';
 
-// ADR-0040 (R10): `requires.parallel` parses, rule 28 judges its shape, and rule 14 refuses it
+// ADR-0042 (R10): `requires.parallel` parses, rule 29 judges its shape, and rule 14 refuses it
 // ("not available yet", feature `parallel`) until the engine runs it.
 
 const BASE = ['states', 'implementing', 'on', 'ship_it'];
@@ -51,7 +51,7 @@ function errorsOf(input: unknown, rule: number): WorkflowValidationError[] {
   return r.ok ? [] : r.errors.filter((e) => e.rule === rule);
 }
 
-describe('requires.parallel (ADR-0040)', () => {
+describe('requires.parallel (ADR-0042)', () => {
   it('is not available yet', () => {
     expect(AVAILABLE_WORKFLOW_FEATURES).not.toContain('parallel');
   });
@@ -74,7 +74,7 @@ describe('requires.parallel (ADR-0040)', () => {
       checks: CHECKS,
       parallel: [[{ type: 'checks' }, { ...WINDOWS, name: 'After checks' }], [WINDOWS]],
     });
-    expect(errorsOf(input, 28)).toEqual([]);
+    expect(errorsOf(input, 29)).toEqual([]);
     expect(validateWorkflow(input, { allowUnavailable: true }).ok).toBe(true);
   });
 
@@ -86,12 +86,12 @@ describe('requires.parallel (ADR-0040)', () => {
     expect(validateWorkflow(input, { allowUnavailable: true }).ok).toBe(true);
   });
 
-  describe('rule 28', () => {
+  describe('rule 29', () => {
     it('a checks leg needs requires.checks; a review leg needs requires.review', () => {
       const input = withRequires({ parallel: [[{ type: 'checks' }], [{ type: 'review' }]] });
-      expect(errorsOf(input, 28)).toEqual([
-        { rule: 28, path: [...AT, 0, 0], message: 'a checks leg needs requires.checks' },
-        { rule: 28, path: [...AT, 1, 0], message: 'a review leg needs requires.review' },
+      expect(errorsOf(input, 29)).toEqual([
+        { rule: 29, path: [...AT, 0, 0], message: 'a checks leg needs requires.checks' },
+        { rule: 29, path: [...AT, 1, 0], message: 'a review leg needs requires.review' },
       ]);
     });
 
@@ -104,9 +104,9 @@ describe('requires.parallel (ADR-0040)', () => {
           [{ type: 'checks' }, { type: 'review' }],
         ],
       });
-      expect(errorsOf(input, 28)).toEqual([
-        { rule: 28, path: [...AT, 1, 0], message: 'the checks leg is listed twice' },
-        { rule: 28, path: [...AT, 1, 1], message: 'the review leg is listed twice' },
+      expect(errorsOf(input, 29)).toEqual([
+        { rule: 29, path: [...AT, 1, 0], message: 'the checks leg is listed twice' },
+        { rule: 29, path: [...AT, 1, 1], message: 'the review leg is listed twice' },
       ]);
     });
 
@@ -116,7 +116,7 @@ describe('requires.parallel (ADR-0040)', () => {
         review: REVIEW,
         parallel: [[WINDOWS], [{ ...WINDOWS, name: 'Other' }]],
       });
-      expect(errorsOf(input, 28).map((e) => [e.path, e.message])).toEqual([
+      expect(errorsOf(input, 29).map((e) => [e.path, e.message])).toEqual([
         [AT, 'requires.checks is declared but no leg runs it (add a {"type": "checks"} leg)'],
         [AT, 'requires.review is declared but no leg runs it (add a {"type": "review"} leg)'],
       ]);
@@ -131,14 +131,14 @@ describe('requires.parallel (ADR-0040)', () => {
           [{ ...WINDOWS, name: 'Blank', cmd: '   ' }],
         ],
       });
-      expect(errorsOf(input, 28)).toEqual([
+      expect(errorsOf(input, 29)).toEqual([
         {
-          rule: 28,
+          rule: 29,
           path: [...AT, 0, 1, 'name'],
           message: 'leg "Tests pass" has the name of a check',
         },
-        { rule: 28, path: [...AT, 1, 1, 'name'], message: 'leg "Windows tests" is listed twice' },
-        { rule: 28, path: [...AT, 2, 0, 'cmd'], message: 'leg "Blank" has an empty command' },
+        { rule: 29, path: [...AT, 1, 1, 'name'], message: 'leg "Windows tests" is listed twice' },
+        { rule: 29, path: [...AT, 2, 0, 'cmd'], message: 'leg "Blank" has an empty command' },
       ]);
     });
   });

@@ -277,6 +277,7 @@ Instance-level (not on the isolation check). ADR-0012 §Tenancy.
 | id | uuid pk | `LOCAL_ACCOUNT_ID` is the `local` account, inserted by the migration: every pre-M2 row, `local` mode, and the bootstrap admin's claim (U-056) |
 | name | text | a personal account is named after its owner's `display_name` |
 | created_at | timestamptz | |
+| analyst_daily_cap | int null | R13 ([ADR-0033](../adr/0033-workflow-advisor.md)), migration `1764100000000_analyst-coverage`: null = the analyst analyses every finished session; a positive number (CHECK) = sample, at most that many analyst jobs per 24 h. Set with `conductor-admin analyst-sample` |
 
 **account_member**: `account_id` fk account, `user_id` fk app_user, `role` text `CHECK (role IN ('owner','member'))`, `created_at`; pk `(account_id, user_id)`, index on `user_id`. Personal accounts only in M2 (U-051): each user owns exactly one account and nobody else is a member.
 
@@ -440,17 +441,20 @@ The migration's down drops `ticket_schedule_run_key`, the two `ticket` columns a
 | column | type | notes |
 |---|---|---|
 | id | uuid pk | the WS `job_id` |
-| account_id | uuid fk account | the analysed session's account; `(account_id, created_at)` indexed for the daily cap (20 per 24 h) |
+| account_id | uuid fk account | the analysed session's account; `(account_id, created_at)` indexed for the sampling cap (`account.analyst_daily_cap`, R13) |
 | kind | text | `session_insight` (CHECK) |
-| session_id | uuid fk session | `ON DELETE CASCADE` |
+| session_id | uuid fk session | `ON DELETE CASCADE`; `(session_id, schema_version)` indexed (R13) |
 | ticket_id | uuid fk ticket | `ON DELETE CASCADE` |
 | schema_version | int | `SESSION_INSIGHT_SCHEMA_VERSION` when written |
-| machine_id | text fk machine | the machine that ran the session (it holds the transcript); `ON DELETE CASCADE` |
+| machine_id | text fk machine | the machine that ran the session (it holds the transcript); `ON DELETE CASCADE`; `(machine_id) WHERE status IN ('queued','sent')` indexed for pacing (R13: one open job per machine) |
 | command_id | uuid unique | its `outbox` row (kind `assistant_job`, `session_id` null) |
 | status | text | `queued` → `sent` (accepted ack) → `done` / `failed` / `dropped` (malformed result) (CHECK); `(created_at) WHERE status IN ('queued','sent')` indexed for the expiry sweep (30 min) |
 | error | text null | why it failed or was dropped, ≤ 500 chars |
-| idempotency_key | text unique | `insight:<session_id>:<schema_version>`: at most one job per session and version, so nothing is retried |
+| idempotency_key | text unique | `insight:<session_id>:<schema_version>` for attempt 1, `…:<attempt>` after (R13): at most one job per session, version and attempt |
 | created_at, finished_at | timestamptz | finished rows are deleted after 180 days |
+| attempt | int default 1 | R13 (migration `1764100000000_analyst-coverage`): a `failed` job is retried once (`MAX_ATTEMPTS` 2); `dropped` (malformed) never |
+| cost_usd | numeric(12,6) null | R13: the cost the daemon reported for the job (`assistant_result.cost_usd`) |
+| duration_ms | int null | R13: how long it ran |
 
 ### session_insight
 

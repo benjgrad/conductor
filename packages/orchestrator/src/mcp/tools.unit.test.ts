@@ -132,7 +132,7 @@ describe('advisor tools (ADR-0033)', () => {
       'list_change_proposals',
       'apply_change',
     ]);
-    expect(names.slice(-8, -7)).toEqual(['adopt_default_workflow']);
+    expect(names.slice(-9, -7)).toEqual(['adopt_default_workflow', 'simulate_workflow']);
     for (const t of (await client.listTools()).tools.slice(-7, -3)) {
       expect(t.annotations?.readOnlyHint).toBe(true);
       expect(t.description!.length).toBeLessThanOrEqual(700);
@@ -153,13 +153,19 @@ describe('advisor tools (ADR-0033)', () => {
     const sinceDays = (now - Date.parse(body.since)) / 86_400_000;
     expect(Math.round(sinceDays)).toBe(WINDOW_MAX_DAYS);
     // The five row queries (ADR-0037 P4 adds the holds), then the account's repo check overrides
-    // (to name the check runs).
-    expect(queries).toHaveLength(6);
+    // (to name the check runs), then the machines' names (R13).
+    expect(queries).toHaveLength(7);
+    const machines = queries.filter((q) => q.sql.includes('FROM machine '));
+    expect(machines).toHaveLength(1);
+    expect(machines[0]!.sql).toContain('account_id = $1');
+    expect(machines[0]!.args).toEqual(['acc-1']);
     const named = queries.filter((q) => q.sql.includes('FROM repo_checks'));
     expect(named).toHaveLength(1);
     expect(named[0]!.sql).toContain('account_id = $1');
     expect(named[0]!.args).toEqual(['acc-1']);
-    for (const q of queries.filter((x) => !x.sql.includes('FROM repo_checks'))) {
+    for (const q of queries.filter(
+      (x) => !x.sql.includes('FROM repo_checks') && !x.sql.includes('FROM machine '),
+    )) {
       expect(q.sql).toContain('s.account_id = $1');
       expect(q.args).toEqual([
         'acc-1',

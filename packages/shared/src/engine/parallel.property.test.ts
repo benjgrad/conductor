@@ -15,7 +15,7 @@ import {
   type ParallelStep,
 } from './parallel.js';
 
-// ADR-0040 (R10): the join is bounded and never leaves an undefined state. Random lanes (2–4 of
+// ADR-0042 (R10): the join is bounded and never leaves an undefined state. Random lanes (2–4 of
 // 1–5 legs) and random event sequences (results ok / failed, losses, timeouts, assignments, with
 // current, stale and future attempts, duplicates) run through the reducer; after every step the
 // invariants hold, and a fair finish (every running leg passes) always reaches a verdict.

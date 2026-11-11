@@ -6,6 +6,7 @@ import { revokeUserOAuthTokens } from '../oauth/tokens.js';
 import { VAPID_PRIVATE_KEY_ENV, VAPID_PUBLIC_KEY_ENV, VAPID_SUBJECT_ENV } from '../push/config.js';
 import { generateVapidKeys } from '../push/sender.js';
 import { PUBLIC_URL_ENV } from './config.js';
+import { rotateWebhookSecret, webhookUrl } from '../github-webhook/store.js';
 import { createInvite } from './invites.js';
 import { createResetLink } from './reset.js';
 import type { Queryable } from './sessions.js';
@@ -42,6 +43,8 @@ export const USAGE = [
   '  revoke-sessions <email>   sign the user out everywhere',
   "  disable <email>           disable the user, sign them out, revoke their accounts' machines",
   '  list-users                list users',
+  '  github-webhook <email>    print the GitHub webhook URL and a new secret for the account',
+  '                            the user owns (the old secret stops working)',
   '  vapid-keys                print a new Web Push (VAPID) key pair for the env (no database)',
 ].join('\n');
 
@@ -321,6 +324,36 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
           ].join('\t'),
         );
       }
+      return 0;
+    }
+
+    case 'github-webhook': {
+      // R11: the webhook of the one account the user owns (a new secret each time).
+      const email = oneEmail();
+      if (email === null) return 2;
+      const publicUrl = needUrl();
+      if (publicUrl === null) return 1;
+      const user = await findUser(email);
+      if (user === null) return 1;
+      const owned = await db.query<{ account_id: string }>(
+        "SELECT account_id FROM account_member WHERE user_id = $1 AND role = 'owner' ORDER BY account_id",
+        [user.id],
+      );
+      if (owned.rows.length !== 1) {
+        err(
+          owned.rows.length === 0
+            ? `${user.email} owns no account`
+            : `${user.email} owns ${owned.rows.length} accounts (${owned.rows.map((r) => r.account_id).join(', ')}); use POST /api/github-webhook/secret signed in to the one you mean`,
+        );
+        return 1;
+      }
+      const accountId = owned.rows[0]!.account_id;
+      const secret = await rotateWebhookSecret(db, accountId, now());
+      out(`GitHub webhook for ${user.email}'s account (docs/setup/github-webhooks.md):`);
+      out(`payload URL: ${webhookUrl(publicUrl.origin, accountId)}`);
+      out('content type: application/json');
+      out(`secret: ${secret}`);
+      out('events: Check runs, Check suites, Pull requests, Pull request reviews');
       return 0;
     }
 

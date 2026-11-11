@@ -64,6 +64,15 @@ describe('API_PATHS', () => {
       wellKnownProtectedResourceMcp: '/.well-known/oauth-protected-resource/mcp',
     });
   });
+
+  it('has the GitHub webhook paths (R11)', () => {
+    const byKey = Object.fromEntries(templates.map((t) => [t.key, t.path]));
+    expect(byKey).toMatchObject({
+      githubWebhook: '/api/github-webhook',
+      githubWebhookSecret: '/api/github-webhook/secret',
+      githubWebhookDelivery: '/api/webhooks/github/:id',
+    });
+  });
 });
 
 describe('ApiErrorSchema', () => {

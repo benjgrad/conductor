@@ -254,6 +254,12 @@ button.plan-approve {
 .board-mobile .card-title {
   font-size: var(--text-md);
 }
+/* A phone has no hover to scroll a long title, so the mobile board shows it whole. */
+.board-mobile .card-title-clip {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
 .board-mobile .card-title,
 .board-mobile .ref,
 .board-mobile code {

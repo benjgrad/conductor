@@ -233,7 +233,11 @@ describe('process-review rules (ADR-0037 §4, C2)', () => {
     });
     expect(p).toContain(RUN_GATE_INSTRUCTION);
     expect(RUN_GATE_INSTRUCTION).toContain('`run_gate`');
-    const plan = renderPrompt({ stateName: 'planning', state: planning, snapshot: SNAPSHOT_FIXTURE });
+    const plan = renderPrompt({
+      stateName: 'planning',
+      state: planning,
+      snapshot: SNAPSHOT_FIXTURE,
+    });
     expect(plan).not.toContain(RUN_GATE_INSTRUCTION);
   });
 

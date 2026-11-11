@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { applyRepoChecks, PIN_CHECK, type GateSpec } from '../engine/move-step.js';
 import { repoChecksKey } from '../api/rest.js';
 import { CONDUCTOR_V4_DEF } from './conductor.js';
-import { checksGatesOf, RepoChecksSchema, selfCheckSpecOf, type RepoChecks } from './repo-checks.js';
+import {
+  checksGatesOf,
+  RepoChecksSchema,
+  selfCheckSpecOf,
+  type RepoChecks,
+} from './repo-checks.js';
 import { agentTransitionOptions, transitionChecks } from './transition-rules.js';
 import type { WorkflowDefinition } from './schema.js';
 
@@ -131,7 +136,7 @@ describe('R4: the checks a transition runs (run_gate)', () => {
     expect(selfCheckSpecOf(CONDUCTOR_V4_DEF, 'nowhere', 'done', null)).toBeNull();
   });
 
-  it('without requires.checks, the target state\'s entry checks count', () => {
+  it("without requires.checks, the target state's entry checks count", () => {
     const def = {
       states: {
         work: { type: 'agent', prompt: 'p', on: { ship: { goto: 'shipped' }, ask_user: 'stop' } },

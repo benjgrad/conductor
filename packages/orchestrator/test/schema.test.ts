@@ -46,6 +46,7 @@ import type {
   AttachmentRow,
   AttachmentContentRow,
   PageRow,
+  SelfCheckRunRow,
   SessionRow,
   TicketProposalDecisionRow,
   Tables,
@@ -570,6 +571,20 @@ const page: ColumnSpec<PageRow> = {
   created_at: col('timestamptz', NN),
   expires_at: col('timestamptz', NN),
 };
+const self_check_run: ColumnSpec<SelfCheckRunRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  ticket_id: col('uuid', NN),
+  session_id: col('uuid', NN),
+  workflow_state: col(t, NN),
+  transition: col(t, NN),
+  sha: col(t, NN),
+  started_at: col('timestamptz', NN),
+  finished_at: col('timestamptz', NULL),
+  passed: col('bool', NULL),
+  duration_ms: col('int4', NULL),
+  results: col('jsonb', NULL),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -605,6 +620,7 @@ const SCHEMA: Schema = {
   attachment,
   attachment_content,
   page,
+  self_check_run,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -907,6 +923,7 @@ describe('migrations', () => {
           'attachment',
           'attachment_content',
           'page',
+          'self_check_run',
         ].sort(),
       );
     } finally {
@@ -1570,6 +1587,18 @@ describe('schema (migrated test database)', () => {
     );
     await expectPgError(
       pool.query("UPDATE page SET title = '' WHERE id = $1", [pg.rows[0]!.id]),
+      '23514',
+    );
+
+    // R4: a run_gate self-check; finished and passed are set together.
+    const sc = await pool.query<SelfCheckRunRow>(
+      `INSERT INTO self_check_run (account_id, ticket_id, session_id, workflow_state, transition, sha)
+       VALUES ($1, $2, $3, 'implementing', 'pr_ready', $4) RETURNING *`,
+      [LOCAL_ACCOUNT_ID, tkt.id, ses.id, 'a'.repeat(40)],
+    );
+    expect(sc.rows[0]).toMatchObject({ finished_at: null, passed: null, results: null });
+    await expectPgError(
+      pool.query('UPDATE self_check_run SET passed = true WHERE id = $1', [sc.rows[0]!.id]),
       '23514',
     );
 

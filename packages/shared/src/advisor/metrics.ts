@@ -950,7 +950,9 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
 }
 
 /** R4: `{self_checks}` for ProcessMetrics, or nothing when no agent ran `run_gate`. */
-export function selfCheckCounts(rows: readonly SelfCheckRow[]): Pick<ProcessMetrics, 'self_checks'> {
+export function selfCheckCounts(
+  rows: readonly SelfCheckRow[],
+): Pick<ProcessMetrics, 'self_checks'> {
   if (rows.length === 0) return {};
   const byTransition = new Map<string, { runs: number; passed: number }>();
   for (const r of rows) {

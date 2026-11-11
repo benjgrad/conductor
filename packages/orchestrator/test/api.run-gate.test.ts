@@ -225,10 +225,11 @@ describe('POST daemon gate (the checks to run)', () => {
     expect(none.json.error?.message).toContain(SHIP);
     const human = await session((await createTicket()).id, 'needs_input', 'needs_input');
     expect((await gate(human, { transition: SHIP, sha: SHA })).status).toBe(409);
-    const count = await db.pool.query('SELECT count(*)::int AS n FROM self_check_run WHERE session_id = ANY($1)', [
-      [sid, human],
-    ]);
-    expect(count.rows[0].n).toBe(0);
+    const count = await db.pool.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM self_check_run WHERE session_id = ANY($1)',
+      [[sid, human]],
+    );
+    expect(count.rows[0]!.n).toBe(0);
   });
 });
 
@@ -249,12 +250,17 @@ describe('POST daemon gate-result (the outcome)', () => {
     const r1 = await result(sid, outcome);
     expect(r1.status, r1.text).toBe(200);
     expect((await result(sid, { ...outcome, passed: true })).status).toBe(200);
-    const row = await db.pool.query(
+    const row = await db.pool.query<{
+      passed: boolean;
+      duration_ms: number;
+      results: { results: { status: string }[] };
+      finished: boolean;
+    }>(
       'SELECT passed, duration_ms, results, finished_at IS NOT NULL AS finished FROM self_check_run WHERE id = $1',
       [spec.run_id],
     );
     expect(row.rows[0]).toMatchObject({ passed: false, duration_ms: 1200, finished: true });
-    expect(row.rows[0].results.results[0].status).toBe('fail');
+    expect(row.rows[0]!.results.results[0]!.status).toBe('fail');
     const sid2 = await session((await createTicket()).id);
     expect((await result(sid2, outcome)).status).toBe(404);
     expect((await result(sid, outcome, other.credential)).status).toBe(404);

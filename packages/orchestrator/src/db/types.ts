@@ -827,4 +827,5 @@ export interface Tables {
   attachment: AttachmentRow;
   attachment_content: AttachmentContentRow;
   page: PageRow;
+  self_check_run: SelfCheckRunRow;
 }

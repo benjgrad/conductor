@@ -253,7 +253,7 @@ The Details tab has a **Steps** section between Action and Result (`steps.ts`): 
   - **Open proposal** (`#/workflows?proposal=<id>`, which opens it in the Workflow page's proposals panel) when a change proposal cites the finding;
   - for a permission finding, a note that the decision is on the board;
   - otherwise **Propose a fix**, which explains how to run the `workflow_advisor` prompt in a connected Claude, with a copyable request naming the finding.
-- **Frictions**: the analysts' report, grouped by category, with each group's state, session count and top suggestion. The coverage line says how many finished sessions were analysed. Without a machine that runs analyst jobs, the report's note shows instead.
+- **Frictions**: the analysts' report, grouped by category, with each group's state, session count and top suggestion. The coverage line says how many finished sessions were analysed and the share (R13), how many analyst jobs ran and what they cost, and the daily cap when the account samples. Without a machine that runs analyst jobs, the report's note shows instead.
 - **Details tab**: a finished session (done, failed or lost) shows its **Session insight** when it has one: the outcome, summary, frictions, estimated lost minutes, and "Written by the analyst model (…)".
 
 Model-written text (summaries, frictions, suggestions) is always plain text, never markdown.

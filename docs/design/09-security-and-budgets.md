@@ -26,6 +26,7 @@ Agents run arbitrary code on developer machines with that developer's credential
 - The daemon passes the remaining budget to Claude as `--max-budget-usd`, a hard backstop independent of the orchestrator.
 - Exceeded → engine event `budget.exceeded` → `on_budget_exceeded` (default `needs_input`, kind `budget_exceeded`). The human can raise the budget or abort. **M1**: the routing exists in the engine, but nothing emits `budget.exceeded` yet (no enforcement trigger; [10](10-contracts.md)).
 - Parked time (`waiting_external`, `needs_input` after release) does **not** count toward `minutes`.
+- Analyst jobs ([ADR-0033](../adr/0033-workflow-advisor.md), R13): one haiku call per finished session, by default for every session. Throughput is bounded by pacing (one open job per machine, its one light slot) and at most 2 attempts per session. An account can opt into sampling with `account.analyst_daily_cap` (jobs per 24 h; `conductor-admin analyst-sample <email> <n|off>`). Each job's reported `cost_usd` is stored, and `get_process_report` / Insights show the window's jobs and cost.
 
 ## M1 local hardening
 M1 has no auth (U-008), so these controls (M1-T14) keep a localhost install from being driven by a web page or a hostile repo:

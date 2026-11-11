@@ -50,6 +50,15 @@ const CATEGORY_LABEL: Record<string, string> = {
   waiting_on_human: 'Waiting on a human',
   other: 'Other',
 };
+/** R13: what the analysts cost in the window, e.g. `12 analyst jobs, about $0.01`. */
+export function analystCost(a: NonNullable<ProcessReportResponse['analyst']>): string {
+  const jobs = `${a.jobs} analyst ${a.jobs === 1 ? 'job' : 'jobs'}`;
+  if (a.priced_jobs === 0) return `${jobs}, cost not reported`;
+  const usd =
+    a.cost_usd > 0 && a.cost_usd < 0.01 ? 'under $0.01' : `about $${a.cost_usd.toFixed(2)}`;
+  return `${jobs}, ${usd}`;
+}
+
 export const categoryLabel = (c: string) => CATEGORY_LABEL[c] ?? c.replace(/_/g, ' ');
 
 /** Minutes as `42m`, or `3h 5m` from an hour up. */
@@ -571,6 +580,12 @@ function FrictionsSection({
         <>
           <p className="muted">
             {data.analysed_sessions} of {data.finished_sessions} finished sessions analysed
+            {data.finished_sessions > 0 &&
+              ` (${Math.round((data.analysed_sessions / data.finished_sessions) * 100)} %)`}
+            {data.analyst && ` · ${analystCost(data.analyst)}`}
+            {data.analyst?.mode === 'sample' &&
+              data.analyst.daily_cap !== null &&
+              ` · sampling: ${data.analyst.daily_cap} a day`}
             {data.wasted_minutes_reported > 0 &&
               ` · about ${formatMinutes(data.wasted_minutes_reported)} lost in those ${data.analysed_sessions}, by their estimate`}
             . Written by a model: check them against the numbers above.

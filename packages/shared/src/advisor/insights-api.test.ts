@@ -90,6 +90,22 @@ describe('DTOs', () => {
       ...frictionReport([stored(1)]),
     };
     expect(roundTrip(ProcessReportResponseSchema, report)).toEqual(report);
+    // R13: with the analyst's setting, jobs and cost.
+    const withAnalyst = {
+      ...report,
+      analyst: {
+        mode: 'all',
+        daily_cap: null,
+        jobs: 5,
+        done: 4,
+        failed: 1,
+        dropped: 0,
+        open: 0,
+        cost_usd: 0.0031,
+        priced_jobs: 4,
+      },
+    };
+    expect(roundTrip(ProcessReportResponseSchema, withAnalyst)).toEqual(withAnalyst);
     // An older server's totals (no handoffs / stops) still parse, as zeros.
     const oldTotals: Record<string, unknown> = { ...report.totals };
     delete oldTotals.handoffs;
@@ -150,5 +166,22 @@ describe('sampleNote', () => {
     expect(sampleNote({ finished_sessions: 0, analysed_sessions: 0 })).toEqual({
       sample_share: 0,
     });
+  });
+
+  it('R13: says when the account samples, and when sessions are still being analysed', () => {
+    expect(
+      sampleNote({ finished_sessions: 10, analysed_sessions: 5, mode: 'sample', daily_cap: 20 }),
+    ).toEqual({
+      sample_share: 0.5,
+      sample_note:
+        'This account samples: at most 20 sessions a day are analysed, so frictions come from ' +
+        '5 of 10 finished sessions (50 %).',
+    });
+    expect(
+      sampleNote({ finished_sessions: 10, analysed_sessions: 8, mode: 'all', open: 1 }),
+    ).toEqual({ sample_share: 0.8, sample_note: '1 more session is being analysed.' });
+    expect(
+      sampleNote({ finished_sessions: 10, analysed_sessions: 10, mode: 'all', open: 0 }),
+    ).toEqual({ sample_share: 1 });
   });
 });

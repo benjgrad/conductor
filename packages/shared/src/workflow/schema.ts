@@ -139,10 +139,10 @@ export const EntryCheckSchema = z.strictObject({
   cmd: z.string().min(1),
   timeout: DurationSchema.optional(),
   /**
-   * R3: run the check only when the diff from the merge base with the default branch to the
-   * checked commit touches a path matching one of these globs. Otherwise it is skipped (with the
-   * reason) and counts as passed. No merge base or a git error runs it: uncertainty runs more.
-   * Absent = always run.
+   * R3: run the check only when the branch changes a path matching one of these globs since the
+   * commit it started at (the daemon records it when it creates the branch). Otherwise it is
+   * skipped (with the reason) and counts as passed. Anything unknown runs it: uncertainty runs
+   * more. Absent = always run.
    */
   paths: z.array(CheckPathGlobSchema).min(1).max(CHECK_PATHS_MAX).optional(),
 });

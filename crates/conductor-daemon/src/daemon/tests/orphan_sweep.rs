@@ -66,6 +66,7 @@ fn seed(c: &Ctx, agents: Vec<AgentRecord>) -> Vec<String> {
                         claude_session_id: agent.claude_session_id.clone(),
                         last_used_at: 0,
                         agent: Some(Some(agent)),
+                        base: None,
                     },
                 )
                 .unwrap();

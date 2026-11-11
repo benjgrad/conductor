@@ -497,29 +497,51 @@ fn skip_reason_names_at_most_ten_globs() {
 }
 
 #[tokio::test]
-async fn changed_since_default_lists_the_branch_changes_or_none_when_it_cannot_tell() {
-    // Real git: the merge base and the diff are git behaviour.
+async fn changed_since_base_lists_the_branch_changes_whatever_the_agent_does_to_its_refs() {
+    // Real git: the tree diff, replace refs and the forged refs are git behaviour.
     let f = Fx::new();
+    let base = git(&f.clone, &["rev-parse", "origin/main"])
+        .trim()
+        .to_string();
     std::fs::create_dir_all(f.worktree.join("crates/x")).unwrap();
     std::fs::write(f.worktree.join("crates/x/lib.rs"), "fn x() {}\n").unwrap();
-    git(&f.worktree, &["mv", "health.txt", "renamed.txt"]);
     git(&f.worktree, &["add", "."]);
     commit(&f.worktree, "rust");
     let head = git(&f.worktree, &["rev-parse", "HEAD"]).trim().to_string();
-    let (base, mut changed) = changed_since_default(&f.worktree, &head, None)
+    let want = |mut v: Vec<String>| {
+        v.sort();
+        v
+    };
+    let changed = changed_since_base(&f.worktree, &base, &head, None)
         .await
         .unwrap();
-    changed.sort();
-    assert_eq!(base, "origin/main");
-    // health.txt was added on the branch, so its rename leaves only renamed.txt against the base.
-    assert_eq!(changed, ["crates/x/lib.rs", "renamed.txt"]);
+    // health.txt (the fixture's first branch commit) and the Rust file.
+    assert_eq!(want(changed), ["crates/x/lib.rs", "health.txt"]);
+
+    // TD-221: the agent moves origin/main and origin/HEAD to its own tip, and replaces the base
+    // commit's object with its tip: the recorded base still decides.
+    git(
+        &f.worktree,
+        &["update-ref", "refs/remotes/origin/main", &head],
+    );
+    git(&f.worktree, &["remote", "set-head", "origin", "--delete"]);
+    git(&f.worktree, &["replace", &base, &head]);
+    let forged = changed_since_base(&f.worktree, &base, &head, None)
+        .await
+        .unwrap();
+    assert_eq!(want(forged), ["crates/x/lib.rs", "health.txt"]);
+
+    // Unknown: not a commit, the same commit, garbage.
     assert_eq!(
-        changed_since_default(&f.worktree, "not-a-sha", None).await,
+        changed_since_base(&f.worktree, &base, "not-a-sha", None).await,
         None
     );
-    // origin/main moved to the branch tip (forged, or the branch merged): no merge base to use.
-    git(&f.clone, &["update-ref", "refs/remotes/origin/main", &head]);
-    assert_eq!(changed_since_default(&f.worktree, &head, None).await, None);
-    git(&f.clone, &["remote", "set-head", "origin", "--delete"]);
-    assert_eq!(changed_since_default(&f.worktree, &head, None).await, None);
+    assert_eq!(
+        changed_since_base(&f.worktree, &head, &head, None).await,
+        None
+    );
+    assert_eq!(
+        changed_since_base(&f.worktree, &"0".repeat(40), &head, None).await,
+        None
+    );
 }

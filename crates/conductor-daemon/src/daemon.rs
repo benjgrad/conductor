@@ -46,9 +46,9 @@ use uuid::Uuid;
 
 use crate::actions::checkout::{
     BaseCheckoutInput, BaseProbeNext, FreshCheckout, FreshCheckoutInput, ProbeSetupInput,
-    SetupOnBase, changed_since_default, detect_setup, fetch_budget, fresh_checkout,
-    managed_command, missing_manager, no_commits_ahead, prepare_base_probe, remove_checkout,
-    skip_reason, sweep_private,
+    SetupOnBase, changed_since_base, detect_setup, fetch_budget, fresh_checkout, managed_command,
+    missing_manager, no_commits_ahead, prepare_base_probe, remove_checkout, skip_reason,
+    sweep_private,
 };
 use crate::actions::condition_cmd::{CmdContext, CmdExec, CmdExecResult};
 use crate::actions::conditions::{EvaluateConditionsInput, evaluate_conditions};
@@ -78,7 +78,7 @@ use crate::orphan::{ProcFacts, ProcInfo, StoredAgent, check_ours, read_proc_info
 use crate::platform::{self, Liveness, Platform, Signal, machine, mkdir_private, pid_liveness};
 use crate::ports::{PortPool, port_env};
 use crate::store::{
-    AckRecord, AgentRecord, DaemonStore, DurableMessage, PersistedSession, PortRange,
+    AckRecord, AgentRecord, DaemonStore, DurableMessage, PersistedSession, PortRange, SessionBase,
 };
 use crate::sysinfo::{SysInfo, live_sysinfo};
 use crate::system_prompt::build_append_system_prompt;
@@ -1168,7 +1168,7 @@ impl Core {
             // orchestrator's ack window).
             let wt = self
                 .workspace
-                .ensure_worktree(&EnsureWorktree {
+                .ensure_worktree_based(&EnsureWorktree {
                     repo: p.repo.clone(),
                     session_id: m.sid.to_string(),
                     branch: p.branch.clone(),
@@ -1356,7 +1356,7 @@ impl Core {
         m: Meta,
         p: &StartSessionPayload,
         starting: u64,
-        wt: Result<PathBuf, String>,
+        wt: Result<(PathBuf, Option<SessionBase>), String>,
         add_dirs: Vec<PathBuf>,
     ) -> bool {
         match self.start_spawn_inner(st, m, p, starting, wt, add_dirs) {
@@ -1376,12 +1376,12 @@ impl Core {
         m: Meta,
         p: &StartSessionPayload,
         starting_id: u64,
-        wt: Result<PathBuf, String>,
+        wt: Result<(PathBuf, Option<SessionBase>), String>,
         add_dirs: Vec<PathBuf>,
     ) -> Result<bool, String> {
         let sid = m.sid;
         let token = m.token;
-        let worktree = wt?;
+        let (worktree, created_base) = wt?;
         // ADR-0008: a reopened session reuses the earlier session's worktree. Never while a
         // process of another session still runs in it.
         if worktree != self.workspace.worktree_path(&sid.to_string()) {
@@ -1459,6 +1459,20 @@ impl Core {
             } else {
                 Some(claude_session_id.clone())
             };
+            // R3 (TD-221): the base recorded when this daemon created the branch: this
+            // session's, else the one it just created, else (ADR-0008 reopen) an earlier
+            // session's on the same repo and branch.
+            let base = prior
+                .as_ref()
+                .and_then(|x| x.base.clone())
+                .or(created_base)
+                .or_else(|| {
+                    store
+                        .sessions()
+                        .values()
+                        .find(|x| x.repo == p.repo && x.branch == p.branch && x.base.is_some())
+                        .and_then(|x| x.base.clone())
+                });
             store
                 .put_session(
                     &sid.to_string(),
@@ -1471,6 +1485,7 @@ impl Core {
                         claude_session_id: stored_id,
                         last_used_at: now_ms(),
                         agent: None,
+                        base,
                     },
                 )
                 .map_err(|e| e.to_string())?;
@@ -2216,16 +2231,21 @@ impl Core {
             out.not_run = Some(why.clone());
             return Ok(self.not_run(sid, token, &format!("{why}, so there is nothing to check")));
         }
-        // R3: a check with `paths` runs only when the branch's diff from its merge base with
-        // origin's default branch touches one; anything unknown runs it. A skip makes no
-        // checkout and runs no setup; as the last check it still removes the gate's checkout.
+        // R3: a check with `paths` runs only when the branch's diff from the commit this daemon
+        // created it at (TD-221: recorded in its own store, never read from the agent's refs)
+        // touches one; no recorded base or anything unknown runs it. A skip makes no checkout and
+        // runs no setup; as the last check it still removes the gate's checkout.
         if !co.paths.is_empty() {
             let paths = co.paths.as_slice();
-            let changed = changed_since_default(&wt, &want, None).await;
-            let (base, files) = match &changed {
-                Some((b, f)) => (Some(b.as_str()), Some(f.as_slice())),
-                None => (None, None),
+            let changed = match &s.base {
+                Some(b) => changed_since_base(&wt, &b.sha, &want, None).await,
+                None => None,
             };
+            let label = s
+                .base
+                .as_ref()
+                .map(|b| format!("{} at {}", b.branch, b.sha.get(..12).unwrap_or(&b.sha)));
+            let (base, files) = (label.as_deref(), changed.as_deref());
             if let Some(why) = skip_reason(files, paths, base) {
                 self.debug_line(
                     sid,

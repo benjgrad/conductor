@@ -8,9 +8,9 @@
 //!
 //! No OS `cfg` here (tests/seam.rs).
 
-use crate::exec::{Env, set_env};
+use crate::exec::{self, Env, set_env};
 use crate::platform::{self, CliOptions, Platform};
-use crate::store::DaemonStore;
+use crate::store::{DaemonStore, SessionBase};
 use conductor_protocol::RepoInventoryEntry;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -481,6 +481,16 @@ impl Workspace {
     /// - only a NEW branch fetches `origin <default_branch>` first and starts from it, without
     ///   upstream tracking. A failed fetch is an error naming the repo.
     pub async fn ensure_worktree(&self, o: &EnsureWorktree) -> Result<PathBuf, WorkspaceError> {
+        self.ensure_worktree_based(o).await.map(|(p, _)| p)
+    }
+
+    /// [`Self::ensure_worktree`], with the commit a NEW branch started from (R3, TD-221): read
+    /// right after `worktree add`, before any agent runs in it. None for a reused worktree or an
+    /// existing branch.
+    pub async fn ensure_worktree_based(
+        &self,
+        o: &EnsureWorktree,
+    ) -> Result<(PathBuf, Option<SessionBase>), WorkspaceError> {
         let mut refs = vec![&o.branch, &o.base_ref];
         if let Some(d) = &o.default_branch {
             refs.push(d);
@@ -501,7 +511,7 @@ impl Workspace {
         let lock = key_lock(&self.locks, &p2s(&clone));
         let _held = lock.lock().await;
         if path.join(".git").exists() {
-            return Ok(path);
+            return Ok((path, None));
         }
         let wt_dir = self.root_dir.join("wt");
         std::fs::create_dir_all(&wt_dir).map_err(|e| WorkspaceError::Other(e.to_string()))?;
@@ -515,7 +525,7 @@ impl Workspace {
                 && holder.join(".git").exists()
                 && let Some(name) = holder.file_name()
             {
-                return Ok(wt_dir.join(name));
+                return Ok((wt_dir.join(name), None));
             }
             return Err(WorkspaceError::Other(format!(
                 "branch {} is already checked out at {}",
@@ -528,6 +538,7 @@ impl Workspace {
         if !has_branch.trim().is_empty() {
             self.git(&clone, &["worktree", "add", "--quiet", &ps, &o.branch])
                 .await?;
+            Ok((path, None))
         } else {
             let base = self
                 .fresh_base(&o.repo, &clone, &o.base_ref, o.default_branch.as_deref())
@@ -546,8 +557,25 @@ impl Workspace {
                 ],
             )
             .await?;
+            let tip = self
+                .git(
+                    &clone,
+                    &[
+                        "rev-parse",
+                        "--verify",
+                        &format!("refs/heads/{}^{{commit}}", o.branch),
+                    ],
+                )
+                .await
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| exec::is_sha(s));
+            let from = base
+                .strip_prefix("refs/remotes/")
+                .unwrap_or(&base)
+                .to_string();
+            Ok((path, tip.map(|sha| SessionBase { sha, branch: from })))
         }
-        Ok(path)
     }
 
     /// Fetch the default branch into the clone and return the ref a new session branch starts

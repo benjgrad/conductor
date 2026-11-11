@@ -476,9 +476,10 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
        */
       no_commits: z.boolean().optional(),
       /**
-       * R3: the check has `paths` and the diff from the merge base with origin's default branch
-       * touches none of them, so it did not run: why. Then `exit_code` 0, `duration_ms` 0 and
-       * `head_sha` the commit under check; it counts as passed.
+       * R3: the check has `paths` and the diff from the session's recorded base (the commit the
+       * daemon created the branch at) to the checked commit touches none of them, so it did not
+       * run: why. Then `exit_code` 0, `duration_ms` 0 and `head_sha` the commit under check; it
+       * counts as passed.
        */
       skipped: z.string().max(STDERR_TAIL_CHARS).optional(),
     }),
@@ -893,8 +894,8 @@ export const RunCmdPayloadSchema = z.object({
    * = auto-detect (`package-lock.json` → `npm ci`, `package.json` → `npm install`), '' = none;
    * runs once per checkout. `last`: the daemon deletes the checkout after this check (it also
    * does on any failure). R3 `paths`: the check's globs; the daemon skips it (`cmd_exit.skipped`,
-   * no checkout, no setup) when the diff from the merge base with origin's default branch touches
-   * none of them, and runs it when it can't tell.
+   * no checkout, no setup) when the diff from the session's recorded base touches none of them,
+   * and runs it when it can't tell.
    */
   checkout: z
     .object({

@@ -120,41 +120,26 @@ pub async fn no_commits_ahead(
 
 // ---------------------------------------------------------------- diff-aware checks (R3)
 
-/// The paths `sha` changes since its merge base with origin's default branch, with that branch's
-/// short name (`origin/main`). None when it can't be told (no `origin/HEAD`, no merge base, any
-/// git error or an output over the buffer): the check then runs. Refs only, hooks off, no external
-/// diff, like [`no_commits_ahead`]. `--no-renames`: a rename touches its old and its new path.
-pub async fn changed_since_default(
+/// The paths that differ between the session's recorded base commit and `sha` (R3, TD-221).
+/// The base is the commit this daemon created the branch at, kept in its own store, so nothing in
+/// the agent's worktree (refs, `origin/HEAD`) chooses what the diff is against. It is a tree diff
+/// of the two commits: no history walk, so grafts and shallow files don't bend it, and
+/// `--no-replace-objects` keeps replace refs from swapping either object. A branch that merged a
+/// newer default branch diffs bigger, which only runs more. None when it can't be told (not
+/// commits, any git error, an output over the buffer): the check then runs. Hooks off, no external
+/// diff or textconv. `--no-renames`: a rename touches its old and its new path.
+pub async fn changed_since_base(
     worktree: &Path,
+    base: &str,
     sha: &str,
     env: Option<&[(String, String)]>,
-) -> Option<(String, Vec<String>)> {
-    if !exec::is_sha(sha) {
+) -> Option<Vec<String>> {
+    if !exec::is_sha(sha) || !exec::is_sha(base) || base == sha {
         return None;
     }
-    let git = |args: &[&str]| {
-        let mut a = no_hooks();
-        a.extend(sv(args));
-        async move { exec::run("git", &a, worktree, env).await }
-    };
-    let head = git(&[
-        "symbolic-ref",
-        "--quiet",
-        "--short",
-        "refs/remotes/origin/HEAD",
-    ])
-    .await;
-    let base_name = head.stdout.trim().to_string();
-    if head.code != Some(0) || base_name.is_empty() {
-        return None;
-    }
-    let mb = git(&["merge-base", sha, "refs/remotes/origin/HEAD"]).await;
-    let base = mb.stdout.trim().to_string();
-    // A merge base at the commit itself means no commits ahead: never a reason to skip.
-    if mb.code != Some(0) || !exec::is_sha(&base) || base == sha {
-        return None;
-    }
-    let diff = git(&[
+    let mut a = no_hooks();
+    a.extend(sv(&[
+        "--no-replace-objects",
         "-c",
         "core.quotepath=off",
         "diff",
@@ -163,34 +148,30 @@ pub async fn changed_since_default(
         "--no-renames",
         "--name-only",
         "-z",
-        &base,
+        base,
         sha,
-    ])
-    .await;
+        "--",
+    ]));
+    let diff = exec::run("git", &a, worktree, env).await;
     if diff.code != Some(0) || diff.spawn_error.is_some() {
         return None;
     }
-    let changed = diff
-        .stdout
-        .split('\0')
-        .filter(|p| !p.is_empty())
-        .map(str::to_string)
-        .collect();
-    Some((base_name, changed))
+    Some(
+        diff.stdout
+            .split('\0')
+            .filter(|p| !p.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 /// At most this many globs are named in a skip reason (the rest as "and N more").
 const SKIP_REASON_GLOBS: usize = 10;
 
 /// R3: why a check with `paths` is skipped, or None when it runs: it has no paths, the changes
-/// are unknown (`changed` None: uncertainty runs more, never less), none at all (a branch with
-/// commits ahead always changes something; an empty diff means the refs are not what they seem),
-/// or a changed path matches. `base`: the default branch the diff is against, for the reason.
-///
-/// TD-221: the base comes from the session clone's `origin/HEAD`, which the agent's worktree
-/// can write. A gate is a quality check, not a boundary against the agent (it can edit its tests
-/// too), and the reviewer and the PR's CI still run; a base recorded at worktree creation would
-/// close it.
+/// are unknown (`changed` None: no recorded base, a git error; uncertainty runs more, never
+/// less), none at all (a branch with commits ahead always changes something), or a changed path
+/// matches. `base`: what the diff is against, for the reason.
 pub fn skip_reason(
     changed: Option<&[String]>,
     paths: &[String],

@@ -590,12 +590,34 @@ async fn r3_a_check_whose_paths_match_a_change_runs() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn r3_without_a_default_branch_to_diff_against_the_check_runs() {
-    // FR-2: uncertainty runs more, never less.
+async fn r3_td_221_forged_refs_do_not_skip_a_check_the_recorded_base_says_must_run() {
+    // The agent changes crates/, commits once more, then moves origin/main past its Rust commit
+    // and drops origin/HEAD: diffed against its refs, only work.txt would have changed.
     let c = Ctx::new().await;
     let runner = FakeCommandRunner::new(1, true);
     let (sid, wt) = started_session(&c, runner.clone(), 3).await;
-    commit_ahead(&wt);
+    std::fs::create_dir_all(wt.join("crates/x")).unwrap();
+    std::fs::write(wt.join("crates/x/lib.rs"), "fn x() {}\n").unwrap();
+    commit_ahead(&wt); // commits crates/x/lib.rs and work.txt
+    let rust = git(&wt, &["rev-parse", "HEAD"]);
+    std::fs::write(wt.join("work.txt"), "more\n").unwrap();
+    git(&wt, &["add", "."]);
+    git(
+        &wt,
+        &[
+            "-c",
+            "user.email=t@x",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "more",
+        ],
+    );
+    git(
+        &wt,
+        &["update-ref", "refs/remotes/origin/main", rust.trim()],
+    );
     git(&wt, &["remote", "set-head", "origin", "--delete"]);
     c.send(&check_paths(
         sid,

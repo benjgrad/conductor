@@ -497,8 +497,8 @@ describe('/mcp', () => {
     // simulate_workflow); the list is what every client loads first, so it
     // stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the advisor tools, and its
     // P3 amendment to 22 KB for the change-proposal tools, and ADR-0034 to 23 KB for
-    // decide_proposed_ticket.
-    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(23 * 1024);
+    // decide_proposed_ticket, and R17 (Ben, 2026-11-11) to 24 KB for simulate_workflow.
+    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(24 * 1024);
 
     const created = await call(a.access, 'create_ticket', {
       title: 'From MCP',

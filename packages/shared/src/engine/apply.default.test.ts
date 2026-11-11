@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment -- raw definition edits in tests */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- raw definition edits in tests */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { WorkflowDefinitionSchema, type WorkflowDefinition } from '../workflow/schema.js';

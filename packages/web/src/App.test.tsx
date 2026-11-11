@@ -36,14 +36,15 @@ describe('kanban board', () => {
   it('maps cards to the conductor columns (ADR-0010; old m1_* states by type)', async () => {
     await renderApp();
     expect(cardTitles('Queued')).toEqual(['Hotfix: crash on empty cart', 'Add /health']);
+    // Agent columns sort by ticket age, oldest first (a stable order).
     expect(cardTitles('Implementing')).toEqual([
-      // UX-5: conductor running a move step's checks (the agent has exited).
-      'Conductor checks demo',
-      'Add pagination to /orders',
-      'Waiting for a build slot',
-      'Migrate settings page to new form lib',
       // ADR-0011: held in its source column while the move's conditions run.
       'Ship the /health endpoint',
+      // UX-5: conductor running a move step's checks (the agent has exited).
+      'Conductor checks demo',
+      'Waiting for a build slot',
+      'Migrate settings page to new form lib',
+      'Add pagination to /orders',
     ]);
     expect(cardTitles('Waiting external')).toEqual(['Bump node to 22 in CI']);
     // `lost` lands in Done with a badge.

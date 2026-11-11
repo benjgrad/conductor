@@ -1987,3 +1987,38 @@ async fn background_tasks_changed_from_the_cli_becomes_a_background_tasks_event(
     s.end();
     t.exit().await;
 }
+
+/// R7: a read-only-shell state (`bash_readonly`, no write alias) runs in dontAsk with no prompts,
+/// like a reviewer, even with skip permissions on; unlike a reviewer it keeps the user's MCP
+/// servers. Its deny rules (`--output`, `git push`) go to `--disallowedTools`.
+#[test]
+fn read_only_shell_runs_in_dont_ask_and_keeps_mcp() {
+    let mut o = base_opts();
+    o.tools = resolve_tool_policy(&["read", "bash_readonly"]).unwrap();
+    o.mcp = Some(serde_json::from_value(json!({ "mode": "inherit" })).unwrap());
+    o.dont_ask = true;
+    for skip in [false, true] {
+        o.skip_permissions = skip;
+        let args = build_claude_args(&o, "{}", "s.json", &PermissionArgs::Host);
+        assert_eq!(
+            flag_of(&args, "--permission-mode"),
+            Some("dontAsk"),
+            "skip={skip}"
+        );
+        assert_eq!(flag_of(&args, "--permission-prompts"), Some("none"));
+        assert!(!args.iter().any(|a| a == "--permission-prompt-tool"));
+        assert!(!args.iter().any(|a| a == "--strict-mcp-config"));
+        let allowed = flag_of(&args, "--allowedTools").unwrap_or("");
+        assert!(allowed.split(',').any(|r| r == "Bash(git log:*)"));
+        assert!(allowed.split(',').any(|r| r == "Bash(gh pr checks:*)"));
+        let deny = flag_of(&args, "--disallowedTools").unwrap_or("");
+        assert!(deny.split(',').any(|r| r == "Bash(git push:*)"));
+        assert!(deny.split(',').any(|r| r == "Bash(git log --output:*)"));
+    }
+    // Without the flag: a worker in auto mode, as before.
+    o.dont_ask = false;
+    o.skip_permissions = false;
+    let args = build_claude_args(&o, "{}", "s.json", &PermissionArgs::Host);
+    assert_eq!(flag_of(&args, "--permission-mode"), Some("auto"));
+    assert_eq!(flag_of(&args, "--permission-prompts"), Some("host"));
+}

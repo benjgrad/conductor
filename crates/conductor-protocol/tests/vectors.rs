@@ -9,7 +9,7 @@ use conductor_protocol::capabilities::{capability_key, capability_keys, cli_vers
 use conductor_protocol::json::json_byte_length;
 use conductor_protocol::repo::{canonical_repo, is_canonical_remote};
 use conductor_protocol::screenshots::matching_paths;
-use conductor_protocol::tool_policy::{ToolPolicy, resolve_tool_policy};
+use conductor_protocol::tool_policy::{ToolPolicy, forces_dont_ask, resolve_tool_policy};
 use serde_json::Value;
 
 fn cases(name: &str) -> Vec<Value> {
@@ -121,6 +121,15 @@ fn resolve_tool_policy_vectors() {
                 assert_eq!(e.names, expected, "{tools:?}");
             }
         }
+    }
+}
+
+#[test]
+fn forces_dont_ask_vectors() {
+    for c in cases("forcesDontAsk") {
+        let tools: Vec<String> = serde_json::from_value(c["input"].clone()).unwrap();
+        let expected = c["expected"].as_bool().unwrap();
+        assert_eq!(forces_dont_ask(&tools), expected, "{tools:?}");
     }
 }
 

@@ -22,18 +22,27 @@ import { loadAdvisorRows, WINDOW_MAX_DAYS } from './queries.js';
 //   `assistant_job` outbox row, in one transaction. Only the machine that ran the session takes
 //   it (the transcript lives there, ADR-0008), and only when that machine advertised the
 //   `assistant_job` feature (the Rust daemon, after MR-T12); until then nothing is scheduled.
-// - The result is re-validated with SessionInsightSchema: a malformed one is dropped. Nothing is
-//   ever retried: `assistant_job.idempotency_key` is unique, so a session gets one job per version.
+// - R13: every finished session by default. Jobs are paced at one open job per machine (its one
+//   light slot), so a burst is never refused; an account opts into sampling with
+//   `account.analyst_daily_cap` (jobs per 24 h).
+// - The result is re-validated with SessionInsightSchema: a malformed one is dropped, never
+//   retried. A job that failed (refused, ack timeout, expired, an error result) gets one more
+//   attempt (MAX_ATTEMPTS), under its own idempotency key; nothing is retried beyond that.
 // - Insights are kept RETENTION_DAYS and deleted with their ticket (U-066).
 
 /** The cheapest model (ADR-0015). */
 export const INSIGHT_MODEL = 'haiku';
-/** Jobs per account in any 24 h (ADR-0033, U-055). */
-export const DAILY_CAP = 20;
-/** Sessions that finished longer ago than this are never analysed (the backfill limit). */
-export const BACKFILL_DAYS = 7;
-/** Jobs written per scheduler pass. */
+/**
+ * The old default cap (ADR-0033, U-055): jobs per account in any 24 h. Since R13 only an account
+ * that opts into sampling (`account.analyst_daily_cap`) is capped; this is the suggested value.
+ */
+export const SAMPLE_DAILY_CAP_DEFAULT = 20;
+/** Sessions that finished longer ago than this are never analysed (the default insights window). */
+export const BACKFILL_DAYS = 30;
+/** Jobs written per scheduler pass (at most one per machine). */
 export const PASS_LIMIT = 25;
+/** Jobs per session and schema version: the first, and one retry after a failure. */
+export const MAX_ATTEMPTS = 2;
 export const RETENTION_DAYS = 180;
 /** A job not finished this long after it was written failed (a queue of 4 × 120 s fits). */
 export const JOB_EXPIRY_MIN = 30;
@@ -47,8 +56,12 @@ const ERROR_MAX = 500;
 /** How often the workers run a scheduler + sweep pass. */
 export const INSIGHT_SWEEP_INTERVAL_MS = 60_000;
 
-export const insightKey = (sessionId: string, version = SESSION_INSIGHT_SCHEMA_VERSION) =>
-  `insight:${sessionId}:${version}`;
+/** A job's idempotency key; attempt 1 keeps the pre-R13 key. */
+export const insightKey = (
+  sessionId: string,
+  version = SESSION_INSIGHT_SCHEMA_VERSION,
+  attempt = 1,
+) => `insight:${sessionId}:${version}${attempt > 1 ? `:${attempt}` : ''}`;
 
 const DAY_MS = 86_400_000;
 const clip = (s: string, n = ERROR_MAX) => (s.length <= n ? s : s.slice(0, n - 1) + '…');
@@ -64,11 +77,15 @@ interface Candidate {
   title: string;
   repo: string;
   kind: string | null;
+  /** The account's sampling cap (null = every session). */
+  analyst_daily_cap: number | null;
+  /** This job's attempt: 1 + the session's failed jobs. */
+  attempt: number;
 }
 
 export interface ScheduleStats {
   scheduled: number;
-  /** Sessions skipped because their account hit DAILY_CAP. */
+  /** Sessions skipped because their account samples and hit its daily cap. */
   capped: number;
 }
 
@@ -76,19 +93,31 @@ export interface ScheduleStats {
 export async function scheduleInsightJobs(db: Db, now: Date): Promise<ScheduleStats> {
   const stats: ScheduleStats = { scheduled: 0, capped: 0 };
   const since = new Date(now.getTime() - BACKFILL_DAYS * DAY_MS);
+  // One candidate per machine (DISTINCT ON), and none on a machine with an open job: the
+  // machine has one light slot, so more would be refused (R13).
   const candidates = await db.query<Candidate>(
-    `SELECT s.id, s.ticket_id, s.account_id, s.machine_id, s.workflow_id, s.status::text AS status,
-            s.claude_session_id, t.title, t.repo, t.kind::text AS kind
+    `SELECT DISTINCT ON (s.machine_id)
+            s.id, s.ticket_id, s.account_id, s.machine_id, s.workflow_id, s.status::text AS status,
+            s.claude_session_id, t.title, t.repo, t.kind::text AS kind, a.analyst_daily_cap,
+            1 + (SELECT count(*) FROM assistant_job f
+                  WHERE f.session_id = s.id AND f.schema_version = $3
+                    AND f.status = 'failed')::int AS attempt
        FROM session s
        JOIN ticket t ON t.id = s.ticket_id
+       JOIN account a ON a.id = s.account_id
        JOIN machine m ON m.id = s.machine_id AND m.account_id = s.account_id
       WHERE s.status IN ('done', 'failed') AND s.updated_at >= $1
         AND m.status = 'online' AND m.revoked_at IS NULL AND $2 = ANY (m.features)
-        AND NOT EXISTS (SELECT 1 FROM assistant_job j WHERE j.idempotency_key =
-                          'insight:' || s.id::text || ':' || $3::text)
-      ORDER BY s.updated_at DESC
+        AND NOT EXISTS (SELECT 1 FROM assistant_job j
+                         WHERE j.session_id = s.id AND j.schema_version = $3
+                           AND j.status <> 'failed')
+        AND (SELECT count(*) FROM assistant_job f
+              WHERE f.session_id = s.id AND f.schema_version = $3 AND f.status = 'failed') < $5
+        AND NOT EXISTS (SELECT 1 FROM assistant_job o
+                         WHERE o.machine_id = m.id AND o.status IN ('queued', 'sent'))
+      ORDER BY s.machine_id, s.updated_at DESC
       LIMIT $4`,
-    [since, DAEMON_FEATURE_ASSISTANT_JOB, String(SESSION_INSIGHT_SCHEMA_VERSION), PASS_LIMIT],
+    [since, DAEMON_FEATURE_ASSISTANT_JOB, SESSION_INSIGHT_SCHEMA_VERSION, PASS_LIMIT, MAX_ATTEMPTS],
   );
   const cappedAccounts = new Set<string>();
   for (const c of candidates.rows) {
@@ -113,11 +142,19 @@ async function scheduleOne(
 ): Promise<'scheduled' | 'capped' | 'exists'> {
   // One scheduler at a time per account, so the cap holds across orchestrator processes.
   await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`assistant_job:${c.account_id}`]);
-  const used = await tx.query<{ n: string }>(
-    'SELECT count(*) AS n FROM assistant_job WHERE account_id = $1 AND created_at > $2',
-    [c.account_id, new Date(now.getTime() - DAY_MS)],
+  // Another orchestrator may have given the machine a job since the candidate query.
+  const open = await tx.query(
+    "SELECT 1 FROM assistant_job WHERE machine_id = $1 AND status IN ('queued', 'sent') LIMIT 1",
+    [c.machine_id],
   );
-  if (Number(used.rows[0]!.n) >= DAILY_CAP) return 'capped';
+  if (open.rows.length > 0) return 'exists';
+  if (c.analyst_daily_cap !== null) {
+    const used = await tx.query<{ n: string }>(
+      'SELECT count(*) AS n FROM assistant_job WHERE account_id = $1 AND created_at > $2',
+      [c.account_id, new Date(now.getTime() - DAY_MS)],
+    );
+    if (Number(used.rows[0]!.n) >= c.analyst_daily_cap) return 'capped';
+  }
 
   const rows = await loadAdvisorRows(tx, {
     accountId: c.account_id,
@@ -145,11 +182,11 @@ async function scheduleOne(
       : {}),
     timeout_ms: INSIGHT_TIMEOUT_MS,
   });
-  const key = insightKey(c.id);
+  const key = insightKey(c.id, SESSION_INSIGHT_SCHEMA_VERSION, c.attempt);
   const job = await tx.query(
     `INSERT INTO assistant_job (id, account_id, kind, session_id, ticket_id, schema_version,
-                                machine_id, command_id, idempotency_key, created_at)
-     VALUES ($1, $2, 'session_insight', $3, $4, $5, $6, $7, $8, $9)
+                                machine_id, command_id, idempotency_key, created_at, attempt)
+     VALUES ($1, $2, 'session_insight', $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (idempotency_key) DO NOTHING`,
     [
       jobId,
@@ -161,6 +198,7 @@ async function scheduleOne(
       commandId,
       key,
       now,
+      c.attempt,
     ],
   );
   if (job.rowCount !== 1) return 'exists';
@@ -245,10 +283,19 @@ export async function handleAssistantResult(
         WHERE command_id = $1 AND status IN ('pending', 'sent')`,
       [payload.command_id],
     );
+    // R13: what the job cost, whatever its outcome (the process report sums it).
     const finish = (status: 'done' | 'failed' | 'dropped', error: string | null) =>
       tx.query(
-        'UPDATE assistant_job SET status = $2, error = $3, finished_at = now() WHERE id = $1',
-        [j.id, status, error === null ? null : clip(error)],
+        `UPDATE assistant_job SET status = $2, error = $3, finished_at = now(), cost_usd = $4,
+                                  duration_ms = $5
+          WHERE id = $1`,
+        [
+          j.id,
+          status,
+          error === null ? null : clip(error),
+          payload.cost_usd ?? null,
+          payload.duration_ms,
+        ],
       );
     if ('error' in payload) {
       await finish(
@@ -426,4 +473,71 @@ export async function getInsight(
   if (!row) return null;
   const p = SessionInsightSchema.safeParse(row.insight);
   return p.success ? { ...row, insight: p.data } : null;
+}
+
+export interface AnalystUsage {
+  /** Analyst jobs written in the window, by status. */
+  jobs: number;
+  done: number;
+  failed: number;
+  dropped: number;
+  open: number;
+  /** Summed cost the daemon reported, USD (4 dp); over `priced_jobs` of the jobs. */
+  cost_usd: number;
+  priced_jobs: number;
+}
+
+/** R13: the window's analyst jobs and what they cost (the process report). */
+export async function analystUsage(db: Queryable, f: InsightFilter): Promise<AnalystUsage> {
+  const r = await db.query<{
+    jobs: string;
+    done: string;
+    failed: string;
+    dropped: string;
+    open: string;
+    cost: string | null;
+    priced: string;
+  }>(
+    `SELECT count(*) AS jobs,
+            count(*) FILTER (WHERE j.status = 'done') AS done,
+            count(*) FILTER (WHERE j.status = 'failed') AS failed,
+            count(*) FILTER (WHERE j.status = 'dropped') AS dropped,
+            count(*) FILTER (WHERE j.status IN ('queued', 'sent')) AS open,
+            sum(j.cost_usd) AS cost,
+            count(j.cost_usd) AS priced
+       FROM assistant_job j
+       JOIN session s ON s.id = j.session_id
+       JOIN ticket t ON t.id = j.ticket_id
+      WHERE j.account_id = $1 AND s.account_id = $1 AND j.created_at >= $2
+        AND ($3::text IS NULL OR lower(t.repo) = lower($3))
+        AND ($4::text IS NULL OR s.workflow_id = $4)`,
+    [f.accountId, f.since, f.repo ?? null, f.workflowId ?? null],
+  );
+  const row = r.rows[0];
+  const n = (v: string | undefined) => Number(v ?? 0);
+  return {
+    jobs: n(row?.jobs),
+    done: n(row?.done),
+    failed: n(row?.failed),
+    dropped: n(row?.dropped),
+    open: n(row?.open),
+    cost_usd: Math.round(Number(row?.cost ?? 0) * 10_000) / 10_000,
+    priced_jobs: n(row?.priced),
+  };
+}
+
+export interface AnalystSetting {
+  /** `all`: every finished session; `sample`: at most `daily_cap` jobs per 24 h. */
+  mode: 'all' | 'sample';
+  daily_cap: number | null;
+}
+
+/** R13: the account's analyst setting (`account.analyst_daily_cap`). */
+export async function analystSetting(db: Queryable, accountId: string): Promise<AnalystSetting> {
+  const r = await db.query<{ analyst_daily_cap: number | null }>(
+    'SELECT analyst_daily_cap FROM account WHERE id = $1',
+    [accountId],
+  );
+  const cap = r.rows[0]?.analyst_daily_cap ?? null;
+  return { mode: cap === null ? 'all' : 'sample', daily_cap: cap };
 }

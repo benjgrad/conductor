@@ -335,6 +335,10 @@ pub const WORKER_PERMISSION_MODE: &str = "auto";
 /// dontAsk only pre-approved tools run; anything else is denied without a prompt.
 pub const REVIEWER_PERMISSION_MODE: &str = "dontAsk";
 
+/// R7: the first start note of a read-only-shell session ([`DriverStartOptions::dont_ask`]).
+pub const READ_ONLY_SHELL_NOTE: &str =
+    "read-only shell: running in dontAsk mode; anything not pre-approved is denied, never prompted";
+
 /// How [`build_claude_args`] sets permissions. `Host` (ADR-0023): workers run in auto mode and
 /// what it would still ask goes to `mcp__conductor__permission`. `None`: the pre-ADR-0023 flags,
 /// for a CLI without auto mode or `--permission-prompts host`: `legacy_mode` is
@@ -525,10 +529,12 @@ pub fn build_claude_args(
     }
     // ADR-0009: a reviewer is forced into dontAsk and never prompts. ADR-0023: a worker runs in
     // auto mode and its prompts go to conductor; on an old CLI it keeps the user's mode, capped.
-    let host = *permission == PermissionArgs::Host && !opts.review;
+    // R7: a read-only-shell state (`dont_ask`) runs the same way, so its shell stays read-only.
+    let dont_ask = opts.review || opts.dont_ask;
+    let host = *permission == PermissionArgs::Host && !dont_ask;
     // ADR-0039: a worker with skip permissions runs in bypassPermissions (deny rules and the
-    // edit-guard hook still apply); a reviewer never does.
-    let mode: Option<&str> = if opts.review {
+    // edit-guard hook still apply); a reviewer or read-only-shell session never does.
+    let mode: Option<&str> = if dont_ask {
         Some(REVIEWER_PERMISSION_MODE)
     } else if opts.skip_permissions {
         Some(SKIP_PERMISSION_MODE)
@@ -1230,7 +1236,9 @@ impl CliDriver {
             &dropped,
         );
         // ADR-0039: the first note is the permission mode's.
-        if opts.skip_permissions && !opts.review {
+        if opts.dont_ask && !opts.review {
+            notes[0] = READ_ONLY_SHELL_NOTE.into();
+        } else if opts.skip_permissions && !opts.review {
             notes[0] = SKIP_PERMISSIONS_NOTE.into();
         }
         let mut args = self.prefix_args.clone();

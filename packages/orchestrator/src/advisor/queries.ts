@@ -394,9 +394,17 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     });
   }
 
+  // R13: the machines' names, for machine_health findings (a deleted machine shows its id).
+  const machineRows = await db.query<{ id: string; name: string }>(
+    'SELECT id, COALESCE(name, hostname) AS name FROM machine WHERE account_id = $1',
+    [f.accountId],
+  );
+  const machines = Object.fromEntries(machineRows.rows.map((m) => [m.id, m.name]));
+
   return {
     since: since.toISOString(),
     truncated,
+    machines,
     ...(pages.length > 0 ? { pages } : {}),
     ...(presetTexts.length > 0 ? { preset_texts: presetTexts } : {}),
     ...(holds.length > 0 ? { holds } : {}),

@@ -16,7 +16,7 @@ Analysis is layered:
 
 **Exit criteria**:
 - P1: `get_process_metrics` and `list_findings` return deterministic, account-scoped results under 8 KB; the `workflow_advisor` prompt is served; the tool list is ≤ 20 KB.
-- P2: a finished session produces at most one `session_insight` per schema version. The result is zod-validated (malformed results are dropped, never retried in a loop). Jobs run in a light slot and are capped at 20 a day per account. Insights are kept 180 days.
+- P2: a finished session produces at most one `session_insight` per schema version. The result is zod-validated (malformed results are dropped, never retried in a loop). Jobs run in a light slot and are capped at 20 a day per account (R13, 2026-11: every session by default, paced one per machine; the cap is an opt-in per account). Insights are kept 180 days.
 - P3: a proposal shows its diff, evidence, expected effect and rollback. Applying it re-checks the base version, the admin gate and `approvalsWeakened`. The review (`list_change_proposals` with an id, ADR-0033 §Amendment: P3 as built) compares metrics before and after. `bypassPermissions` can't be set over MCP.
 - E2E: fake claude returns a canned insight; the coordinator lists findings, proposes a repo-checks change, and it is applied after a confirm.
 

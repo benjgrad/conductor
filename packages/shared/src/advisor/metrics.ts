@@ -121,6 +121,8 @@ export interface AdvisorRows {
   holds?: HoldRow[];
   /** R4: the agents' `run_gate` self-checks started in the window (`self_check_run` rows). */
   self_checks?: SelfCheckRow[];
+  /** R13: the account's machines, id → display name (`machine.name`, else its hostname). */
+  machines?: Record<string, string>;
 }
 
 /** R4: one `run_gate` call that reached the orchestrator. `passed` null = it never reported. */
@@ -1139,6 +1141,166 @@ export function pageCounts(rows: readonly PageCountRow[]): Pick<ProcessMetrics, 
   return { pages: { total, by_state: byState, by_ticket } };
 }
 
+// ---------------------------------------------------------------- machine health (R13)
+
+export interface MachineHealthStat {
+  machine_id: string;
+  /** Distinct sessions with any row on the machine. */
+  sessions: number;
+  tickets: number;
+  /** Engine stops (`classOf` = `stop`): timeouts, retries ran out, a lost machine… */
+  stops: number;
+  stops_per_session: number;
+  /** Check runs (not the pin check) and how many failed. */
+  check_runs: number;
+  check_failures: number;
+  check_failure_rate: number;
+  /** p90 of its finished stays (held time out, states that wait on others left out). */
+  p90_minutes: number;
+  /** Tickets with a stop or a failed check first. */
+  examples: string[];
+}
+
+/** R13: per machine, its sessions, stops, check failures and slow stays. Most sessions first. */
+export function machineHealth(rows: AdvisorRows): MachineHealthStat[] {
+  type Acc = {
+    sessions: Set<string>;
+    tickets: Set<string>;
+    bad: string[];
+    stops: number;
+    runs: number;
+    fails: number;
+    mins: number[];
+  };
+  const by = new Map<string, Acc>();
+  const at = (id: string | null): Acc | null =>
+    id === null
+      ? null
+      : bucket(by, id, () => ({
+          sessions: new Set<string>(),
+          tickets: new Set<string>(),
+          bad: [],
+          stops: 0,
+          runs: 0,
+          fails: 0,
+          mins: [],
+        }));
+  const seen = (a: Acc, r: { session_id: string; ticket_id: string }) => {
+    a.sessions.add(r.session_id);
+    a.tickets.add(r.ticket_id);
+  };
+  for (const m of rows.moves) {
+    const a = at(m.machine_id);
+    if (a) seen(a, m);
+  }
+  for (const c of rows.checks) {
+    const a = at(c.machine_id);
+    if (!a) continue;
+    seen(a, c);
+    if (c.role === 'pin') continue;
+    a.runs++;
+    if (checkFailed(c)) {
+      a.fails++;
+      addExample(a.bad, c.ticket_id);
+    }
+  }
+  for (const r of rows.inputs) {
+    const a = at(r.machine_id);
+    if (!a) continue;
+    seen(a, r);
+    if (classOf(r) === 'stop') {
+      a.stops++;
+      addExample(a.bad, r.ticket_id);
+    }
+  }
+  const spans = withoutHeld(stateDurations(rows.moves), rows.holds).filter(
+    (s) => rows.waits?.[s.state] === undefined,
+  );
+  for (const s of spans) {
+    const a = s.machine_id === null ? undefined : by.get(s.machine_id);
+    if (a) a.mins.push(s.minutes);
+  }
+  return [...by.entries()]
+    .map(([machine_id, a]) => {
+      const examples = [...a.bad];
+      for (const t of a.tickets) addExample(examples, t);
+      return {
+        machine_id,
+        sessions: a.sessions.size,
+        tickets: a.tickets.size,
+        stops: a.stops,
+        stops_per_session: a.sessions.size === 0 ? 0 : a.stops / a.sessions.size,
+        check_runs: a.runs,
+        check_failures: a.fails,
+        check_failure_rate: a.runs === 0 ? 0 : a.fails / a.runs,
+        p90_minutes: round1(percentile(a.mins, 0.9)),
+        examples,
+      };
+    })
+    .sort((x, y) => y.sessions - x.sessions || x.machine_id.localeCompare(y.machine_id));
+}
+
+/**
+ * R13: `machine_health` findings: a machine (≥ machineMinSessions sessions) whose stops per
+ * session, or check-failure rate, is ≥ machineFactor × the median of the account's machines
+ * (and above a floor), named by `names`.
+ */
+export function machineHealthFindings(
+  rows: AdvisorRows,
+  names: Record<string, string> = rows.machines ?? {},
+): Finding[] {
+  const R = FINDING_RULES;
+  const stats = machineHealth(rows).filter((m) => m.sessions >= R.machineMinSessions);
+  if (stats.length < 2) return [];
+  const stopsMedian = median(stats.map((m) => m.stops_per_session));
+  const checked = stats.filter((m) => m.check_runs >= R.machineMinCheckRuns);
+  const failMedian = median(checked.map((m) => m.check_failure_rate));
+  const pct = (x: number) => Math.round(x * 100);
+  const out: Finding[] = [];
+  for (const m of stats) {
+    const stopsBar = Math.max(R.machineFactor * stopsMedian, R.machineStopsFloor);
+    const stopsTrip = m.stops_per_session >= stopsBar;
+    const failBar = Math.max(R.machineFactor * failMedian, R.machineCheckFailFloor);
+    const checksTrip =
+      checked.length >= 2 &&
+      m.check_runs >= R.machineMinCheckRuns &&
+      m.check_failure_rate >= failBar;
+    if (!stopsTrip && !checksTrip) continue;
+    const far = (x: number, med: number) => (med <= 0 ? x > 0 : x >= 2 * R.machineFactor * med);
+    const severe =
+      (stopsTrip && checksTrip) ||
+      (stopsTrip && far(m.stops_per_session, stopsMedian)) ||
+      (checksTrip && far(m.check_failure_rate, failMedian));
+    const name = names[m.machine_id] ?? m.machine_id;
+    const label = name === m.machine_id ? name : `${name} (${m.machine_id.slice(0, 8)})`;
+    const what =
+      stopsTrip && checksTrip ? 'stops and fails checks' : stopsTrip ? 'stops' : 'fails checks';
+    const parts = [
+      `${m.stops} stops (${round1(m.stops_per_session)} per session, median ${round1(stopsMedian)})`,
+      ...(m.check_runs > 0
+        ? [
+            `${m.check_failures} of ${m.check_runs} checks failed (${pct(m.check_failure_rate)} %` +
+              `${checked.length >= 2 ? `, median ${pct(failMedian)} %` : ''})`,
+          ]
+        : []),
+      `p90 stay ${m.p90_minutes} min`,
+    ];
+    out.push({
+      id: `machine_health:${m.machine_id}`,
+      category: 'machine_health',
+      severity: severe ? 3 : 2,
+      title: `Machine ${name.slice(0, 80)} ${what} more than the others`,
+      evidence: `${m.sessions} sessions (${m.tickets} tickets) on ${label.slice(0, 100)}: ${parts.join(', ')}.`,
+      example_ticket_ids: m.examples,
+      suggested_tool: 'board',
+      suggestion:
+        'Look at the machine on the Machines page (heartbeat, disk, CPU, its tools) and at the ' +
+        'example tickets’ stops; if it is unhealthy, take it offline or steer work away with tags.',
+    });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- findings
 
 export const FindingCategorySchema = z.enum([
@@ -1149,6 +1311,8 @@ export const FindingCategorySchema = z.enum([
   'rework_loop',
   /** ADR-0037 P1: a watch keeps sending tickets back (`watch_broken` laps), e.g. merge conflicts. */
   'resync_loop',
+  /** R13: a machine whose sessions stop, or whose checks fail, far more than the others'. */
+  'machine_health',
   /** P2: a friction the analyst sub-agents reported in many sessions (advisor/insight.ts). */
   'recurring_friction',
 ]);
@@ -1198,6 +1362,16 @@ export const FINDING_RULES = {
   reworkLoops: 2,
   /** A ticket its watch sent back (`watch_broken`) at least this many times. */
   resyncLoops: 2,
+  /** R13: a machine at this × the account's per-machine median (stops per session, check failures)… */
+  machineFactor: 2,
+  /** …over at least this many sessions (and only machines with this many form the median). */
+  machineMinSessions: 3,
+  /** …with at least this many stops per session, so a median of 0 never flags one stop… */
+  machineStopsFloor: 0.5,
+  /** …or at least this check-failure rate… */
+  machineCheckFailFloor: 0.2,
+  /** …over at least this many check runs. */
+  machineMinCheckRuns: 3,
 } as const;
 
 const CATEGORY_ORDER: FindingCategory[] = FindingCategorySchema.options;
@@ -1382,6 +1556,8 @@ export function rankFindings(rows: AdvisorRows, extra: readonly Finding[] = []):
         'tickets that touch the same files (requires.concurrency) or keep PRs smaller, with save_workflow.',
     });
   }
+
+  out.push(...machineHealthFindings(rows));
 
   return out.sort(
     (a, b) =>

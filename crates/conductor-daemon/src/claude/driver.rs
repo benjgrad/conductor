@@ -86,6 +86,11 @@ pub struct DriverStartOptions {
     /// R4: runs the agent's `run_gate` (the daemon gives a working agent one; the driver lists
     /// the tool only when a transition runs checks, never for a reviewer).
     pub run_gate: Option<RunGateHook>,
+    /// R7 (`forces_dont_ask`): the state's tools add `bash_readonly` and no write alias, so the
+    /// agent runs in `--permission-mode dontAsk` with no prompts, like a reviewer, and its shell
+    /// stays read-only. Skip permissions is ignored. Unlike `review`, it keeps its MCP servers,
+    /// attachments and conversation.
+    pub dont_ask: bool,
 }
 
 /// R4: the `run_gate` handler, compared by identity (the options are `PartialEq` for tests).
@@ -133,6 +138,7 @@ impl DriverStartOptions {
             publish_pages: false,
             skip_permissions: false,
             run_gate: None,
+            dont_ask: false,
         }
     }
 }

@@ -475,6 +475,12 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
        * check (`not_run` says so). Not run.
        */
       no_commits: z.boolean().optional(),
+      /**
+       * R3: the check has `paths` and the diff from the merge base with origin's default branch
+       * touches none of them, so it did not run: why. Then `exit_code` 0, `duration_ms` 0 and
+       * `head_sha` the commit under check; it counts as passed.
+       */
+      skipped: z.string().max(STDERR_TAIL_CHARS).optional(),
     }),
   }),
   z.object({
@@ -886,10 +892,17 @@ export const RunCmdPayloadSchema = z.object({
    * the agent's worktree. `sha` null = the worktree's clean HEAD (the first check); `setup` null
    * = auto-detect (`package-lock.json` → `npm ci`, `package.json` → `npm install`), '' = none;
    * runs once per checkout. `last`: the daemon deletes the checkout after this check (it also
-   * does on any failure).
+   * does on any failure). R3 `paths`: the check's globs; the daemon skips it (`cmd_exit.skipped`,
+   * no checkout, no setup) when the diff from the merge base with origin's default branch touches
+   * none of them, and runs it when it can't tell.
    */
   checkout: z
-    .object({ sha: z.string().nullable(), setup: z.string().nullable(), last: z.boolean() })
+    .object({
+      sha: z.string().nullable(),
+      setup: z.string().nullable(),
+      last: z.boolean(),
+      paths: z.array(z.string()).max(50).optional(),
+    })
     .optional(),
 });
 export const RunCmdMessageSchema = msg('run_cmd', RunCmdPayloadSchema, orchSessionEnv);

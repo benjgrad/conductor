@@ -5,17 +5,18 @@ import {
   type RepoCheckRun,
   type RepoCheckRunsResponse,
 } from '../api/rest.js';
-import { checkFailed, type CheckRunRow } from './metrics.js';
+import { checkFailed, checkSkipped, type CheckRunRow } from './metrics.js';
 
 // UXR-80: the Repo checks page's run history, from the same rows `get_process_metrics
 // group_by=check` reads (orchestrator/src/advisor/queries.ts `loadCheckRuns`). Pure.
 // TD-201: runs are keyed by `cmd`: the run_cmd outbox payload carries no check name, so the current
 // check list names them (a renamed check keeps its history; a changed command starts empty).
 
-/** How a run ended: setup failure, then timeout, then a non-zero or missing exit. */
+/** How a run ended: skipped (R3), setup failure, then timeout, then a non-zero or missing exit. */
 export function checkRunStatus(
-  row: Pick<CheckRunRow, 'exit_code' | 'timed_out' | 'setup_failed'>,
+  row: Pick<CheckRunRow, 'exit_code' | 'timed_out' | 'setup_failed' | 'skipped'>,
 ): CheckRunStatus {
+  if (checkSkipped(row)) return 'skipped';
   if (row.setup_failed) return 'setup_failed';
   if (row.timed_out) return 'timed_out';
   return checkFailed(row) ? 'fail' : 'pass';
@@ -71,8 +72,9 @@ export function runsByCheck(
       runs: mine
         .slice(0, Math.max(0, limit))
         .map((r) => toRepoCheckRun(r, titles.get(r.ticket_id) ?? null)),
-      runs_in_window: mine.length,
+      runs_in_window: mine.filter((r) => !checkSkipped(r)).length,
       failures_in_window: mine.filter((r) => checkFailed(r)).length,
+      skips_in_window: mine.filter(checkSkipped).length,
     });
   }
   return out;
@@ -80,10 +82,14 @@ export function runsByCheck(
 
 export const HEALTH_RECENT = 5;
 
-/** Per repo (`repoChecksKey`): run and failure counts, the last run and the newest statuses. */
+/**
+ * Per repo (`repoChecksKey`): run and failure counts, the last run and the newest statuses. R3:
+ * skipped checks are not runs, so they are left out.
+ */
 export function repoHealth(rows: readonly CheckRunRow[]): RepoCheckHealth[] {
   const byRepo = new Map<string, CheckRunRow[]>();
   for (const r of rows) {
+    if (checkSkipped(r)) continue;
     const key = repoChecksKey(r.repo);
     const list = byRepo.get(key);
     if (list) list.push(r);
@@ -108,10 +114,12 @@ export function repoHealth(rows: readonly CheckRunRow[]): RepoCheckHealth[] {
 export type HealthHint = 'none' | 'passing' | 'flaky' | 'failing';
 
 /**
- * A repo's hint from its newest statuses (newest first): none without runs; passing when all
+ * A repo's hint from its newest statuses (newest first, skipped ones ignored): none without runs; passing when all
  * passed; failing when the newest 3 (or all, if fewer) failed; else flaky.
  */
-export function healthHint(recent: readonly CheckRunStatus[]): HealthHint {
+export function healthHint(statuses: readonly CheckRunStatus[]): HealthHint {
+  // R3: a skipped check says nothing about the check's health.
+  const recent = statuses.filter((s) => s !== 'skipped');
   if (recent.length === 0) return 'none';
   if (recent.every((s) => s === 'pass')) return 'passing';
   if (recent.slice(0, 3).every((s) => s !== 'pass')) return 'failing';

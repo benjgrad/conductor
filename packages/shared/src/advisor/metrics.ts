@@ -56,6 +56,8 @@ export interface CheckRunRow {
   exit_code: number | null;
   timed_out: boolean;
   setup_failed: boolean;
+  /** R3: skipped, no change matched its `paths` (not a run, not a failure). Absent = false. */
+  skipped?: boolean;
   started_at: string;
   at: string;
 }
@@ -444,14 +446,23 @@ export interface CheckStat {
   failures: number;
   timeouts: number;
   setup_failures: number;
+  /** R3: skipped (no change matched its `paths`); not counted in `runs`. */
+  skips: number;
   failure_rate: number;
   median_minutes: number;
   examples: string[];
 }
 
-/** A check run counts as failed on a non-zero (or missing) exit, a timeout or a failed setup. */
-export const checkFailed = (c: Pick<CheckRunRow, 'exit_code' | 'timed_out' | 'setup_failed'>) =>
-  c.timed_out || c.setup_failed || c.exit_code !== 0;
+/**
+ * A check run counts as failed on a non-zero (or missing) exit, a timeout or a failed setup. A
+ * skipped one (R3) never does.
+ */
+export const checkFailed = (
+  c: Pick<CheckRunRow, 'exit_code' | 'timed_out' | 'setup_failed' | 'skipped'>,
+) => c.skipped !== true && (c.timed_out || c.setup_failed || c.exit_code !== 0);
+
+/** R3: the daemon skipped it (no change matched its `paths`). */
+export const checkSkipped = (c: Pick<CheckRunRow, 'skipped'>) => c.skipped === true;
 
 /** The name a check run is counted under: its name, a setup's under `setup: <name>`. */
 export function checkKey(c: Pick<CheckRunRow, 'cmd' | 'name' | 'role'>): string {
@@ -476,6 +487,7 @@ export function checkFailureRates(checks: readonly CheckRunRow[]): CheckStat[] {
       f: number;
       to: number;
       sf: number;
+      sk: number;
       ex: string[];
     }
   >();
@@ -490,9 +502,14 @@ export function checkFailureRates(checks: readonly CheckRunRow[]): CheckStat[] {
       f: 0,
       to: 0,
       sf: 0,
+      sk: 0,
       ex: [],
     }));
     s.states.add(c.state);
+    if (checkSkipped(c)) {
+      s.sk++;
+      continue;
+    }
     s.mins.push(minutesBetween(c.started_at, c.at));
     if (checkFailed(c)) {
       s.f++;
@@ -502,6 +519,7 @@ export function checkFailureRates(checks: readonly CheckRunRow[]): CheckStat[] {
     if (c.setup_failed) s.sf++;
   }
   return [...by.values()]
+    .filter((s) => s.mins.length > 0)
     .map((s) => ({
       check: s.name,
       role: s.role,
@@ -512,6 +530,7 @@ export function checkFailureRates(checks: readonly CheckRunRow[]): CheckStat[] {
       failures: s.f,
       timeouts: s.to,
       setup_failures: s.sf,
+      skips: s.sk,
       failure_rate: round1((s.f / s.mins.length) * 100) / 100,
       median_minutes: round1(median(s.mins)),
       examples: s.ex,
@@ -658,6 +677,8 @@ export const ProcessGroupSchema = z.object({
   reentries: z.number().int().nonnegative(),
   check_runs: z.number().int().nonnegative(),
   check_failures: z.number().int().nonnegative(),
+  /** R3: checks skipped because no change matched their `paths` (not in `check_runs`). */
+  check_skips: z.number().int().nonnegative().default(0),
   /** Questions to a human (`ask_user`, `needs_approval_to_message`, planning questions). */
   questions: z.number().int().nonnegative(),
   /** Hand-offs of finished work (a PR-ready summary through a `question: true` gate). */
@@ -679,6 +700,8 @@ export const ProcessMetricsSchema = z.object({
     sessions: z.number().int().nonnegative(),
     moves: z.number().int().nonnegative(),
     check_runs: z.number().int().nonnegative(),
+    /** R3: skipped checks (not in `check_runs`). */
+    check_skips: z.number().int().nonnegative().default(0),
     questions: z.number().int().nonnegative(),
     handoffs: z.number().int().nonnegative().default(0),
     stops: z.number().int().nonnegative().default(0),
@@ -809,6 +832,7 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
           reentries: 0,
           check_runs: 0,
           check_failures: 0,
+          check_skips: 0,
           questions: 0,
           handoffs: 0,
           stops: 0,
@@ -840,6 +864,10 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     const g = at(groupBy === 'check' ? checkKey(c) : keyOf(c, c.state));
     if (g === null) continue;
     g.tickets.add(c.ticket_id);
+    if (checkSkipped(c)) {
+      g.check_skips++;
+      continue;
+    }
     g.check_runs++;
     if (checkFailed(c)) g.check_failures++;
   }
@@ -872,6 +900,7 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
       reentries: g.reentries,
       check_runs: g.check_runs,
       check_failures: g.check_failures,
+      check_skips: g.check_skips,
       questions: g.questions,
       handoffs: g.handoffs,
       stops: g.stops,
@@ -901,7 +930,8 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
       tickets: tickets.size,
       sessions: sessions.size,
       moves: rows.moves.length,
-      check_runs: rows.checks.length,
+      check_runs: rows.checks.filter((c) => !checkSkipped(c)).length,
+      check_skips: rows.checks.filter(checkSkipped).length,
       questions: rows.inputs.filter((r) => classOf(r) === 'question').length,
       handoffs: rows.inputs.filter((r) => classOf(r) === 'handoff').length,
       stops: rows.inputs.filter((r) => classOf(r) === 'stop').length,

@@ -597,7 +597,7 @@ describe('session detail', () => {
     expect(detail.card.column).toBe('needs_input');
     expect(detail.workflow.id).toBe('m1_basic');
     expect(detail.workflow_version).toBe(1);
-    expect(detail.budget).toEqual({ usd: 2, minutes: 60 });
+    expect(detail).not.toHaveProperty('budget'); // budgets are not enforced: no limit to show
     expect(detail.pending_input?.id).toBe(inputId);
     expect(detail.recent_output.map((c) => c.text)).toEqual(['hello ', 'world']);
     // Created after this orchestrator started, nothing evicted: the ring has the whole chat.

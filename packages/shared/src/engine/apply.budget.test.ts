@@ -103,7 +103,7 @@ describe('the answer', () => {
     expect(r.snapshot.context[BUDGET_EXCEEDED_KEY]).toBeUndefined();
     const start = find(r.effects, 'start_session');
     expect(start).toMatchObject({ state: 'implement', resume_claude_session_id: CLAUDE });
-    expect(start?.max_budget_usd).toBeCloseTo(1.6);
+    expect(start?.max_budget_usd).toBeUndefined(); // budgets are no longer enforced
     expect(start?.prompt).toBe('The budget was raised by $2.00 to $4.00. Continue.');
     expect(find(r.effects, 'send_input')).toBeUndefined();
     expect(r.snapshot).toMatchObject({ workflow_state: 'implement', status: 'running' });

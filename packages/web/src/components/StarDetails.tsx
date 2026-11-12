@@ -7,7 +7,7 @@ import type { ApiClient } from '../api/client.js';
 import type { Brief } from '../brief/parse.js';
 import { Requirements } from './BriefCard.js';
 import { ContextView } from './ContextView.js';
-import { Actions, AgentCard, BudgetSection, WorkflowSection } from './details-sections.js';
+import { Actions, AgentCard, SpendSection, WorkflowSection } from './details-sections.js';
 import { TICKET_KIND_LABELS } from './format.js';
 import { Markdown } from './markdown.js';
 import {
@@ -487,7 +487,7 @@ export function StarDetails({
           <h4>All moves</h4>
           <MovesList moves={detail.moves ?? []} workflow={detail.workflow} />
         </section>
-        <BudgetSection detail={detail} />
+        <SpendSection detail={detail} />
         <section aria-label="Context">
           <h4>Context</h4>
           <ContextView context={detail.context} />

@@ -266,44 +266,20 @@ export function Actions({
   );
 }
 
-function Meter({
-  label,
-  value,
-  max,
-  text,
-}: {
-  label: string;
-  value: number;
-  max: number;
-  text: string;
-}) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+/**
+ * 09 §Spend tracking: what the session spent and how long it ran. Budgets are not enforced, so
+ * there is no limit to measure against.
+ */
+export function SpendSection({ detail }: { detail: SessionDetail }) {
   return (
-    <div className="meter">
-      <span className="meter-label">{label}</span>
-      <meter min={0} max={max} value={Math.min(value, max)} high={max * 0.8} aria-label={label} />
-      <span className={pct >= 100 ? 'over' : undefined}>{text}</span>
-    </div>
-  );
-}
-
-export function BudgetSection({ detail }: { detail: SessionDetail }) {
-  const minutes = detail.wall_seconds / 60;
-  return (
-    <section aria-label="Budget" className="budget">
+    <section aria-label="Spend" className="budget">
       <h4>Spend &amp; time</h4>
-      <Meter
-        label="Spend"
-        value={detail.spend_usd}
-        max={detail.budget.usd}
-        text={`${usd(detail.spend_usd)} / ${usd(detail.budget.usd)}`}
-      />
-      <Meter
-        label="Time"
-        value={minutes}
-        max={detail.budget.minutes}
-        text={`${duration(detail.wall_seconds)} / ${detail.budget.minutes}m`}
-      />
+      <dl className="spend">
+        <dt>Spend</dt>
+        <dd>{usd(detail.spend_usd)}</dd>
+        <dt>Time</dt>
+        <dd>{duration(detail.wall_seconds)}</dd>
+      </dl>
     </section>
   );
 }

@@ -937,7 +937,6 @@ export const SessionDetailSchema = z.object({
   state_deadline: IsoDateTimeSchema.nullable(),
   spend_usd: z.number().nonnegative(),
   wall_seconds: z.number().nonnegative(),
-  budget: z.object({ usd: z.number(), minutes: z.number() }),
   branch: z.string().nullable(),
   worktree_path: z.string().nullable(),
   pending_input: InputRequestDtoSchema.nullable(),

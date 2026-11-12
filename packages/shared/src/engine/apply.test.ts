@@ -73,7 +73,6 @@ describe('m1_basic: claim and implement (agent)', () => {
       state: 'implement',
       tools: ['edit', 'bash', 'git'],
       resume_claude_session_id: null,
-      max_budget_usd: 2,
     });
     expect(start?.prompt).toContain('# Ticket: Add /health');
     expect(start?.prompt).toContain('complete_state');
@@ -664,8 +663,10 @@ describe('spend, budget, cancel, terminal', () => {
     const r = h.run({ type: 'spend.reported', claude_session_id: CLAUDE, total_usd: 0.75 });
     expect(r.snapshot.spend_usd).toBeCloseTo(0.75);
     h.complete();
+    // Spend is tracked for reporting only: no start caps the CLI (--max-budget-usd).
     const start = find(h.cmdExit(1).effects, 'start_session');
-    expect(start?.max_budget_usd).toBeCloseTo(1.25);
+    expect(start).toBeDefined();
+    expect(start?.max_budget_usd).toBeUndefined();
   });
 
   it('budget.exceeded → on_budget_exceeded (budget_exceeded kind, return_to)', () => {

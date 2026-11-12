@@ -10,7 +10,6 @@ import {
   type QaContext,
   type QaResult,
 } from './qa.types.js';
-import { maxBudgetForStart } from './budget.js';
 import { renderPrompt } from './render.js';
 import { PR_CONTEXT_KEY } from './review.js';
 import { promptTransitions, ticketKind } from './transitions.js';
@@ -269,7 +268,6 @@ export function qaStartSession(
     resume_claude_session_id: resume,
     ...(state.model !== undefined ? { model: state.model } : {}),
     ...(state.max_turns !== undefined ? { max_turns: state.max_turns } : {}),
-    max_budget_usd: maxBudgetForStart(def, s),
     review: true,
     ...(transitions !== null ? { transitions } : {}),
     ...(qa !== null && pr !== null

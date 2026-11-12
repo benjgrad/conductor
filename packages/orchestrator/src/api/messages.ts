@@ -40,3 +40,18 @@ export async function provideAnswer(
   }
   return result;
 }
+
+/**
+ * ADR-0041: a human overrules the answer conductor gave on their behalf (POST
+ * /api/sessions/:id/overrule): `human.overrule`, then, once applied, the text as a `user` chunk,
+ * as for a live message.
+ */
+export async function overruleDefault(
+  deps: { engine: EngineService; outputBus: OutputBus },
+  sessionId: string,
+  event: Extract<EngineEvent, { type: 'human.overrule' }>,
+): Promise<ApplyEventResult> {
+  const result = await deps.engine.applyEvent(sessionId, event, { actor: event.actor });
+  if (result.status === 'applied') deps.outputBus.append(sessionId, 'user', event.text);
+  return result;
+}

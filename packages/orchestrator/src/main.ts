@@ -61,6 +61,8 @@ export type CreateEngineService = (deps: {
   now?: () => Date;
   /** UX-15: Web Push (VAPID); absent or null → disabled, nothing is enqueued or sent. */
   push?: PushConfig | null;
+  /** ADR-0041: the sweep notes a default answer in the Messages thread. Absent: no note. */
+  outputBus?: OutputBus;
 }) => EngineHandle;
 
 /** M1-T11. `attach` serves API_PATHS.daemonWs via the HTTP server's `upgrade` event. */
@@ -157,7 +159,7 @@ export function composeOrchestrator(
   const boardBus = new InMemoryBoardBus();
   const outputBus = new InMemoryOutputBus();
   const push = config.push ?? null;
-  const engineHandle = f.createEngineService({ db, boardBus, push });
+  const engineHandle = f.createEngineService({ db, boardBus, push, outputBus });
   const engine = engineHandle.engine;
   const gateway = f.createGateway({ db, engine, boardBus, outputBus });
   const api = f.createApi({

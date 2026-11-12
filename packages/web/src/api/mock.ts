@@ -62,6 +62,8 @@ import {
   SignupRequestSchema,
   TransitionSessionRequestSchema,
   FreshConversationRequestSchema,
+  OverruleDefaultRequestSchema,
+  defaultTakenOf,
   PermissionDecisionRequestSchema,
   permissionSummary,
   FRESH_CONVERSATION_MOVE,
@@ -878,6 +880,16 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     emit(drafts);
   }
 
+  /** ADR-0041: the mock has no engine: a recorded default may be overruled while the agent runs. */
+  function mockOverrulable(
+    s: MockSession,
+    status: SessionStatus | null,
+  ): NonNullable<SessionDetail['overrulable']> | null {
+    const taken = defaultTakenOf(s.context);
+    if (taken === null || status !== 'running') return null;
+    return { input_request_id: taken.input_request_id, answer: taken.answer, at: taken.at };
+  }
+
   function sessionOf(sessionId: string): MockSession {
     const s = sessions.get(sessionId);
     if (!s) throw new ApiRequestError(404, 'not_found', `session ${sessionId} not found`);
@@ -1016,6 +1028,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           input_requests: inputRequestsOf(s, card),
           ticket_editable: ticketEditable(s.workflow, card.workflow_state),
           proposals: proposalsOf(card),
+          overrulable: mockOverrulable(s, card.status),
         });
       }),
 
@@ -1876,6 +1889,23 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         const status = enterState(s, target);
         if (s.workflow.states[target]?.type !== 'human') s.return_to = null;
         update(card, { status, workflow_state: target, input_request: null }, extra);
+        return { ok: true };
+      }),
+
+    overruleDefault: (sessionId, raw) =>
+      reply((): OkResponse => {
+        const parsed = OverruleDefaultRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const card = cardForSession(sessionId);
+        const taken = mockOverrulable(sessionOf(sessionId), card.status);
+        if (taken === null || taken.input_request_id !== parsed.data.input_request_id) {
+          throw new ApiRequestError(
+            409,
+            'conflict',
+            'the agent has moved on since conductor answered for you; answer its new question or send it a message',
+          );
+        }
+        api.pushOutput(sessionId, parsed.data.text, 'user');
         return { ok: true };
       }),
 

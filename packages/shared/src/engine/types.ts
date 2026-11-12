@@ -646,6 +646,31 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
    * slash command.
    */
   z.object({ type: z.literal('operator.message'), text: z.string().min(1) }),
+  /**
+   * O (ADR-0041): the default-answer sweep. The open request's `default_at` passed with no human
+   * answer. Ignored (`stale_timer`) unless the session is parked in `state`, on the visit the
+   * default was armed for (`context.__default`), with the same `deadline`. Applied → the agent's
+   * recommended answer goes to `return_to` like an answer (cause `default_taken`, actor
+   * `system`); the wrapper closes the request (answered_by `system`) and pushes.
+   */
+  z.object({
+    type: z.literal('default.fired'),
+    state: z.string(),
+    deadline: IsoDateTimeSchema,
+    input_request_id: UuidSchema,
+  }),
+  /**
+   * U (ADR-0041): a human overrules the answer conductor gave on their behalf. Accepted only while
+   * the session is still on the visit of the agent state that answer went to (`queued`,
+   * `assigned` or `running`); otherwise `wrong_status`. A live agent gets the correction as a
+   * `send_message`, else it joins the pending answer. No state change.
+   */
+  z.object({
+    type: z.literal('human.overrule'),
+    input_request_id: UuidSchema,
+    text: z.string().trim().min(1),
+    actor: z.string().min(1),
+  }),
 ]);
 export type EngineEvent = z.infer<typeof EngineEventSchema>;
 export type EngineEventType = EngineEvent['type'];
@@ -747,6 +772,7 @@ const CAUSE_TITLES: Record<MoveCause, string> = {
   machine_lost: 'Machine lost',
   answer_routed: 'Answered',
   fallback: 'Sent to a human',
+  default_taken: 'Conductor answered for you',
 };
 
 /** A cause's words for the timeline, e.g. `check_failed` → "Checks failed". */
@@ -916,6 +942,11 @@ export const EffectSchema = z.discriminatedUnion('type', [
      * `input_request.notify`). Absent = legacy mode: the request always pushes.
      */
     notify_decision: NotifyDecisionSchema.optional(),
+    /**
+     * ADR-0041: the answer conductor delivers at `at` if no human answers first (stored as
+     * `input_request.default_answer` / `default_at`, the sweep's timer). Absent: none.
+     */
+    default: z.object({ answer: z.string().min(1), at: IsoDateTimeSchema }).optional(),
   }),
   /** Internal: (re)arm or clear the timeout sweep for the current state. */
   z.object({
@@ -984,6 +1015,20 @@ export const EffectSchema = z.discriminatedUnion('type', [
     visit: z.number().int().positive(),
     reason: z.string(),
     notify_decision: NotifyDecisionSchema,
+  }),
+  /**
+   * Internal (ADR-0041): conductor answered a question on a human's behalf. Event row
+   * `question.default_taken` and a push (always: an answer nobody gave must be visible).
+   */
+  z.object({
+    type: z.literal('default_taken'),
+    /** The human state the question waited in. */
+    state: z.string(),
+    /** Where the answer went (`return_to`). */
+    to: z.string(),
+    input_request_id: UuidSchema,
+    answer: z.string(),
+    after: z.string(),
   }),
   /**
    * Internal (ADR-0037 P4, T7): a move step started or stopped being held by `requires.concurrency`.

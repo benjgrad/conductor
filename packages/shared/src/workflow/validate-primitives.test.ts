@@ -326,6 +326,80 @@ describe('rules 24 and 25: condition placement, no-CI policy', () => {
   });
 });
 
+describe('rule 31: default answers (ADR-0041)', () => {
+  const DEF = { after: '8h', answer: '$recommended' };
+  const P = 'states.planning.on';
+
+  it('accepted on a question and on ask_user into a human state', () => {
+    const d = v6();
+    tr(d, 'planning', 'scope_changed').default = DEF;
+    tr(d, 'planning', 'ask_user').default = DEF;
+    tr(d, 'implementing', 'ask_user').default = { after: '1m', answer: '$recommended' };
+    expect(found(d)).toEqual([]);
+  });
+
+  it('refused on plan_needs_approval and needs_approval_to_message (FR-5)', () => {
+    const d = v6();
+    tr(d, 'planning', 'plan_needs_approval').default = DEF;
+    tr(d, 'implementing', 'needs_approval_to_message').default = DEF;
+    expect(found(d).sort()).toEqual([
+      '31 states.implementing.on.needs_approval_to_message.default',
+      `31 ${P}.plan_needs_approval.default`,
+    ]);
+  });
+
+  it('refused on a transition that does not ask, a hand-off, a human actor or with requires', () => {
+    const d = v6();
+    tr(d, 'implementing', 'pr_ready_for_review').default = DEF;
+    expect(found(d)).toContain(`31 ${PR}.default`);
+    const h = v6();
+    const t = tr(h, 'planning', 'scope_changed');
+    delete t.question;
+    t.handoff = true;
+    t.default = DEF;
+    expect(found(h)).toContain(`31 ${P}.scope_changed.default`);
+    const a = v6();
+    tr(a, 'planning', 'scope_changed').actor = 'human';
+    tr(a, 'planning', 'scope_changed').default = DEF;
+    expect(found(a)).toContain(`31 ${P}.scope_changed.default`);
+  });
+
+  it('refused into a state that is not human', () => {
+    const d = v6();
+    const t = tr(d, 'planning', 'scope_changed');
+    t.goto = 'waiting_external';
+    t.default = DEF;
+    expect(found(d)).toContain(`31 ${P}.scope_changed.default`);
+  });
+
+  it('after is between 1m and 7d; answer is only $recommended (schema)', () => {
+    const d = v6();
+    tr(d, 'planning', 'scope_changed').default = { after: '30s', answer: '$recommended' };
+    tr(d, 'planning', 'ask_user').default = { after: '8d', answer: '$recommended' };
+    expect(found(d).sort()).toEqual([
+      `31 ${P}.ask_user.default.after`,
+      `31 ${P}.scope_changed.default.after`,
+    ]);
+    const s = v6();
+    tr(s, 'planning', 'scope_changed').default = { after: '8h', answer: 'yes' };
+    expect(found(s)[0]).toMatch(/^1 /);
+  });
+
+  it('refused while the feature is off (rule 14)', () => {
+    const d = structuredClone(LIVE_V5);
+    tr(d, 'planning', 'ask_user').default = DEF;
+    expect(validateWorkflow(d).ok).toBe(true);
+    expect(
+      checkAvailability(WorkflowDefinitionSchema.parse(d), {
+        tools: AVAILABLE_TOOL_ALIASES,
+        resultKinds: AVAILABLE_RESULT_KINDS,
+        conditions: CONDITION_TYPES,
+        features: [],
+      }).map((e) => `${e.rule} ${e.path.join('.')}`),
+    ).toContain(`14 ${P}.ask_user.default`);
+  });
+});
+
 describe('rule 14: not available yet', () => {
   it('T5, T3, T7, T8, T4 and T6: every ADR-0037 primitive is available; bases not yet', () => {
     expect(AVAILABLE_WORKFLOW_FEATURES).toEqual([
@@ -335,6 +409,7 @@ describe('rule 14: not available yet', () => {
       'instructions',
       'notify_policy',
       'handoff',
+      'default_answer',
     ]);
     expect(AVAILABLE_CONDITION_TYPES).toEqual(
       expect.arrayContaining(['cmd', 'pr_mergeable', 'age_below']),

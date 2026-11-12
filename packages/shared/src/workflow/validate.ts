@@ -55,7 +55,8 @@ import { checkParallel } from './validate-parallel.js';
  * Rules 26–27 (ADR-0039, base refs) are in `validate-bases.ts`. Rule 28 (ADR-0040, the
  * answerer) is in `validate-answerer.ts`.
  * Rule 29 (ADR-0042, parallel legs) is in `validate-parallel.ts`. Rule 30 (ADR-0043, the triage
- * role) is in `validate-triage.ts`.
+ * role) is in `validate-triage.ts`. Rule 31 (ADR-0041, default answers) is in
+ * `validate-primitives.ts`.
  */
 export type WorkflowRule =
   | 1
@@ -87,7 +88,8 @@ export type WorkflowRule =
   | 27
   | 28
   | 29
-  | 30;
+  | 30
+  | 31;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;

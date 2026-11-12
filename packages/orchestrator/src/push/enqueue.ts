@@ -208,6 +208,31 @@ export async function enqueueWatchEscalatePush(
 }
 
 /**
+ * ADR-0041: a default answer conductor took (`question.default_taken`). Same kind and fan-out as
+ * a transition notification; keyed by its per-request tag, so it is sent once.
+ */
+export async function enqueueDefaultTakenPush(
+  tx: Queryable,
+  p: {
+    accountId: string;
+    sessionId: string;
+    ticketId: string;
+    notification: PushNotification;
+    idempotencyKey: string;
+    now: Date;
+  },
+): Promise<number> {
+  return enqueuePush(tx, {
+    kind: 'push_transition',
+    accountId: p.accountId,
+    sessionId: p.sessionId,
+    payload: { ticket_id: p.ticketId, notification: p.notification, delivered: [] },
+    idempotencyKey: p.idempotencyKey,
+    now: p.now,
+  });
+}
+
+/**
  * R14: a failed deploy of main (deploy/failure-report.ts). No session caused it, so no
  * `session_id`; keyed per failed attempt (`deploy:<sha>:<n>`), so a re-run of the same report
  * enqueues nothing. Returns how many rows it wrote.

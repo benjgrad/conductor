@@ -79,7 +79,16 @@ export function situation(
 // ---------------------------------------------------------------- Action
 
 export type TimelineKind =
-  'start' | 'plan' | 'move' | 'question' | 'answer' | 'check' | 'review' | 'live';
+  | 'start'
+  | 'plan'
+  | 'move'
+  | 'question'
+  | 'answer'
+  /** ADR-0041: conductor answered a question on the human's behalf. */
+  | 'default'
+  | 'check'
+  | 'review'
+  | 'live';
 
 export interface TimelineEntry {
   at: string;
@@ -91,6 +100,8 @@ export interface TimelineEntry {
   detail?: string;
   /** The answer was clipped by the server (SessionInputRequest.truncated). */
   truncated?: boolean;
+  /** ADR-0041: a `default` entry that may still be overruled: its input request's id. */
+  overrule?: string;
 }
 
 /** A gate-step or review label (`"a → b (entry)"`, `"… (review)"`), not a state of the workflow. */
@@ -177,6 +188,19 @@ export function timeline(detail: SessionDetail, agent: string): TimelineEntry[] 
       return { ...base, kind: 'plan', label: 'Plan ready', ...(plan ? { detail: plan } : {}) };
     }
     const fromHuman = workflow.states[m.from]?.type === 'human';
+    if (fromHuman && m.transition === null && m.cause === 'default_taken') {
+      // ADR-0041: nobody answered in time, so conductor gave the agent's recommended answer.
+      const r = matchRequest(requests, usedAnswers, m.at, 'answered_at');
+      const id = detail.overrulable?.input_request_id;
+      return {
+        at: m.at,
+        kind: 'default',
+        label: 'Conductor answered for you',
+        reason: r?.answer ?? m.reason,
+        ...(r?.truncated ? { truncated: true } : {}),
+        ...(id !== undefined && (r === null || r.id === id) ? { overrule: id } : {}),
+      };
+    }
     if (fromHuman && m.transition === null) {
       const r = matchRequest(requests, usedAnswers, m.at, 'answered_at');
       return {

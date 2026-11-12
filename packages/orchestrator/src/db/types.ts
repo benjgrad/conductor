@@ -326,6 +326,11 @@ export interface InputRequestRow {
    * legacy mode (no workflow `notify` policy) and on rows before T4.
    */
   notify: NotifyDecision | null;
+  /** ADR-0041: the recommended answer conductor delivers at `default_at`; null: no default. */
+  default_answer: string | null;
+  default_at: Date | null;
+  /** ADR-0041: when a human last overruled the answer conductor gave. */
+  overruled_at: Date | null;
 }
 
 export interface EventRow {

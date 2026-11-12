@@ -88,6 +88,35 @@ describe('timeline (FR-3)', () => {
     expect(entries[3]!.reason).toBe('Cursor.\nKeep the page size at 50.');
   });
 
+  it('ADR-0041: a default answer reads "Conductor answered for you", with Overrule while allowed', () => {
+    const moves: MoveDto[] = MOVES.map((m, i) =>
+      i === 3 ? { ...m, actor: 'system', cause: 'default_taken', reason: 'Cursor.' } : m,
+    );
+    const taken = { ...ANSWERED, answer: 'Cursor.' };
+    const base: SessionDetail = {
+      ...review,
+      moves,
+      input_requests: [taken],
+      pending_input: null,
+    };
+    const open = timeline(
+      { ...base, overrulable: { input_request_id: taken.id, answer: 'Cursor.', at: at(12) } },
+      AGENT,
+    );
+    const entry = open.find((e) => e.kind === 'default')!;
+    expect(entry).toMatchObject({
+      label: 'Conductor answered for you',
+      reason: 'Cursor.',
+      overrule: taken.id,
+    });
+    expect(open.some((e) => e.label === 'You answered')).toBe(false);
+    // Once the agent moved on, no Overrule.
+    const closed = timeline({ ...base, overrulable: null }, AGENT).find(
+      (e) => e.kind === 'default',
+    )!;
+    expect(closed.overrule).toBeUndefined();
+  });
+
   it('an answer with no input_requests (older server) has no text', () => {
     const detail = { ...review, moves: MOVES, pending_input: null };
     delete detail.input_requests;

@@ -212,7 +212,9 @@ async fn a_daemon_restart_during_the_setup_reports_the_acked_start_as_exited() {
     let start = setup_start(&c, sid, 7);
     c.send(&start.msg);
     c.until_true(|| runner.running_count() == 1).await;
-    assert_eq!(c.acks(start.cid).len(), 1);
+    // The setup can start before the ack reaches the fake server (slow Windows runners): wait for
+    // the ack rather than asserting it the moment the setup runs.
+    c.until_true(|| c.acks(start.cid).len() == 1).await;
     d1.stop(false); // a crash: the setup and the start die with it
     c.make(driver(complete(json!({}))), Make::default());
     let exit = c.first_event("exit").await;

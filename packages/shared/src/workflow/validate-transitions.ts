@@ -1,6 +1,9 @@
 import {
+  GATE,
+  isTriageState,
   RETURN_TO,
   conditionEnabled,
+  isFailureTarget,
   type Transition,
   type TransitionObject,
   type WorkflowDefinition,
@@ -13,6 +16,7 @@ import {
   transitionObject,
 } from './transition-rules.js';
 import type { WorkflowValidationError } from './validate.js';
+import { mayNameTriageTargets, triageLegs } from './validate-triage.js';
 
 // Validator rules 10–14 (ADR-0011, M1b-T02; 05 §Validation on save): the per-transition rules.
 // Rules 15–16 (ADR-0020, M2r-T02): Done only through a merge, and the review-and-merge fields.
@@ -36,6 +40,8 @@ export function checkTransitions(
     has(name) ? def.states[name] : undefined;
   const isHuman = (name: string) => stateOf(name)?.type === 'human';
   const mergeAware = isMergeAware(def);
+  // ADR-0043: rule 30 owns `$return_to` / `$gate` on a triage state and its legs.
+  const legs = triageLegs(def);
 
   for (const [from, state] of Object.entries(def.states)) {
     checkQaState(errors, def, from, state);
@@ -44,14 +50,24 @@ export function checkTransitions(
     for (const [name, raw] of Object.entries(on)) {
       const base: Path = ['states', from, 'on', name];
       const t = transitionObject(raw);
-      checkActor(errors, def, from, state, name, raw, t, base);
+      checkActor(
+        errors,
+        def,
+        from,
+        state,
+        name,
+        raw,
+        t,
+        base,
+        mayNameTriageTargets(def, from, legs),
+      );
       checkQuestion(errors, t, base, stateOf);
       checkRequires(errors, def, name, t, base, stateOf);
       checkMergeFields(errors, def, from, state, name, raw, t, base, stateOf);
       if (mergeAware) checkDoneViaMerge(errors, name, raw, t, base, stateOf);
       checkPrNeedsHuman(errors, def, from, name, raw, t, base, stateOf);
     }
-    if (state.type === 'agent') checkCanAsk(errors, def, from, on, isHuman);
+    if (state.type === 'agent') checkCanAsk(errors, def, from, state, on, isHuman);
   }
   return errors;
 }
@@ -71,6 +87,7 @@ function checkActor(
   raw: Transition,
   t: TransitionObject,
   base: Path,
+  triage = false,
 ): void {
   const err = (path: Path, message: string) => errors.push({ rule: 10, path, message });
   if (t.actor === 'agent' && state.type !== 'agent') {
@@ -85,7 +102,7 @@ function checkActor(
       `a human can only take transitions out of human and event states ("${from}" is ${state.type})`,
     );
   }
-  if (t.goto === RETURN_TO && state.type !== 'human') {
+  if (t.goto === RETURN_TO && state.type !== 'human' && !triage) {
     err(
       [...base, 'goto'],
       `"${RETURN_TO}" (back to the state that asked) is only allowed on a human state's transitions ("${from}" is ${state.type})`,
@@ -110,8 +127,8 @@ function checkActor(
     ...routeLegs(t).map(([leg, target]): [Path, string] => [leg, target]),
   ];
   for (const [leg, target] of legs) {
-    if (target === RETURN_TO) {
-      err([...base, ...leg], `"${RETURN_TO}" is only allowed as a human transition's goto`);
+    if (target === RETURN_TO || target === GATE) {
+      err([...base, ...leg], `"${target}" is only allowed as a transition's goto`);
     }
   }
 }
@@ -136,15 +153,19 @@ function checkQuestion(
 
 /**
  * Rule 12, every agent state can ask a human: it declares `ask_user` into a human state (the
- * built-in fallback, U-061), or at least one agent-actor `question: true` transition.
+ * built-in fallback, U-061), or at least one agent-actor `question: true` transition. A triage
+ * state (ADR-0043) asks through its escalate verdict instead, which rule 30 requires.
  */
 function checkCanAsk(
   errors: WorkflowValidationError[],
   def: WorkflowDefinition,
   from: string,
+  state: WorkflowState,
   on: NonNullable<Exclude<WorkflowState, { type: 'terminal' }>['on']>,
   isHuman: (name: string) => boolean,
 ): void {
+  // ADR-0043: a triage state asks through its escalate verdict (rule 30 requires one).
+  if (isTriageState(state)) return;
   const askUser = on.ask_user;
   if (askUser !== undefined && isHuman(transitionGoto(askUser))) return;
   for (const [name, raw] of Object.entries(on)) {
@@ -233,10 +254,10 @@ function checkRequires(
     r13(u, 'on_unmet has no effect without requires');
   }
   const elseState = stateOf(unmet.else);
-  if (elseState !== undefined && elseState.type !== 'human') {
+  if (elseState !== undefined && !isFailureTarget(elseState)) {
     r13(
       [...u, 'else'],
-      `on_unmet.else "${unmet.else}" must be a human state (it is ${elseState.type})`,
+      `on_unmet.else "${unmet.else}" must be a human or triage state (it is ${elseState.type})`,
     );
   }
   if (unmet.goto === t.goto) {

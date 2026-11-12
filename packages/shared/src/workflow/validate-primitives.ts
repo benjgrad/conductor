@@ -4,6 +4,7 @@ import {
   MAX_DEFAULT_AFTER,
   MIN_DEFAULT_AFTER,
   NEVER_DEFAULTED,
+  isFailureTarget,
   parseDuration,
   RETURN_TO,
   MIN_WATCH_POLL,
@@ -166,7 +167,7 @@ export function checkPrimitiveAvailability(
  *   today, so there is nothing to refuse yet.)
  * - 25 no-CI: `no_checks` and `no_checks_after` are not both set.
  *
- * And ADR-0041's rule 29 (default answers): `default` only on an agent-actor transition that asks
+ * And ADR-0041's rule 31 (default answers): `default` only on an agent-actor transition that asks
  * (`question: true`, or `ask_user`) into a human state, without `handoff` or `requires`, never on
  * NEVER_DEFAULTED, with MIN_DEFAULT_AFTER ≤ `after` ≤ MAX_DEFAULT_AFTER.
  */
@@ -207,11 +208,11 @@ export function checkPrimitives(
           );
         }
         const otherwise = stateOf(ob.else);
-        if (otherwise !== undefined && otherwise.type !== 'human') {
+        if (otherwise !== undefined && !isFailureTarget(otherwise)) {
           err(
             19,
             [...b, 'else'],
-            `on_broken.else "${ob.else}" must be a human state (it is ${otherwise.type})`,
+            `on_broken.else "${ob.else}" must be a human or triage state (it is ${otherwise.type})`,
           );
         }
         if (ob.return_to !== undefined && ob.return_to !== '$self' && !has(ob.return_to)) {
@@ -283,34 +284,34 @@ export function checkPrimitives(
           );
         }
       }
-      // Rule 29 (ADR-0041).
+      // Rule 31 (ADR-0041).
       if (t.default !== undefined) {
         const at: Path = [...base, 'default'];
         if ((NEVER_DEFAULTED as readonly string[]).includes(tName)) {
-          err(29, at, `"${tName}" always waits for a human: it can't take a default answer`);
+          err(31, at, `"${tName}" always waits for a human: it can't take a default answer`);
         }
         if (actor !== 'agent') {
           err(
-            29,
+            31,
             at,
             `a default answer is only for an agent-actor question (this one is ${actor})`,
           );
         }
         if (t.question !== true && tName !== 'ask_user') {
-          err(29, at, 'a default answer is only for a question ("question": true, or ask_user)');
+          err(31, at, 'a default answer is only for a question ("question": true, or ask_user)');
         }
-        if (t.handoff === true) err(29, at, 'a hand-off is not a question: no default answer');
+        if (t.handoff === true) err(31, at, 'a hand-off is not a question: no default answer');
         if (t.requires !== undefined) {
-          err(29, at, 'a default answer is not allowed on a transition with requires');
+          err(31, at, 'a default answer is not allowed on a transition with requires');
         }
         const target = t.goto === RETURN_TO ? 'not a state' : stateOf(t.goto)?.type;
         if (target !== undefined && target !== 'human') {
-          err(29, at, `a default answer needs a human target ("${t.goto}" is ${target})`);
+          err(31, at, `a default answer needs a human target ("${t.goto}" is ${target})`);
         }
         const ms = parseDuration(t.default.after);
         if (ms < parseDuration(MIN_DEFAULT_AFTER) || ms > parseDuration(MAX_DEFAULT_AFTER)) {
           err(
-            29,
+            31,
             [...at, 'after'],
             `default.after must be between ${MIN_DEFAULT_AFTER} and ${MAX_DEFAULT_AFTER}`,
           );

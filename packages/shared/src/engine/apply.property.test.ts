@@ -18,6 +18,7 @@ import {
   HEAD_SHA,
   qaDefinition,
   referenceWorkflow,
+  triageDefinition,
   uuid,
 } from './apply.testkit.js';
 import { QA_RESULT_FIXTURES } from './fixtures.js';
@@ -483,7 +484,7 @@ function conductorV5Live(): WorkflowDefinition {
 }
 
 /**
- * ADR-0041: the live v5 with an 8h `default` on every question rule 29 allows (ask_user and the
+ * ADR-0041: the live v5 with an 8h `default` on every question rule 31 allows (ask_user and the
  * `question: true` transitions into a human state, but plan_needs_approval and anything with
  * `requires`).
  */
@@ -706,6 +707,8 @@ const WORKFLOWS: [string, () => WorkflowDefinition, TicketKind | null][] = [
   ['conductor v2 (no kind)', () => CONDUCTOR_V2_DRAFT_DEF, null],
   // ADR-0020 §2 (M2r-T03): a `role: 'qa'` state behind a move step.
   ['qa flow', qaDefinition, null],
+  // ADR-0043: a gate whose failures go to a triage state with `$return_to` / `$gate` verdicts.
+  ['triage flow', triageDefinition, null],
   // WF-T06: the definition tickets actually run on (plan_review, in_review).
   ['conductor v5 live (work)', conductorV5Live, 'work'],
   ['conductor v5 live (personal)', conductorV5Live, 'personal'],

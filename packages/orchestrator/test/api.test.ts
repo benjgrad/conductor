@@ -269,7 +269,7 @@ describe('workflows', () => {
     expect(err.details.map((d) => d.path)).toEqual([
       'states.implement.on.done.requirements.on_unmet.else',
     ]);
-    expect(err.details[0]!.message).toContain('must be a human state');
+    expect(err.details[0]!.message).toContain('must be a human or triage state');
   });
 
   it('refuses to drop a base a queued ticket names (ADR-0039, B3)', async () => {

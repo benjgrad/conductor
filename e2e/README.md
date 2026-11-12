@@ -122,6 +122,8 @@ Teardown stops the daemon (SIGTERM, which kills its Claude processes) and then t
 After that it kills anything still running from the temp dir, drops the database and removes the
 temp dir. When a test fails, the tail of each process log is printed.
 
+`triage.e2e.test.ts` (ADR-0043): one fake triage verdict per branch on a gate whose failures go to a `role: triage` state (the fake plays `<scenario>_triage` for a first message starting with `# Triage`): `send_back` returns the instruction to the worker's own conversation and the gate passes; `rerun` reruns the failing gate and its second rerun lands in Needs input; `fix_env` runs a command leg that removes the committed `fail-test` and reruns the gate; `escalate` opens a request that leads with the diagnosis. Each verdict's `state.entered` row carries its `triage` record.
+
 ## Real Claude
 
 `E2E_REAL_CLAUDE=1 pnpm test:e2e` runs only the ask/answer scenario, against the installed `claude`.

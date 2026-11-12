@@ -267,6 +267,14 @@ export const ENGINE_CAUSES: readonly MoveCause[] = MOVE_CAUSES.filter(
 export const RETURN_TO = '$return_to';
 
 /**
+ * ADR-0043: the `goto` of a triage transition that retries the move that failed (the gate step
+ * remembered in `context.__triage`). Only on a triage state's transitions and its legs (rule 30).
+ */
+export const GATE = '$gate';
+/** ADR-0043: the pseudo-targets a triage state and its legs may name (rule 30). */
+export const TRIAGE_TARGETS: readonly string[] = [RETURN_TO, GATE];
+
+/**
  * Conductor's own actions on a move (ADR-0010 / ADR-0011). `open_pr` now; `update_jira` and
  * `slack_message` parse but the validator refuses them until M5 (rule 14).
  */
@@ -697,12 +705,12 @@ export type NotifyDecision = z.infer<typeof NotifyDecisionSchema>;
 
 /** ADR-0041: the `answer` of a transition `default`: the agent's own recommended answer. */
 export const RECOMMENDED = '$recommended';
-/** ADR-0041: the shortest and longest `default.after` (rule 29). */
+/** ADR-0041: the shortest and longest `default.after` (rule 31). */
 export const MIN_DEFAULT_AFTER = '1m';
 export const MAX_DEFAULT_AFTER = '7d';
 /**
  * ADR-0041 (FR-5): question transitions that never take a default answer, whatever the
- * definition says (rule 29): approving a plan and a message to a person stay a human's call.
+ * definition says (rule 31): approving a plan and a message to a person stay a human's call.
  */
 export const NEVER_DEFAULTED = ['plan_needs_approval', 'needs_approval_to_message'] as const;
 
@@ -710,7 +718,7 @@ export const NEVER_DEFAULTED = ['plan_needs_approval', 'needs_approval_to_messag
  * ADR-0041: a question that no human answers within `after` is answered with the agent's own
  * recommended answer (`result.recommended`, or the `ask_user` tool's first option), delivered to
  * `$return_to` as an answer would be. Only on an agent-actor `question: true` / `ask_user`
- * transition into a human state, without `requires` or `handoff` (rule 29).
+ * transition into a human state, without `requires` or `handoff` (rule 31).
  */
 export const DefaultAnswerSchema = z.strictObject({
   after: DurationSchema,
@@ -876,8 +884,11 @@ export const AgentStateSchema = z
     /**
      * ADR-0020 §2: `qa` runs the state as an independent QA session (fresh conversation every
      * visit, fenced, forced dontAsk, its Claude id in `context.__qa`, never the session's).
+     * ADR-0043: `triage` runs it as a fresh, read-only triage of a failed gate (the `triage` tool
+     * alias, its Claude id in `context.__triage`); it may be an `on_unmet` / `else` target, and
+     * its transitions may name `$return_to` and `$gate` (rule 30).
      */
-    role: z.literal('qa').optional(),
+    role: z.enum(['qa', 'triage']).optional(),
     /**
      * ADR-0020 §2: run in a fresh, conductor-owned checkout of the PR head (`context.__qa.head_sha`)
      * instead of the worktree. `setup` as `requires.setup`: null or absent = auto-detect, '' = none.
@@ -970,6 +981,21 @@ export const StateSchema = z.discriminatedUnion('type', [
 export type WorkflowState = z.infer<typeof StateSchema>;
 export type StateType = WorkflowState['type'];
 export type AgentState = z.infer<typeof AgentStateSchema>;
+
+/** ADR-0043: a `role: 'triage'` agent state. */
+export function isTriageState(
+  state: WorkflowState | undefined,
+): state is AgentState & { role: 'triage' } {
+  return state?.type === 'agent' && state.role === 'triage';
+}
+
+/**
+ * Where a failure leg (`on_unmet.else`, an entry's, a watch's `on_broken.else`) may go: a human
+ * state, or (ADR-0043) a triage state, whose own verdicts are counted and end at a human (rule 30).
+ */
+export function isFailureTarget(state: WorkflowState | undefined): boolean {
+  return state?.type === 'human' || isTriageState(state);
+}
 export type CommandState = z.infer<typeof CommandStateSchema>;
 export type EventState = z.infer<typeof EventStateSchema>;
 export type ConnectorState = z.infer<typeof ConnectorStateSchema>;
@@ -991,6 +1017,7 @@ export const RESERVED_CONTEXT_KEYS = [
   '__qa',
   '__default',
   '__default_taken',
+  '__triage',
 ] as const;
 export type ReservedContextKey = (typeof RESERVED_CONTEXT_KEYS)[number];
 

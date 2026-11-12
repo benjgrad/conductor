@@ -326,7 +326,7 @@ describe('rules 24 and 25: condition placement, no-CI policy', () => {
   });
 });
 
-describe('rule 29: default answers (ADR-0041)', () => {
+describe('rule 31: default answers (ADR-0041)', () => {
   const DEF = { after: '8h', answer: '$recommended' };
   const P = 'states.planning.on';
 
@@ -343,25 +343,25 @@ describe('rule 29: default answers (ADR-0041)', () => {
     tr(d, 'planning', 'plan_needs_approval').default = DEF;
     tr(d, 'implementing', 'needs_approval_to_message').default = DEF;
     expect(found(d).sort()).toEqual([
-      '29 states.implementing.on.needs_approval_to_message.default',
-      `29 ${P}.plan_needs_approval.default`,
+      '31 states.implementing.on.needs_approval_to_message.default',
+      `31 ${P}.plan_needs_approval.default`,
     ]);
   });
 
   it('refused on a transition that does not ask, a hand-off, a human actor or with requires', () => {
     const d = v6();
     tr(d, 'implementing', 'pr_ready_for_review').default = DEF;
-    expect(found(d)).toContain(`29 ${PR}.default`);
+    expect(found(d)).toContain(`31 ${PR}.default`);
     const h = v6();
     const t = tr(h, 'planning', 'scope_changed');
     delete t.question;
     t.handoff = true;
     t.default = DEF;
-    expect(found(h)).toContain(`29 ${P}.scope_changed.default`);
+    expect(found(h)).toContain(`31 ${P}.scope_changed.default`);
     const a = v6();
     tr(a, 'planning', 'scope_changed').actor = 'human';
     tr(a, 'planning', 'scope_changed').default = DEF;
-    expect(found(a)).toContain(`29 ${P}.scope_changed.default`);
+    expect(found(a)).toContain(`31 ${P}.scope_changed.default`);
   });
 
   it('refused into a state that is not human', () => {
@@ -369,7 +369,7 @@ describe('rule 29: default answers (ADR-0041)', () => {
     const t = tr(d, 'planning', 'scope_changed');
     t.goto = 'waiting_external';
     t.default = DEF;
-    expect(found(d)).toContain(`29 ${P}.scope_changed.default`);
+    expect(found(d)).toContain(`31 ${P}.scope_changed.default`);
   });
 
   it('after is between 1m and 7d; answer is only $recommended (schema)', () => {
@@ -377,8 +377,8 @@ describe('rule 29: default answers (ADR-0041)', () => {
     tr(d, 'planning', 'scope_changed').default = { after: '30s', answer: '$recommended' };
     tr(d, 'planning', 'ask_user').default = { after: '8d', answer: '$recommended' };
     expect(found(d).sort()).toEqual([
-      `29 ${P}.ask_user.default.after`,
-      `29 ${P}.scope_changed.default.after`,
+      `31 ${P}.ask_user.default.after`,
+      `31 ${P}.scope_changed.default.after`,
     ]);
     const s = v6();
     tr(s, 'planning', 'scope_changed').default = { after: '8h', answer: 'yes' };

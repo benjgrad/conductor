@@ -5,7 +5,7 @@
 - **Deciders**: Ben (ticket R6, workflow retrospective I-1) + Claude (conductor session)
 - **Resolves**: retrospective R6 / I-1
 
-Numbering: ADR-0040 is the R5a answerer pass (#224), which also took validator rule 28, so this ADR's rule is **29**.
+Numbering: ADR-0040 (answerer, #224) took validator rule 28, ADR-0042 (parallel legs) rule 29 and ADR-0043 (triage) rule 30, so this ADR's rule is **31**.
 
 ## Context
 The workflow retrospective (`docs/reports/2026-11-workflow-retrospective.html`, R6 / I-1) found that `needs_input` has a median stay of 12.7 min but a p90 of 439 min. Most questions are answered quickly. The long tail is questions asked late in the day that hold a ticket overnight, although the agent had already said what it would do.
@@ -17,7 +17,7 @@ n8n's send-and-wait node has a "Limit wait time" option that continues with a fa
 ## Decision
 A question transition may declare **`default: {after: <duration>, answer: "$recommended"}`**. If nobody answers its request within `after`, the engine delivers the agent's own recommended answer to `$return_to`, exactly as a human answer would be delivered. The engine closes the request as answered by `system` and sends a push. Ben can **overrule** the answer from the timeline afterwards.
 
-### 1 · Eligibility (validator rule 29)
+### 1 · Eligibility (validator rule 31)
 `default` is allowed only on a transition that meets all of these:
 - the transition is **agent-actor**;
 - it asks: `question: true`, or the `ask_user` transition;

@@ -4,7 +4,9 @@ import {
   AVAILABLE_TRANSITION_ACTIONS,
   AVAILABLE_WORKFLOW_FEATURES,
   CONDUCTOR_WORKFLOW_ID,
+  isFailureTarget,
   resultKeys,
+  GATE,
   RETURN_TO,
   WorkflowDefinitionSchema,
   type OnUnmet,
@@ -23,6 +25,7 @@ import {
   transitionObject,
 } from './transition-rules.js';
 import { checkTransitions } from './validate-transitions.js';
+import { checkTriage, triagePseudoEdges } from './validate-triage.js';
 import {
   checkPrimitiveAvailability,
   checkPrimitives,
@@ -51,7 +54,9 @@ import { checkParallel } from './validate-parallel.js';
  * primitives P1–P8) are in `validate-primitives.ts`, with rule 14's "not available yet" refusals.
  * Rules 26–27 (ADR-0039, base refs) are in `validate-bases.ts`. Rule 28 (ADR-0040, the
  * answerer) is in `validate-answerer.ts`.
- * Rule 29 (ADR-0042, parallel legs) is in `validate-parallel.ts`.
+ * Rule 29 (ADR-0042, parallel legs) is in `validate-parallel.ts`. Rule 30 (ADR-0043, the triage
+ * role) is in `validate-triage.ts`. Rule 31 (ADR-0041, default answers) is in
+ * `validate-primitives.ts`.
  */
 export type WorkflowRule =
   | 1
@@ -82,7 +87,9 @@ export type WorkflowRule =
   | 26
   | 27
   | 28
-  | 29;
+  | 29
+  | 30
+  | 31;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -198,7 +205,7 @@ export function checkAvailability(
   return errors;
 }
 
-/** Parse a workflow definition and check rules 1–17 and 19–29. Never throws. */
+/** Parse a workflow definition and check rules 1–17 and 19–30. Never throws. */
 export function validateWorkflow(
   input: unknown,
   opts: ValidateOptions = {},
@@ -273,6 +280,7 @@ export function validateWorkflow(
   errors.push(...checkBases(def));
   errors.push(...checkAnswerer(def));
   errors.push(...checkParallel(def));
+  errors.push(...checkTriage(def, has));
 
   // Graph rules 2–5 only on a graph whose start and targets all exist, so a missing target
   // reports once (rule 1) instead of cascading into unreachable/dead-end noise.
@@ -324,11 +332,11 @@ function checkGates(
       }
       const otherwise = t.requirements.on_unmet.else;
       const target = has(otherwise) ? def.states[otherwise] : undefined;
-      if (target !== undefined && target.type !== 'human') {
+      if (target !== undefined && !isFailureTarget(target)) {
         errors.push({
           rule: 8,
           path: [...base, 'on_unmet', 'else'],
-          message: `requirements on_unmet.else "${otherwise}" must be a human state (it is ${target.type})`,
+          message: `requirements on_unmet.else "${otherwise}" must be a human or triage state (it is ${target.type})`,
         });
       }
     }
@@ -397,10 +405,10 @@ function checkEntry(
     }
     const otherwise = entry.on_unmet.else;
     const elseState = has(otherwise) ? def.states[otherwise] : undefined;
-    if (elseState !== undefined && elseState.type !== 'human') {
+    if (elseState !== undefined && !isFailureTarget(elseState)) {
       err(
         [...base, 'on_unmet', 'else'],
-        `entry on_unmet.else "${otherwise}" must be a human state (it is ${elseState.type})`,
+        `entry on_unmet.else "${otherwise}" must be a human or triage state (it is ${elseState.type})`,
       );
     }
     const back = entry.on_unmet.goto;
@@ -497,7 +505,8 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
       const push = (to: string, path: (string | number)[], bounded: boolean) => {
         // ADR-0011: `$return_to` is not an edge (like a human's `answered` route); rule 10 checks
         // where it may appear.
-        if (to === RETURN_TO) return;
+        // ADR-0043: nor is `$gate`; a triage state's pseudo-targets are added below.
+        if (to === RETURN_TO || to === GATE) return;
         edges.push({ from, to, outcome, path, bounded, actor, completes });
       };
       // The goto leg carries a `"<from>-><goto>"` retry counter only when the transition is a
@@ -525,6 +534,19 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
         }
       }
     }
+  }
+  // ADR-0043: a triage verdict's `$return_to` / `$gate` leads back to whoever routed into it; the
+  // edge is bounded when the verdict is counted (rule 30 requires it).
+  for (const e of triagePseudoEdges(def)) {
+    edges.push({
+      from: e.from,
+      to: e.to,
+      outcome: e.outcome,
+      path: e.path,
+      bounded: e.counted,
+      actor: transitionActor(def, e.from, e.outcome, e.raw),
+      completes: false,
+    });
   }
   return edges;
 }

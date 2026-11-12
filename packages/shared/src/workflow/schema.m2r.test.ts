@@ -16,6 +16,7 @@ import {
   UNMET_ROUTE_REASONS,
   WorkflowDefinitionSchema,
 } from './schema.js';
+import { TRIAGE_CONTEXT_KEY } from '../engine/triage.js';
 
 // M2r-T01 (ADR-0020): the definition fields. Validator rules are M2r-T02's.
 
@@ -125,7 +126,7 @@ describe('actions and reserved keys', () => {
     expect(AVAILABLE_TRANSITION_ACTIONS).toEqual(['open_pr', 'inspect_pr', 'merge_pr', 'close_pr']);
   });
 
-  it('RESERVED_CONTEXT_KEYS are the engine context keys, __qa included', () => {
+  it('RESERVED_CONTEXT_KEYS are the engine context keys, __qa and __triage included', () => {
     expect([...RESERVED_CONTEXT_KEYS].sort()).toEqual(
       [
         REVIEW_CONTEXT_KEY,
@@ -136,6 +137,7 @@ describe('actions and reserved keys', () => {
         QA_CONTEXT_KEY,
         DEFAULT_CONTEXT_KEY,
         DEFAULT_TAKEN_CONTEXT_KEY,
+        TRIAGE_CONTEXT_KEY,
       ].sort(),
     );
     expect(RESERVED_CONTEXT_KEYS).toContain('__qa');

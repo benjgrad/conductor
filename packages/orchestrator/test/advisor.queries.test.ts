@@ -348,4 +348,56 @@ describe('loadAdvisorRows (ADR-0033)', () => {
       }),
     );
   });
+
+  it('ADR-0043 FR-5: reads a triage verdict’s judged failure and breaks the verdicts down', async () => {
+    const e = await account('E');
+    const me = await machine(e);
+    const { sessionId } = await advisorHistory(db.pool, {
+      accountId: e,
+      machineId: me,
+      repo: 'github.com/acme/app',
+      ago: 2,
+      now: NOW,
+    });
+    const move = (to: string, transition: string, triage: unknown, min: number) =>
+      db.pool.query(
+        "INSERT INTO event (session_id, type, payload, ts) VALUES ($1, 'state.entered', $2, $3)",
+        [
+          sessionId,
+          JSON.stringify({
+            from: 'triage',
+            to,
+            visit: 1,
+            transition,
+            actor: 'agent',
+            cause: 'transition',
+            triage,
+          }),
+          daysAgo(2, min),
+        ],
+      );
+    await move(
+      'implementing',
+      'send_back',
+      { failure_cause: 'check_failed', gate_transition: 'pr_ready' },
+      80,
+    );
+    await move(
+      'needs_input',
+      'escalate',
+      { failure_cause: 'timeout', gate_transition: 'pr_ready' },
+      90,
+    );
+    await move('needs_input', 'escalate', { failure_cause: 'bogus' }, 95);
+    const rows = await loadAdvisorRows(db.pool, { accountId: e, windowDays: 30, now: NOW });
+    expect(rows.moves.filter((m) => m.triage != null)).toHaveLength(2);
+    expect(processMetrics(rows, 'state').triage).toEqual({
+      verdicts: 2,
+      tickets: 1,
+      by_cause: [
+        { failure_cause: 'check_failed', verdict: 'send_back', count: 1, capped: 0 },
+        { failure_cause: 'timeout', verdict: 'escalate', count: 1, capped: 0 },
+      ],
+    });
+  });
 });

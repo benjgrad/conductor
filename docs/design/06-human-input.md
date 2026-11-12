@@ -87,7 +87,7 @@ An agent's `ask_user` may list the answers it expects, the way Claude Code's own
 
 ## Default answers and overrule
 
-[ADR-0041](../adr/0041-question-default-on-timeout.md): a non-critical question doesn't hold a ticket overnight. A question transition can declare `default: {after, answer: "$recommended"}` (05 §Default answers; validator rule 29; never `plan_needs_approval` or `needs_approval_to_message`).
+[ADR-0041](../adr/0041-question-default-on-timeout.md): a non-critical question doesn't hold a ticket overnight. A question transition can declare `default: {after, answer: "$recommended"}` (05 §Default answers; validator rule 31; never `plan_needs_approval` or `needs_approval_to_message`).
 
 - **The recommended answer.** It is `result.recommended` of the agent's `complete_state`, or the first option of a single-select `ask_user` tool call (the tool already lists the recommended choice first). Without one, the question waits for a human as before. The agent's "How to finish" tells it so for each transition that has a default.
 - **While it waits.** The pending request shows a quiet line under the question: "If nobody answers by <weekday, time>, conductor answers: “<answer>”". Answering, a transition button or anything else that moves the ticket cancels the default.

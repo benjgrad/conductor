@@ -28,7 +28,7 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       }
     }
     expect(TOOL_ALIAS_NAMES).toEqual(
-      expect.arrayContaining(['edit', 'bash', 'git', 'pr_skill', 'qa', 'bash_readonly']),
+      expect.arrayContaining(['edit', 'bash', 'git', 'pr_skill', 'qa', 'bash_readonly', 'triage']),
     );
   });
 
@@ -154,8 +154,50 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       expect(p.allow.some((r) => r.startsWith(bad))).toBe(false);
   });
 
+  it('triage alias reads git and CI but can change neither the branch nor GitHub (ADR-0043)', () => {
+    const p = resolveToolPolicy(['triage']);
+    expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash', ...BACKGROUND_TOOLS]);
+    expect(p.allow).toEqual(
+      expect.arrayContaining([
+        'Read(./**)',
+        'Bash(git status)',
+        'Bash(git log --oneline -n 20)',
+        'Bash(gh pr view:*)',
+        'Bash(gh pr checks:*)',
+        'Bash(gh pr diff:*)',
+        'Bash(gh run list:*)',
+        'Bash(gh run view:*)',
+      ]),
+    );
+    expect(p.deny).toEqual(
+      expect.arrayContaining([
+        'Edit',
+        'Write',
+        'Bash(git add:*)',
+        'Bash(git commit:*)',
+        'Bash(git push:*)',
+        'Bash(gh api:*)',
+        'Bash(gh pr merge:*)',
+        'Bash(gh run rerun:*)',
+      ]),
+    );
+    for (const bad of [
+      'Edit',
+      'Write',
+      'Bash(git commit',
+      'Bash(git add',
+      'Bash(gh api',
+      'Bash(gh:',
+    ])
+      expect(p.allow.some((r) => r.startsWith(bad))).toBe(false);
+    // Only the five read-only gh subcommands, never a broader gh prefix.
+    expect(p.allow.filter((r) => r.startsWith('Bash(gh '))).toHaveLength(5);
+    for (const sub of ['diff', 'log', 'show'])
+      expect(p.allow.some((r) => r.startsWith(`Bash(git ${sub}`) && r.endsWith(':*)'))).toBe(false);
+  });
+
   it('gives every Bash alias the background-job tools, and the read base none (ADR-0035)', () => {
-    for (const alias of ['bash', 'git', 'review', 'qa', 'pr_skill', 'bash_readonly']) {
+    for (const alias of ['bash', 'git', 'review', 'qa', 'triage', 'pr_skill', 'bash_readonly']) {
       const p = resolveToolPolicy([alias]);
       expect(p.builtin).toEqual(expect.arrayContaining(['Bash', ...BACKGROUND_TOOLS]));
       expect(p.allow).toEqual(expect.arrayContaining([...BACKGROUND_TOOLS]));

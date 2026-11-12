@@ -188,6 +188,105 @@ export class Harness {
 export const QA_PR_URL = 'https://github.com/benjgrad/fixture-app/pull/7';
 
 /**
+ * ADR-0043: a gate whose failures go to a triage state with the four verdicts: `send_back`
+ * (`$return_to`), `rerun` (`$gate`), `fix_env` (a command that retries the gate) and `escalate`.
+ * `implementing`'s gate sends one failure straight back (retries 1), then triage.
+ */
+export function triageDefinitionInput(): Record<string, unknown> {
+  return {
+    id: 'triage_flow',
+    version: 1,
+    start: 'implementing',
+    budget: { usd: 20, minutes: 600, max_loop_retries: 3 },
+    on_budget_exceeded: 'needs_input',
+    states: {
+      implementing: {
+        type: 'agent',
+        title: 'Implementing',
+        prompt: 'implement_template',
+        tools: ['edit', 'bash'],
+        timeout: '60m',
+        on: {
+          pr_ready: {
+            goto: 'in_review',
+            title: 'PR ready',
+            requires: {
+              checks: [{ name: 'Tests pass', cmd: 'npm test', timeout: '10m' }],
+            },
+            on_unmet: {
+              goto: 'implementing',
+              instruction: 'Fix it, commit, then finish again.',
+              retries: 1,
+              else: 'triage',
+            },
+          },
+          ask_user: 'needs_input',
+          timeout: 'needs_input',
+        },
+      },
+      triage: {
+        type: 'agent',
+        role: 'triage',
+        title: 'Triage',
+        prompt: 'Read why the gate failed and pick a verdict.',
+        timeout: '15m',
+        result: ['diagnosis'],
+        on: {
+          send_back: {
+            goto: '$return_to',
+            retries: 2,
+            else: 'needs_input',
+            when: 'The branch is wrong: say exactly what to fix in `instruction`.',
+          },
+          rerun: {
+            goto: '$gate',
+            retries: 1,
+            else: 'needs_input',
+            when: 'The failure is flaky.',
+          },
+          fix_env: { goto: 'fix_env', when: 'The environment is broken.' },
+          escalate: { goto: 'needs_input', when: 'Only Ben can decide.' },
+        },
+      },
+      fix_env: {
+        type: 'command',
+        title: 'Fix the environment',
+        cmd: 'pnpm install',
+        timeout: '10m',
+        on: {
+          exit_0: { goto: '$gate', retries: 1, else: 'needs_input' },
+          fail: 'needs_input',
+        },
+      },
+      in_review: {
+        type: 'human',
+        title: 'In review',
+        on: { merged: { goto: 'done', title: 'Merged', actor: 'human' } },
+      },
+      needs_input: {
+        type: 'human',
+        title: 'Needs input',
+        on: {
+          answer: { goto: '$return_to', title: 'Back with this answer', actor: 'human' },
+          back_to_implementing: {
+            goto: 'implementing',
+            title: 'Back to Implementing',
+            actor: 'human',
+            text: 'required',
+          },
+          close: { goto: 'done', title: 'Close', actor: 'human' },
+        },
+      },
+      done: { type: 'terminal' },
+    },
+  };
+}
+
+export function triageDefinition(): WorkflowDefinition {
+  return WorkflowDefinitionSchema.parse(triageDefinitionInput());
+}
+
+/**
  * A minimal ADR-0020 §10 shape: Implementing → (checks, open_pr) → In QA (`role: qa`) → Ready to
  * merge; `qa_fail` sends the findings back (`attach: 'result'`, 3 rounds, then Needs input).
  * No `inspect_pr` / `merge_pr` (M2r-T04).

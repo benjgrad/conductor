@@ -60,6 +60,7 @@ async fn register_advertises_the_assistant_job_feature() {
     let reg = c.until(|| c.of_type("register").into_iter().next()).await;
     // 06 §Attachments: the daemon also downloads ticket attachments. ADR-0038: it publishes pages.
     // R4: its agents can run_gate.
+    // ADR-0043: it knows the `triage` tool alias.
     assert_eq!(
         reg["payload"]["features"],
         json!([
@@ -68,7 +69,8 @@ async fn register_advertises_the_assistant_job_feature() {
             "agent_attachments",
             "pages",
             "permission_mode",
-            "run_gate"
+            "run_gate",
+            "triage"
         ])
     );
     c.done().await;

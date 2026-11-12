@@ -6557,6 +6557,7 @@ pub const DAEMON_FEATURE_PAGES: &str = "pages";
 pub const DAEMON_FEATURE_PERMISSION_MODE: &str = "permission_mode";
 pub const DAEMON_FEATURE_RUN_GATE: &str = "run_gate";
 pub const DAEMON_FEATURE_TICKET_ATTACHMENTS: &str = "ticket_attachments";
+pub const DAEMON_FEATURE_TRIAGE: &str = "triage";
 pub const DAEMON_TARBALL_MAX_BYTES: usize = 104857600;
 pub const DAEMON_TARBALL_RE: &str = "^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$";
 pub const DAEMON_TARGET_RE: &str = "^[0-9a-z_]+(-[0-9a-z_]+){1,3}$";
@@ -6810,6 +6811,55 @@ pub const TOOL_ALIASES: &[(&str, ToolPolicyFragment)] = &[
                 "Bash(git branch --show-current)",
             ],
             deny: &[],
+        },
+    ),
+    (
+        "triage",
+        ToolPolicyFragment {
+            builtin: &["Bash", "TaskStop", "BashOutput", "KillShell"],
+            allow: &[
+                "TaskStop",
+                "BashOutput",
+                "KillShell",
+                "Bash(git status)",
+                "Bash(git status --short)",
+                "Bash(git diff)",
+                "Bash(git diff --cached)",
+                "Bash(git diff --stat)",
+                "Bash(git diff HEAD~1)",
+                "Bash(git diff --stat HEAD~1)",
+                "Bash(git log --oneline -n 20)",
+                "Bash(git log --stat -n 10)",
+                "Bash(git log -p -n 5)",
+                "Bash(git show)",
+                "Bash(git show --stat)",
+                "Bash(git rev-parse HEAD)",
+                "Bash(git branch --show-current)",
+                "Bash(gh pr view:*)",
+                "Bash(gh pr checks:*)",
+                "Bash(gh pr diff:*)",
+                "Bash(gh run list:*)",
+                "Bash(gh run view:*)",
+            ],
+            deny: &[
+                "Edit",
+                "Write",
+                "Bash(git add:*)",
+                "Bash(git commit:*)",
+                "Bash(git reset:*)",
+                "Bash(git checkout:*)",
+                "Bash(git stash:*)",
+                "Bash(gh api:*)",
+                "Bash(gh pr create:*)",
+                "Bash(gh pr merge:*)",
+                "Bash(gh pr close:*)",
+                "Bash(gh pr edit:*)",
+                "Bash(gh pr comment:*)",
+                "Bash(gh pr review:*)",
+                "Bash(gh run rerun:*)",
+                "Bash(gh run cancel:*)",
+                "Bash(gh workflow:*)",
+            ],
         },
     ),
 ];

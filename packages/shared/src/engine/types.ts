@@ -771,6 +771,17 @@ export const HoldEndCauseSchema = z.enum(['concurrency_released', 'timeout', 'le
 export type HoldEndCause = z.infer<typeof HoldEndCauseSchema>;
 
 /**
+ * ADR-0043: what a triage verdict's `state_entered` records about the failure it judged: why the
+ * gate failed (`failure_cause`) and which transition (`gate_transition`). Metrics break triage
+ * verdicts down by it (FR-5).
+ */
+export const TriageMoveSchema = z.object({
+  failure_cause: MoveCauseSchema,
+  gate_transition: z.string(),
+});
+export type TriageMove = z.infer<typeof TriageMoveSchema>;
+
+/**
  * Effects. The first six map 1:1 to an outbox kind (02) and, except connector_call, to the
  * same-named WS message (03). The rest are orchestrator-internal. Mapping: 10-contracts.
  * Ids (command_id, input_request_id) are assigned by the wrapper, never by apply.
@@ -929,6 +940,8 @@ export const EffectSchema = z.discriminatedUnion('type', [
     actor: MoveActorSchema.nullable().optional(),
     /** ADR-0037 P7: why the session entered `to`. Always set. */
     cause: MoveCauseSchema,
+    /** ADR-0043: a triage verdict's move: the failure it judged (its cause and transition). */
+    triage: TriageMoveSchema.optional(),
     /**
      * The transition that led here has `notify: true` (its name): the wrapper writes a
      * `transition.notified` board event and `push_transition` rows. Absent = no notification.
@@ -1196,6 +1209,8 @@ export const StateEnteredPayloadSchema = z.object({
   cause: MoveCauseSchema.nullable().optional(),
   /** ADR-0037 P6: the notify decision (`notify_decision`); absent in legacy mode. */
   notify: NotifyDecisionSchema.nullable().optional(),
+  /** ADR-0043: on a triage verdict's move, the failure it judged; absent elsewhere. */
+  triage: TriageMoveSchema.nullable().optional(),
 });
 export type StateEnteredPayload = z.infer<typeof StateEnteredPayloadSchema>;
 

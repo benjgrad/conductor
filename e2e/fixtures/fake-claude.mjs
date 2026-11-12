@@ -58,6 +58,7 @@
 //                                       changes are checked); nothing to commit is a no-op
 // A requirements reviewer's first message starts with "# Requirements review"; with
 // FAKE_CLAUDE_SCENARIO_DIR it plays `<name>_review.json` for the ticket's `fake-scenario: <name>`.
+// A triage session's (ADR-0043) starts with "# Triage": it plays `<name>_triage.json`.
 // Turns past the end of the script answer "No more scripted turns." and succeed.
 //
 // Other env:
@@ -186,7 +187,10 @@ function loadGlobalScenario() {
  */
 function scenarioNameFor(firstMessage) {
   const name = /fake-scenario:\s*([A-Za-z0-9_-]+)/.exec(firstMessage)?.[1] ?? 'default';
-  return firstMessage.startsWith('# Requirements review') ? `${name}_review` : name;
+  if (firstMessage.startsWith('# Requirements review')) return `${name}_review`;
+  // ADR-0043: a triage session (its state's prompt starts with "# Triage" and names the ticket).
+  if (firstMessage.startsWith('# Triage')) return `${name}_triage`;
+  return name;
 }
 function loadNamedScenario(name) {
   const path = join(scenarioDir, `${name}.json`);

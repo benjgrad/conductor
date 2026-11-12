@@ -4,6 +4,8 @@ import {
   inputClass,
   MoveCauseSchema,
   NotifyDecisionSchema,
+  TriageMoveSchema,
+  type TriageMove,
   offeredPresets,
   pageLimitsOf,
   pagesOfContext,
@@ -172,6 +174,12 @@ function notifyOf(raw: unknown): { notify?: NotifyDecision } {
   return parsed.success ? { notify: parsed.data } : {};
 }
 
+/** ADR-0043: a stored triage record, when the move carried a valid one. */
+function triageOf(raw: unknown): { triage?: TriageMove } {
+  const parsed = TriageMoveSchema.safeParse(raw);
+  return parsed.success ? { triage: parsed.data } : {};
+}
+
 /** A stored ADR-0037 cause; absent (a row before it) or unknown → null. */
 function causeOf(raw: string | null): MoveCause | null {
   const p = MoveCauseSchema.safeParse(raw);
@@ -194,6 +202,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     actor: string | null;
     cause: string | null;
     notify: unknown;
+    triage: unknown;
     visit: number;
     ts: Date;
   }>(
@@ -201,6 +210,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
       `e.payload->>'from' AS "from", e.payload->>'to' AS "to", ` +
       "e.payload->>'transition' AS transition, e.payload->>'actor' AS actor, " +
       "e.payload->>'cause' AS cause, e.payload->'notify' AS notify, " +
+      "e.payload->'triage' AS triage, " +
       "COALESCE((e.payload->>'visit')::int, 1) AS visit, e.ts " +
       `${SCOPE.replace('FROM session s', 'FROM event e JOIN session s ON s.id = e.session_id')} ` +
       "AND e.type = 'state.entered' AND e.ts >= $2 AND e.payload ? 'to' " +
@@ -338,6 +348,8 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     cause: causeOf(r.cause),
     // ADR-0037 P6: the notify decision, when the move carried a valid one.
     ...notifyOf(r.notify),
+    // ADR-0043: a triage verdict's judged failure (metrics by cause).
+    ...triageOf(r.triage),
     visit: r.visit,
     at: r.ts.toISOString(),
   }));

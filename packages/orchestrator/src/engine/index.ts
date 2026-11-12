@@ -6,13 +6,7 @@ import { dispatchPushOnce, type PushDispatchStats } from '../push/dispatcher.js'
 import { webPushSender, type PushSender } from '../push/sender.js';
 import { dispatchOnce, type DispatchStats } from './dispatcher.js';
 import { EngineServiceImpl } from './service.js';
-import {
-  BUDGET_SWEEP_INTERVAL_MS,
-  sweepBudgets,
-  sweepOnce,
-  type BudgetSweepStats,
-  type SweepStats,
-} from './sweep.js';
+import { sweepOnce, type SweepStats } from './sweep.js';
 import { sweepUnlinkedAttachments } from './attachments.js';
 import { PAGE_SWEEP_INTERVAL_MS, sweepExpiredPages } from './pages.js';
 import {
@@ -58,8 +52,6 @@ export interface EngineServiceHandle extends EngineHandle {
   dispatchOnce(transport: OutboxTransport): Promise<DispatchStats>;
   /** One timeout-sweep pass. */
   sweepOnce(): Promise<SweepStats>;
-  /** 09 §Budgets: `budget.exceeded` for every active session over its budget (the loop runs it every 15 s). */
-  sweepBudgetsOnce(): Promise<BudgetSweepStats>;
   /** One permission-request timeout pass (ADR-0023): how many requests expired. */
   sweepPermissionsOnce(): Promise<number>;
   /** UX-15: one push dispatcher pass; null when push is disabled (nothing is ever sent). */
@@ -150,7 +142,6 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
     engine,
     dispatchOnce: (transport) => dispatchOnce(workerDeps, transport),
     sweepOnce: () => sweepOnce(workerDeps),
-    sweepBudgetsOnce: () => sweepBudgets(workerDeps),
     sweepPermissionsOnce: () => sweepPermissionTimeouts(workerDeps),
     dispatchPushOnce: pushOnce,
     sweepSchedulesOnce: () => sweepSchedulesOnce(workerDeps),
@@ -159,14 +150,9 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
       const dispatcher = loop(deps.dispatchIntervalMs ?? 500, () =>
         dispatchOnce(workerDeps, transport),
       );
-      let budgetsSweptAt = -Infinity;
       const sweeper = loop(deps.sweepIntervalMs ?? 1000, async () => {
         await sweepOnce(workerDeps);
         await sweepPermissionTimeouts(workerDeps);
-        if (now().getTime() - budgetsSweptAt >= BUDGET_SWEEP_INTERVAL_MS) {
-          budgetsSweptAt = now().getTime();
-          await sweepBudgets(workerDeps);
-        }
       });
       // UX-15: its own loop, so a slow push service never delays machine commands (NFR-1).
       const pusher = pushSender ? loop(deps.pushIntervalMs ?? 1000, pushOnce) : null;

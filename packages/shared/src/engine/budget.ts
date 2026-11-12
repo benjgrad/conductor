@@ -3,8 +3,11 @@ import type { QuestionOptions } from '../protocol/question-options.js';
 import type { WorkflowDefinition } from '../workflow/schema.js';
 import type { SessionSnapshot } from './types.js';
 
-// Budget enforcement (09 §Budgets, 10-contracts §Budgets). Pure, so apply and the orchestrator's
-// triggers (the spend path and the sweep) share one verdict.
+// Legacy budget handling (09 §Spend tracking). Per-session `usd` / `minutes` budgets are no longer
+// enforced (2026-11-11): nothing emits `budget.exceeded` any more and no `start_session` carries
+// `max_budget_usd`. What is left lets a `budget_exceeded` request opened before the removal still
+// be answered ("Raise …" resumes, "Stop" cancels), and `budgetVerdict` lets apply ignore a stray
+// `budget.exceeded` (`within_budget`). The definitions below describe how those old trips counted.
 //
 // - `usd`: `session.spend_usd` (positive deltas of each Claude session's cumulative total).
 // - `minutes`: `session.wall_seconds` plus the time since `state_entered_at` while the clock
@@ -198,19 +201,6 @@ export function budgetVerdict(
   if (minutes >= limit.minutes)
     return { dimension: 'minutes', spent: minutes, limit: limit.minutes };
   return null;
-}
-
-/**
- * `start_session.max_budget_usd`, the CLI's own hard stop (`--max-budget-usd`). U-018 (resolved
- * 2026-11-11 against Claude Code 2.1.321): the CLI compares the cap with what THIS process spent,
- * not with the cumulative `total_cost_usd` it reports after a `--resume`, so the cap is the
- * session's remaining budget whether or not the start resumes a conversation.
- */
-export function maxBudgetForStart(
-  def: Pick<WorkflowDefinition, 'budget'>,
-  s: Pick<SessionSnapshot, 'spend_usd' | 'context'>,
-): number {
-  return Math.max(0, effectiveBudget(def, s.context).usd - s.spend_usd);
 }
 
 /** The `budget_exceeded` question. */

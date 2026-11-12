@@ -108,7 +108,6 @@ describe('gated outcome → review step', () => {
       tools: ['review'],
       resume_claude_session_id: null,
       review: true,
-      max_budget_usd: 3,
     });
     expect(start.model).toBeUndefined();
     expect(start.prompt.startsWith(REVIEW_PROMPT_HEADING)).toBe(true);
@@ -426,11 +425,12 @@ describe('while reviewing', () => {
     const r = h.run({ type: 'spend.reported', claude_session_id: REVIEWER, total_usd: 0.2 });
     expect(r.snapshot.spend_usd).toBeCloseTo(0.7);
     expect(r.snapshot.claude_spend_totals).toEqual({ [WORKER]: 0.5, [REVIEWER]: 0.2 });
-    // The next reviewer's --max-budget-usd backstop is what is left.
+    // Spend is tracked for reporting only: the next reviewer starts with no CLI cap.
     h.complete(testsMissing as never);
     h.started();
     const again = h.complete({});
-    expect(find(again.effects, 'start_session')?.max_budget_usd).toBeCloseTo(2.3);
+    expect(find(again.effects, 'start_session')).toBeDefined();
+    expect(find(again.effects, 'start_session')?.max_budget_usd).toBeUndefined();
   });
 
   it('budget.exceeded → on_budget_exceeded, returning to the source state', () => {

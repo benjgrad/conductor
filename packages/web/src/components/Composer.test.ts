@@ -20,7 +20,6 @@ function detail(card: BoardCard): SessionDetail {
     state_deadline: null,
     spend_usd: 0,
     wall_seconds: 0,
-    budget: { usd: 10, minutes: 120 },
     branch: null,
     worktree_path: null,
     pending_input: null,

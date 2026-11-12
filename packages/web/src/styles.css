@@ -778,18 +778,14 @@ button.copy {
 .quick-actions {
   margin-top: var(--space-2);
 }
-.meter {
+.spend {
   display: grid;
-  grid-template-columns: 50px 1fr auto;
-  gap: 8px;
-  align-items: center;
+  grid-template-columns: 50px auto;
+  gap: 4px 8px;
+  margin: 0;
 }
-.meter meter {
-  width: 100%;
-}
-.over {
-  color: var(--danger);
-  font-weight: 600;
+.spend dd {
+  margin: 0;
 }
 
 /* Context (ContextView.tsx): readable, never a JSON wall by default. */

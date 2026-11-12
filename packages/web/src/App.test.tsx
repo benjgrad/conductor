@@ -160,8 +160,10 @@ describe('detail panel', () => {
     fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
     expect(await panel.findByText('https://github.com/benjgrad/fixture-app/pull/7')).toBeTruthy();
     expect(panel.getByText('await_approval', { selector: '[aria-current="step"]' })).toBeTruthy();
-    expect(panel.getByText('$0.90 / $5.00')).toBeTruthy();
-    expect(panel.getByText(/\/ 120m$/)).toBeTruthy();
+    // Spend and time with no limit: budgets are not enforced.
+    const spend = within(panel.getByText('Spend & time').closest('section')!);
+    expect(spend.getByText('$0.90')).toBeTruthy();
+    expect(spend.queryByText(/\/ /)).toBeNull();
     fireEvent.click(panel.getByRole('tab', { name: 'Messages' }));
     act(() => api.pushOutput(SEED_IDS.approval.session, 'PR checks green\n'));
     expect(await panel.findByText('PR checks green')).toBeTruthy();

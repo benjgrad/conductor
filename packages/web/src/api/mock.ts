@@ -1019,7 +1019,6 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           state_deadline: null,
           spend_usd: card.spend_usd,
           wall_seconds: s.wall_seconds,
-          budget: { usd: s.workflow.budget.usd, minutes: s.workflow.budget.minutes },
           branch: s.branch,
           worktree_path: null,
           pending_input: card.input_request,

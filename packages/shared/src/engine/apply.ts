@@ -133,7 +133,6 @@ import {
   budgetVerdict,
   effectiveBudget,
   formatUsd,
-  maxBudgetForStart,
   raiseLabel,
   raiseStep,
   withBudgetRaise,
@@ -1103,7 +1102,7 @@ function onBudget(st: Step): ApplyIgnoreReason | null {
 /**
  * The answer to an open `budget_exceeded` request (the mark matches this visit). "Raise …" adds
  * one more workflow budget of that dimension (`context.__budget`) and resumes `return_to` in a
- * new process (the new `max_budget_usd`); "Stop" cancels the ticket. Any other answer is handled
+ * new process; "Stop" cancels the ticket. Any other answer is handled
  * like any answer (null): the next check trips again if the session is still over budget.
  */
 function onBudgetAnswer(
@@ -1821,7 +1820,6 @@ function emitReviewer(st: Step, spec: GateSpec, nudge: string | null): void {
     tools: [...REVIEW_TOOLS],
     resume_claude_session_id: resume,
     ...(review.model !== undefined ? { model: review.model } : {}),
-    max_budget_usd: maxBudgetForStart(st.def, st.s),
     review: true,
   });
 }
@@ -3963,7 +3961,6 @@ function startSession(
     resume_claude_session_id: resume,
     ...(state.model !== undefined ? { model: state.model } : {}),
     ...(state.max_turns !== undefined ? { max_turns: state.max_turns } : {}),
-    max_budget_usd: maxBudgetForStart(st.def, st.s),
     ...(transitions !== null ? { transitions } : {}),
   };
 }

@@ -1097,6 +1097,11 @@ export const SessionBaseSchema = z.object({
 });
 export type SessionBase = z.infer<typeof SessionBaseSchema>;
 
+/**
+ * 09 §Spend tracking. `usd` / `minutes` are declared but NOT enforced (removed 2026-11-11): stored
+ * workflow versions carry them, so they stay required; spend and wall time are tracked for
+ * reporting only. `max_loop_retries` does bound retry loops (validator rule 4).
+ */
 export const BudgetSchema = z.strictObject({
   usd: z.number().positive(),
   minutes: z.number().positive(),
@@ -1109,7 +1114,10 @@ export const WorkflowDefinitionSchema = z.strictObject({
   version: z.number().int().positive(),
   start: StateNameSchema,
   budget: BudgetSchema,
-  /** State to route to on `budget.exceeded`. Default `needs_input` (05, 09). */
+  /**
+   * State to route to on `budget.exceeded`. Default `needs_input` (05, 09). Legacy: nothing emits
+   * the event any more; kept so stored definitions and pre-removal requests stay valid.
+   */
   on_budget_exceeded: StateNameSchema.default('needs_input'),
   states: z.record(StateNameSchema, StateSchema),
   /**

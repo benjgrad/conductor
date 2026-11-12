@@ -6,8 +6,9 @@ import { createEngineService } from '../../src/engine/index.js';
 import { useTestDatabase } from '../db.js';
 import { MACHINE, seedSession } from './fixtures.js';
 
-// 09 §Budgets: the spend trigger (EngineService, same transaction), the wall-time sweep, and the
-// human's raise. m1_basic's budget is $2 / 60 min. Needs db:up.
+// 09 §Spend tracking: per-session usd / minutes budgets are no longer enforced (2026-11-11). Spend
+// and wall time are tracked, nothing trips, and no start caps the CLI; a legacy `budget_exceeded`
+// request can still be answered. m1_basic declares $2 / 60 min. Needs db:up.
 
 const db = useTestDatabase();
 
@@ -59,16 +60,17 @@ async function running() {
   return { sessionId, handle };
 }
 
-describe('budget enforcement', () => {
-  it('a spend report over budget.usd hands the session to a human in the same apply', async () => {
-    const { sessionId, handle } = await running();
-    const under = await handle.engine.applyEvent(sessionId, {
-      type: 'spend.reported',
-      claude_session_id: 'c1',
-      total_usd: 1.5,
-    });
-    expect(under.status === 'applied' && under.snapshot.workflow_state).toBe('implement');
+const startPayloads = async (id: string) =>
+  (
+    await db.pool.query<OutboxRow>(
+      "SELECT * FROM outbox WHERE session_id = $1 AND kind = 'start_session' ORDER BY id",
+      [id],
+    )
+  ).rows.map((r) => r.payload as { max_budget_usd?: number });
 
+describe('budgets are not enforced', () => {
+  it('a spend report over budget.usd is tracked and the session carries on', async () => {
+    const { sessionId, handle } = await running();
     const r = await handle.engine.applyEvent(sessionId, {
       type: 'spend.reported',
       claude_session_id: 'c1',
@@ -76,38 +78,45 @@ describe('budget enforcement', () => {
     });
     expect(r.status).toBe('applied');
     const s = await session(sessionId);
-    expect(s).toMatchObject({ workflow_state: 'needs_input', status: 'needs_input' });
+    expect(s).toMatchObject({ workflow_state: 'implement', status: 'running' });
     expect(Number(s.spend_usd)).toBeCloseTo(2.5);
-    const types = await eventTypes(sessionId);
-    expect(types.lastIndexOf('budget.exceeded')).toBeGreaterThan(
-      types.lastIndexOf('spend.reported'),
-    );
-    const req = await openRequest(sessionId);
-    expect(req).toMatchObject({ kind: 'budget_exceeded', return_to: 'implement' });
-    expect(req!.options).toMatchObject({
-      items: [{ label: 'Raise budget by $2.00 and continue' }, { label: 'Stop' }],
-    });
+    expect(await eventTypes(sessionId)).not.toContain('budget.exceeded');
+    expect(await openRequest(sessionId)).toBeUndefined();
   });
 
-  it('the sweep trips a session whose running clock reaches budget.minutes', async () => {
+  it('a running clock past budget.minutes trips nothing: there is no budget sweep', async () => {
     const { sessionId, handle } = await running();
-    advance(59 * 60);
-    expect((await handle.sweepBudgetsOnce()).exceeded).toBe(0);
-    advance(60);
-    const stats = await handle.sweepBudgetsOnce();
-    expect(stats.exceeded).toBeGreaterThanOrEqual(1);
-    expect(await session(sessionId)).toMatchObject({ status: 'needs_input' });
-    expect((await openRequest(sessionId))?.question).toContain('ran 60 of 60 minutes');
+    expect('sweepBudgetsOnce' in handle).toBe(false);
+    // Past both the 60 min budget and implement's 30 min timeout: only the timeout fires.
+    advance(120 * 60);
+    await handle.sweepOnce();
+    expect(await eventTypes(sessionId)).not.toContain('budget.exceeded');
+    expect((await openRequest(sessionId))?.kind).toBe('timeout');
   });
 
-  it('"Raise budget …" records the raise and resumes with the raised --max-budget-usd', async () => {
+  it('no start_session carries --max-budget-usd', async () => {
+    const { sessionId } = await running();
+    const starts = await startPayloads(sessionId);
+    expect(starts.length).toBeGreaterThan(0);
+    for (const p of starts) expect(p.max_budget_usd).toBeUndefined();
+  });
+
+  it('a legacy budget_exceeded request still resolves: "Raise …" resumes uncapped', async () => {
     const { sessionId, handle } = await running();
     await handle.engine.applyEvent(sessionId, {
       type: 'spend.reported',
       claude_session_id: 'c1',
       total_usd: 2.5,
     });
+    // What R9's trigger used to feed; a request opened before the removal looks like this.
+    await handle.engine.applyEvent(sessionId, {
+      type: 'budget.exceeded',
+      dimension: 'usd',
+      spent: 2.5,
+      limit: 2,
+    });
     const req = (await openRequest(sessionId))!;
+    expect(req).toMatchObject({ kind: 'budget_exceeded', return_to: 'implement' });
     const r = await handle.engine.applyEvent(sessionId, {
       type: 'input.provided',
       input_request_id: req.id,
@@ -117,13 +126,7 @@ describe('budget enforcement', () => {
     const s = await session(sessionId);
     expect(s).toMatchObject({ workflow_state: 'implement', status: 'running' });
     expect(s.context[BUDGET_KEY]).toMatchObject({ usd: 2, minutes: 0 });
-    const starts = (
-      await db.pool.query<OutboxRow>(
-        "SELECT * FROM outbox WHERE session_id = $1 AND kind = 'start_session' ORDER BY id",
-        [sessionId],
-      )
-    ).rows;
-    const last = starts[starts.length - 1]!.payload as { max_budget_usd?: number };
-    expect(last.max_budget_usd).toBeCloseTo(1.5);
+    const starts = await startPayloads(sessionId);
+    expect(starts[starts.length - 1]!.max_budget_usd).toBeUndefined();
   });
 });

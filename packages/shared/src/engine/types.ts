@@ -536,10 +536,10 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     holders: z.array(z.object({ session_id: z.string(), ticket_id: z.string() })).max(50),
   }),
   /**
-   * O: budget exceeded → `def.on_budget_exceeded`, kind `budget_exceeded` (09 §Budgets). The
-   * EngineService emits it after a `spend.reported` that crosses `budget.usd`, and the sweep when
-   * the running wall time reaches `budget.minutes` (`budgetVerdict`). apply re-checks the verdict
-   * on its own snapshot (`within_budget` otherwise); `spent` / `limit` are informational.
+   * O: budget exceeded → `def.on_budget_exceeded`, kind `budget_exceeded` (09 §Spend tracking).
+   * Legacy: budgets are no longer enforced (2026-11-11), so nothing emits it any more. apply still
+   * routes it, re-checking the verdict on its own snapshot (`within_budget` otherwise), so
+   * requests opened before the removal stay answerable; `spent` / `limit` are informational.
    */
   z.object({
     type: z.literal('budget.exceeded'),
@@ -815,7 +815,7 @@ export const EffectSchema = z.discriminatedUnion('type', [
     resume_claude_session_id: z.string().nullable(),
     model: z.string().optional(),
     max_turns: z.number().int().positive().optional(),
-    /** Remaining workflow budget, the driver's `--max-budget-usd` backstop. */
+    /** Legacy `--max-budget-usd` cap; the engine no longer sets it (budgets are not enforced). */
     max_budget_usd: z.number().nonnegative().optional(),
     /**
      * ADR-0009: a requirements reviewer, not the worker. Always a fresh Claude session (or a

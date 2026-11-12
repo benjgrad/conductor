@@ -9,7 +9,7 @@ Users design an FSM, stored as **versioned JSON** in `workflow_definition`. The 
   "id": "pr_flow",
   "version": 1,
   "start": "implement",
-  "budget": { "usd": 5, "minutes": 120, "max_loop_retries": 3 },
+  "budget": { "usd": 5, "minutes": 120, "max_loop_retries": 3 },   // usd / minutes: declared, not enforced (09)
   "on_budget_exceeded": "needs_input",
   "states": {
     "<name>": {
@@ -158,7 +158,7 @@ A transition object may carry `requirements: {items[1..30], on_unmet: {goto, ins
                             "on_unmet": { "goto": "implement", "instruction": "Add the tests first.", "retries": 2 } } }
 ```
 
-- **Review step.** An outcome that selects a gated transition does not enter the target. The session enters a review step: `workflow_state` = `"<from> → <to> (review)"` (a label, not a state), status stays `running` (the board shows the label), the step's details live in `session.review` (stored in `context.__review`, [02](02-data-model.md#session)), and a 10-minute deadline (`REVIEW_TIMEOUT`) is armed. Wall time spent reviewing counts toward `budget.minutes` like the source state's.
+- **Review step.** An outcome that selects a gated transition does not enter the target. The session enters a review step: `workflow_state` = `"<from> → <to> (review)"` (a label, not a state), status stays `running` (the board shows the label), the step's details live in `session.review` (stored in `context.__review`, [02](02-data-model.md#session)), and a 10-minute deadline (`REVIEW_TIMEOUT`) is armed. Wall time spent reviewing is added to `wall_seconds` like the source state's.
 - **The reviewer** is one `start_session` with `review: true`: a **fresh** Claude session (`resume_claude_session_id: null`, never the worker's), tools `['review']` (Read/Glob/Grep plus the exact git inspection commands in `REVIEW_GIT_COMMANDS`, no edit tools), always `--permission-mode dontAsk` (only those pre-approved rules run, whatever the user's mode; the one exception to ADR-0006), the gate's `model`, cwd = the session worktree. Its prompt (`renderReviewPrompt`, `shared/src/engine/review.ts`) names the transition, the ticket, what the source state reported (its `complete_state` result, or the command's detail and output tail), the numbered items and the allowed git commands, and asks for `complete_state {result: {verdict: [{item, met, reason}]}}`. Its `claude_session_id` event goes to `review.claude_session_id`; `session.claude_session_id` stays the worker's. Its spend counts (per Claude session id, as always).
 - **Outcome** (the reviewer's `complete_state`). A verdict is valid when `verdict` is an array of `{item: string, met: boolean, reason?: string}` that answers every item (matched by text, ignoring case and whitespace, else by position when the counts match). The verdict is kept in `context["<from> → <to> (review)"]`.
   - all met → enter `to` (with the transition's `attach: output` attachment, if it had one);
@@ -208,7 +208,7 @@ A working agent can run the checks a transition's gate will run **before** it ta
 - **Recorded** in `self_check_run` ([02](02-data-model.md#self_check_run)) for process metrics: `ProcessMetrics.self_checks` next to `totals.check_runs` (the gates' own runs).
 
 ### `needs_input` semantics
-`needs_input` is a `human` state. On entry the engine writes an `input_request` with `kind` set to the reason (`agent_question`, `retries_exhausted`, `budget_exceeded`, `timeout`) and remembers `return_to` (the state that sent it there). A `budget_exceeded` request offers "Raise budget by X and continue" and "Stop" ([09 §Budgets](09-security-and-budgets.md#budgets)). When the answer arrives, the engine returns to `return_to` with the answer attached. The UI can also offer "abort" (→ `failed`) or "skip to <state>".
+`needs_input` is a `human` state. On entry the engine writes an `input_request` with `kind` set to the reason (`agent_question`, `retries_exhausted`, `budget_exceeded`, `timeout`) and remembers `return_to` (the state that sent it there). A `budget_exceeded` request (legacy: budgets are not enforced since 2026-11-11, so only requests opened before then exist) offers "Raise budget by X and continue" and "Stop" ([09 §Budgets](09-security-and-budgets.md#budgets)). When the answer arrives, the engine returns to `return_to` with the answer attached. The UI can also offer "abort" (→ `failed`) or "skip to <state>".
 
 ### Lost machines ([U-068](../tracking/UNKNOWNS.md), M2-T06)
 The orchestrator sends `machine.lost {machine_id, reason}` when a session's machine is gone (M2-T20: a lease past its grace, a revoke, a pinned machine offline too long). The status × event table, the questions and the human's options are in [10-contracts §Machines protocol v2, "Lost machines"](10-contracts.md#machines-protocol-v2); `planMachineLost` (`engine/machine-lost.ts`) implements the table row for row, and apply carries it out. How apply reads it:

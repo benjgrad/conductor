@@ -6,7 +6,6 @@ import {
   budgetVerdict,
   effectiveBudget,
   liveWallSeconds,
-  maxBudgetForStart,
   raiseLabel,
   withBudgetRaise,
 } from './budget.js';
@@ -70,16 +69,6 @@ describe('budgetVerdict', () => {
       minutes: 0,
       raises: [{ dimension: 'usd', by: 2, at: T0.toISOString() }],
     });
-  });
-});
-
-describe('maxBudgetForStart (U-018: the CLI caps what one process spends)', () => {
-  it('is the remaining budget, fresh or resumed, never below 0', () => {
-    expect(maxBudgetForStart(m1, at({ spend_usd: 0.5 }))).toBeCloseTo(1.5);
-    expect(
-      maxBudgetForStart(m1, at({ spend_usd: 0.5, claude_spend_totals: { c1: 0.5 } })),
-    ).toBeCloseTo(1.5);
-    expect(maxBudgetForStart(m1, at({ spend_usd: 3 }))).toBe(0);
   });
 });
 

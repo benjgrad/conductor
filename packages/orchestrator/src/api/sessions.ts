@@ -1,5 +1,4 @@
 import {
-  effectiveBudget,
   SESSION_INPUT_REQUESTS_LIMIT,
   SESSION_MOVES_LIMIT,
   WorkflowDefinitionSchema,
@@ -139,8 +138,6 @@ export async function loadSessionDetail(
     state_deadline: session.state_deadline ? session.state_deadline.toISOString() : null,
     spend_usd: Number(session.spend_usd),
     wall_seconds: Number(session.wall_seconds),
-    // 09 §Budgets: the workflow's budget plus this session's raises.
-    budget: effectiveBudget(workflow, session.context),
     branch: session.branch,
     worktree_path: session.worktree_path,
     pending_input: openInput ? toInputRequestDto(openInput) : null,

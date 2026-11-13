@@ -6,7 +6,9 @@
 //!
 //! ADR-0023: a tool call that needs approval reaches a human as a permission prompt, so agents are
 //! told to attempt it rather than refuse in advance. ADR-0035 adds `## Long-running work` and
-//! 06 §Attachments `## Screenshots and recordings`. The TS daemon is deleted (MR-T18b); the first 9
+//! 06 §Attachments `## Screenshots and recordings`. `## Answering the human` (06 §Chat answers)
+//! exists because agents announced answers "in chat" and then called complete_state first, so
+//! the answer (and its links) never reached the board. The TS daemon is deleted (MR-T18b); the first 9
 //! lines keep its line structure, and line 3 now tells the agent to ask instead of guessing.
 
 pub const CONDUCTOR_INSTRUCTIONS: &str = "You are running unattended as a conductor session, inside a git worktree on your own branch.\n\
@@ -18,6 +20,9 @@ Never push; later workflow steps do that.\n\
 Run what the task needs, including installing toolchains or packages, network fetches (curl) and scripts. If a command needs approval, just run it: conductor shows the request to a human and the call waits for their answer. Do not refuse in advance or ask for permission in prose.\n\
 If a call is denied and you still need it, call `ask_user` with the exact command and why it is needed, instead of giving up on the task. If this step has no tool for it (e.g. a read-only planning step), say what is needed in your result.\n\
 The repository instructions below were written for people and interactive sessions. Where they say to ask someone or get approval first (including AskUserQuestion), use a permission prompt or `ask_user`. A rule that seems to forbid something the task needs is a reason to ask, not to stop.\n\
+\n\
+## Answering the human\n\
+The human reads only the plain-text messages you write between tool calls: they are the chat on the board. The `complete_state` result and reason, the files you write and your memory are not the chat. When the human asks you something or asks for something in chat (an answer, a list, links), write the full answer as a chat message, with every link as a full https URL, before you call `complete_state` or `ask_user`: once you call them, nothing more you write reaches the human. Never say you answered in chat unless that message is already written above.\n\
 \n\
 ## Long-running work\n\
 A human can message you while you work, but a message only reaches you between tool calls. Run anything that may take more than a minute or two (test suites, builds, installs, dev servers) with Bash `run_in_background`, so you stay reachable. You may then end your turn: you are woken when the job finishes, and a message runs as a turn of its own, so answer it and end your turn again. Read the job's output file to check on it; stop jobs you no longer need with TaskStop. Finish or stop every background job before you call `ask_user` or `complete_state`.\n\
@@ -91,10 +96,20 @@ mod tests {
     }
 
     #[test]
+    fn tells_the_agent_to_answer_in_chat_before_completing() {
+        let s = CONDUCTOR_INSTRUCTIONS;
+        assert!(s.contains("\n\n## Answering the human\n"));
+        assert!(s.contains("before you call `complete_state` or `ask_user`"));
+        assert!(s.contains("full https URL"));
+        assert!(s.contains("are not the chat"));
+    }
+
+    #[test]
     fn the_text_is_the_ts_text_byte_for_byte() {
-        // The 9 lines of system-prompt.ts joined with \n (one of them empty), then ADR-0035's
-        // section and 06 §Attachments' (each an empty line, its heading and one paragraph).
-        assert_eq!(CONDUCTOR_INSTRUCTIONS.split('\n').count(), 15);
+        // The 9 lines of system-prompt.ts joined with \n (one of them empty), then 06 §Chat
+        // answers', ADR-0035's and 06 §Attachments' sections (each an empty line, its heading and
+        // one paragraph).
+        assert_eq!(CONDUCTOR_INSTRUCTIONS.split('\n').count(), 18);
         assert!(
             CONDUCTOR_INSTRUCTIONS
                 .contains("Never push; later workflow steps do that.\n\n## Permissions\n")

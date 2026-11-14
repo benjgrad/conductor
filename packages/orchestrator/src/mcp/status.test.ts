@@ -203,3 +203,38 @@ describe('statusReport', () => {
     expect(lastAssistantText([])).toBeNull();
   });
 });
+
+describe('the hand-off brief (ticket "Improved handoff")', () => {
+  it('a conductor-raised request leads with why it stopped, then quotes conductor', () => {
+    const c = card({
+      status: 'needs_input',
+      input_request: question('retries_exhausted', '"implementing" failed (exit code 1). Retry?'),
+    });
+    expect(
+      statusLine({ card: c, waiting: 'you', why: 'It kept failing after 3 tries: Tests pass.' }),
+    ).toBe(
+      `Waiting on you: It kept failing after 3 tries: Tests pass. Conductor's note: ""implementing" failed (exit code 1). Retry?"`,
+    );
+  });
+
+  it("an agent's own question keeps its wording", () => {
+    const c = card({
+      status: 'needs_input',
+      input_request: question('agent_question', 'Blue or red?'),
+    });
+    expect(
+      statusLine({ card: c, waiting: 'you', why: 'The agent stopped to ask you a question.' }),
+    ).toBe('Waiting on you: the agent asks: "Blue or red?"');
+  });
+
+  it('the report carries why and what was done, without repeating the last words', () => {
+    const r = statusReport(detail(), 'Waiting on you: x', {
+      why: 'It ran out of budget, so conductor paused it.',
+      summary: 'Writing the memo now.',
+    });
+    expect(r).toContain('Why it stopped: It ran out of budget, so conductor paused it.');
+    expect(r).toContain('What was done: Writing the memo now.');
+    expect(r).not.toContain('Agent last said');
+    expect(r.indexOf('Why it stopped')).toBeLessThan(r.indexOf('Plan summary'));
+  });
+});

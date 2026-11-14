@@ -59,9 +59,7 @@
         "plan",
         "summary"
       ],
-      "timeout": "60m",
       "on": {
-        "timeout": "needs_input",
         "ask_user": {
           "goto": "needs_input",
           "when": "You need a decision or information from a human. Ask one clear question, give your recommended answer, and point to the evidence (a log line, a file, a PR check). Ask whenever you'd otherwise be guessing; search the repo first for what you can find out yourself.",
@@ -132,9 +130,7 @@
       "input": {
         "plan": "$planning.plan"
       },
-      "timeout": "2h",
       "on": {
-        "timeout": "needs_input",
         "ask_user": {
           "goto": "needs_input",
           "when": "You need a decision or information from a human. Ask one clear question, give your recommended answer, and point to the evidence (a log line, a file, a PR check). Ask whenever you'd otherwise be guessing; search the repo first for what you can find out yourself.",
@@ -400,19 +396,6 @@
           "goto": "waiting_external",
           "title": "Waiting on someone else",
           "actor": "human"
-        }
-      },
-      "watch": {
-        "poll": "5m",
-        "conditions": [
-          {
-            "type": "age_below",
-            "max": "2h",
-            "label": "Answered within 2 hours"
-          }
-        ],
-        "on_broken": {
-          "notify": "escalate"
         }
       }
     },

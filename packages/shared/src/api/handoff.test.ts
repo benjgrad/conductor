@@ -70,7 +70,7 @@ function input(over: Partial<HandoffBriefInput> = {}): HandoffBriefInput {
     context: {},
     return_to: 'implementing',
     recent_output: [],
-    workflow: WORKFLOW as HandoffBriefInput['workflow'],
+    workflow: WORKFLOW,
     moves: [START],
     ...over,
   };

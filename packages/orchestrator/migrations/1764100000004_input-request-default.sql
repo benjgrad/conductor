@@ -1,3 +1,6 @@
+-- Renumbered from 1764100000002: it merged after 1764100000003 had already run in production,
+-- and node-pg-migrate refuses a pending migration that sorts before an applied one.
+
 -- ADR-0041 (docs/design/06-human-input.md §Default answers and overrule): a question whose
 -- transition declares `default` carries the agent's recommended answer and the time conductor
 -- delivers it if no human answers first (`default_at`, the sweep's timer). `overruled_at`: the

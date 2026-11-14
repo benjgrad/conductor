@@ -2,12 +2,13 @@
 // a one-line summary of the agent's report, then Approve (the review state's approving
 // transition, `reviewApproveOption`), Request changes… (focuses the composer, which answers the
 // request), the PR link and the full report.
-import type { InputRequestDto, SessionDetail } from '@conductor/shared';
+import { handoffBrief, type InputRequestDto, type SessionDetail } from '@conductor/shared';
 import { useId, useRef, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { AttachmentGallery } from './AttachmentGallery.js';
 import { sessionCaptures } from './attachment-groups.js';
 import { Markdown } from './markdown.js';
+import { HandoffBrief } from './HandoffBrief.js';
 import { RequestCard } from './RequestCard.js';
 import { useTicket } from './TicketPanel.js';
 import {
@@ -64,6 +65,7 @@ export function ReviewRequest({
     }
   }
 
+  const brief = handoffBrief(detail);
   return (
     <RequestCard
       tone="review"
@@ -72,6 +74,7 @@ export function ReviewRequest({
       ariaLabel={REVIEW_LABEL}
       className="review-request"
     >
+      {brief !== null && <HandoffBrief brief={brief} showSummary={false} />}
       {line !== '' && <p className="review-summary">{line}</p>}
       <SessionCaptures api={api} detail={detail} />
       <div className="request-actions" role="group" aria-label="Review">

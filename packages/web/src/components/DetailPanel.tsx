@@ -5,6 +5,7 @@
 // where, the workflow, spend and the context under Technical details.
 import {
   isAgentRequest,
+  handoffBrief,
   setupFailureSummary,
   type BoardCard,
   type InputRequestDto,
@@ -44,6 +45,7 @@ import { Markdown } from './markdown.js';
 import { CheckRuns, latestRunText, OutputLog, runCount } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
 import { QuestionOptions } from './QuestionOptions.js';
+import { HandoffBrief } from './HandoffBrief.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
 import { ProposedTickets, visibleProposals } from './ProposedTickets.js';
 import {
@@ -643,6 +645,27 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
   // The escape hatch for an agent that can't resume: first (highlighted) on a failure, the stuck
   // case; otherwise a secondary action at the end.
   const offer = freshConversationOffer(detail, request);
+  const brief = handoffBrief(detail);
+  const technical = (
+    <>
+      {request.kind === 'check_config' && (
+        <p className="step-failed-item">
+          <strong>{setupFailureSummary(request.question)}</strong>
+        </p>
+      )}
+      {failed?.error && (
+        <p className="step-failed-item">
+          {failed.item && <strong>{failed.item}</strong>}
+          {failed.item ? ': ' : ''}
+          {failed.error}
+        </p>
+      )}
+      <div className="question-text">
+        <Markdown text={request.question} />
+      </div>
+      {failureText !== null && <FailureOutput text={failureText} />}
+    </>
+  );
   const fresh =
     offer === 'none' ? null : (
       <FreshConversation
@@ -667,22 +690,17 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
       }
       ariaLabel="Pending input"
     >
-      {request.kind === 'check_config' && (
-        <p className="step-failed-item">
-          <strong>{setupFailureSummary(request.question)}</strong>
-        </p>
+      {brief !== null && <HandoffBrief brief={brief} showSummary={!fromAgent} />}
+      {tone === 'failure' ? (
+        // Ticket "Improved handoff": the brief says why in plain words; conductor's own text and
+        // the failed check's output are there for whoever wants them, one click away.
+        <details className="request-details">
+          <summary>Technical details</summary>
+          {technical}
+        </details>
+      ) : (
+        technical
       )}
-      {failed?.error && (
-        <p className="step-failed-item">
-          {failed.item && <strong>{failed.item}</strong>}
-          {failed.item ? ': ' : ''}
-          {failed.error}
-        </p>
-      )}
-      <div className="question-text">
-        <Markdown text={request.question} />
-      </div>
-      {failureText !== null && <FailureOutput text={failureText} />}
       {/* ADR-0041: the agent's recommended answer conductor gives if nobody answers in time. */}
       {request.default_answer != null && request.default_at != null && (
         <p className="muted question-default">

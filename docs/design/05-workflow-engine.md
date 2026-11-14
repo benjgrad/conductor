@@ -16,7 +16,9 @@ Users design an FSM, stored as **versioned JSON** in `workflow_definition`. The 
       "type": "agent | command | event | connector | human | terminal",
       // type-specific config (below)
       "guard": "<guard name>",           // optional, checked before leaving on success
-      "timeout": "30m",                   // optional; fires the "timeout" outcome
+      "timeout": "30m",                   // optional; fires the "timeout" outcome. Agent states may omit it:
+                                          //   the budget, a lost machine or the agent's exit still end at a human
+                                          //   (conductor v7 has no agent-state timeouts)
       "on": { "<transition name>": "<state>" | { "goto": "<state>", "attach": "output", "retries": 3, "else": "<state>", /* ADR-0011 fields below */ } },
       "ticket_editable": true             // optional; may people edit the ticket in this column (below)
     }

@@ -73,6 +73,7 @@ export * from './api/queue-order.js';
 export * from './api/accounts.js';
 export * from './api/sse.js';
 export * from './api/plan.js';
+export * from './api/handoff.js';
 export * from './api/fixtures.js';
 export * from './agents/names.js';
 export * from './advisor/gates.js';

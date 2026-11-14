@@ -33,6 +33,15 @@ sequenceDiagram
 - `answered_by` records a UI user, `conductor` for an answer the answerer gave ([ADR-0040](../adr/0040-answerer-pass.md), [§Conductor answers first](#conductor-answers-first-adr-0040)), `system` when conductor closed the request itself (a watch moved the ticket, or a [default answer](#default-answers-and-overrule) was delivered, ADR-0041), or `slack:<id>` once Slack answering exists ([U-007](../tracking/UNKNOWNS.md)).
 - **Default answers** ([ADR-0041](../adr/0041-question-default-on-timeout.md)): an agent question whose transition declares `default` and whose agent gave a recommended answer carries it (`default_answer`, `default_at`). If no human answers by then, conductor delivers it ([§Default answers and overrule](#default-answers-and-overrule)).
 
+## Hand-off brief
+Whenever a ticket waits on a human, the request card (and MCP `get_ticket`'s `status_line` / `status_report`) opens with two short lines before anything technical:
+- **Why it stopped**: one plain sentence (`handoffBrief`, `shared/src/api/handoff.ts`), from the open request's kind and origin transition (a hand-off, a plan approval, a question), else the `cause` of the move into the current state (`retries_exhausted`, `condition_timeout`, `fallback` for an agent that exited, `budget_exceeded`, `machine_lost`, …). It never quotes stderr or command output.
+- **What was done**: the agent's own words, the first of: the asking state's `result.summary`, the agent's latest `reason` in this visit of that state (its hand-off text), the end of its last output. Left out when it would repeat the request's text (a review or a question already shows the agent's text).
+
+On a failure the engine's question and the failed check's output stay one click away, under a collapsed "Technical details". Everything is derived from stored data: no agent turn, no schema change.
+
+The prompt's "How to finish" tells the agent that its `reason` is the first thing the human reads: what it did, then why it stops there.
+
 ## Conductor answers first (ADR-0040)
 
 **Proposed; not available yet** (rule 14, feature `answerer`). R5a-1 adds the definition and its validation; the engine (R5a-2), Overrule (R5a-3) and metrics (R5a-4) follow. Until then every question reaches a human as above.

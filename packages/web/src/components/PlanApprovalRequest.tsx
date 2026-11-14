@@ -5,13 +5,14 @@
 // text; Request changes posts the answer option (`planOptions`). The workflow's other human
 // transitions stay one click away under "Other actions"; "Start fresh conversation…" is the
 // secondary escape hatch.
-import type { InputRequestDto, SessionDetail } from '@conductor/shared';
+import { handoffBrief, type InputRequestDto, type SessionDetail } from '@conductor/shared';
 import { useId, useState, type FormEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { PlanPages, pagesOf } from './PlanPages.js';
 import { usePlanAnswer } from './plan-answer.js';
+import { HandoffBrief } from './HandoffBrief.js';
 import { RequestCard } from './RequestCard.js';
 import { planApproveRequest, planChangesRequest, type PlanOptions } from './request-preview.js';
 import { TransitionButtons } from './transitions.js';
@@ -58,6 +59,7 @@ export function PlanApprovalRequest({
     (o) => o.name !== plan.answer.name && o.name !== plan.approve?.name,
   );
   const offer = freshConversationOffer(detail, request);
+  const brief = handoffBrief(detail);
   return (
     <RequestCard
       tone="question"
@@ -66,6 +68,7 @@ export function PlanApprovalRequest({
       ariaLabel={PLAN_APPROVAL_LABEL}
       className="plan-approval"
     >
+      {brief !== null && <HandoffBrief brief={brief} />}
       <div className="question-text">
         <Markdown text={request.question} />
       </div>

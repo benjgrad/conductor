@@ -1,0 +1,30 @@
+/* Ticket "Improved handoff": the brief that leads a request card (HandoffBrief.tsx). */
+.handoff-brief {
+  margin: var(--space-1) 0 var(--space-2);
+}
+.handoff-brief .handoff-why {
+  margin: 0;
+  font-weight: 600;
+}
+.handoff-brief .handoff-label {
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: var(--space-1);
+}
+.handoff-brief .handoff-summary {
+  margin-top: var(--space-1);
+}
+.handoff-brief .handoff-summary > :is(p, ul, ol):first-of-type {
+  margin-top: 0;
+}
+.handoff-brief .handoff-summary.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.request-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin: var(--space-1) 0;
+}

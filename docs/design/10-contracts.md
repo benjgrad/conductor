@@ -293,7 +293,7 @@ The manual escape hatch for an agent whose Claude conversation is broken in any 
 - **Context.** Two reserved keys:
   - `context.__default = {state, visit, return_to, transition, recommended, after, at}`: the armed default (`DEFAULT_CONTEXT_KEY`);
   - `context.__default_taken = {input_request_id, state, visit, answer, at}`: the last default taken, while it may be overruled (`DEFAULT_TAKEN_CONTEXT_KEY`). `enter()` clears both on any other move.
-- **Storage.** Migration `1764100000002_input-request-default` adds three nullable `input_request` columns: `default_answer text`, `default_at timestamptz` and `overruled_at timestamptz`. It also adds the partial index `input_request_default_due_idx (default_at) WHERE answer IS NULL AND default_at IS NOT NULL` for the sweep.
+- **Storage.** Migration `1764100000004_input-request-default` adds three nullable `input_request` columns: `default_answer text`, `default_at timestamptz` and `overruled_at timestamptz`. It also adds the partial index `input_request_default_due_idx (default_at) WHERE answer IS NULL AND default_at IS NOT NULL` for the sweep.
 - **Read model.**
   - `InputRequestDto.default_answer?` / `default_at?` (both or neither) on the open request; the panel shows "If nobody answers by <time>, conductor answers: “…”".
   - `SessionDetail.overrulable? = {input_request_id, answer, at} | null`, from `canOverrule` (the predicate apply uses).

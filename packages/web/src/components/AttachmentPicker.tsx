@@ -164,35 +164,46 @@ export function AttachmentPicker({ api, uploads }: AttachmentPickerProps) {
           }}
         />
       </div>
-      {uploads.items.length > 0 && (
-        <ul className="attachment-uploads" aria-label="Attachments to add">
-          {uploads.items.map((it) => (
-            <li key={it.key} className={`attachment-upload ${it.status}`}>
-              {it.dto ? (
-                <AttachmentThumb api={api} attachment={it.dto} />
-              ) : (
-                <span className="attachment-thumb placeholder" aria-hidden="true" />
-              )}
-              <span className="attachment-name">{it.name}</span>
-              {it.status === 'uploading' && <span className="muted">uploading…</span>}
-              {it.status === 'error' && (
-                <span role="alert" className="error">
-                  {it.error}
-                </span>
-              )}
-              <button
-                type="button"
-                className="attachment-remove"
-                aria-label={`Remove ${it.name}`}
-                onClick={() => uploads.remove(it.key)}
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <AttachmentUploadList api={api} uploads={uploads} label="Attachments to add" />
     </div>
+  );
+}
+
+/** The form's uploads: a thumbnail, the name, the status or error, and remove (×). */
+export function AttachmentUploadList({
+  api,
+  uploads,
+  label,
+  compact = false,
+}: AttachmentPickerProps & { label: string; compact?: boolean }) {
+  if (uploads.items.length === 0) return null;
+  return (
+    <ul className={`attachment-uploads${compact ? ' compact' : ''}`} aria-label={label}>
+      {uploads.items.map((it) => (
+        <li key={it.key} className={`attachment-upload ${it.status}`}>
+          {it.dto ? (
+            <AttachmentThumb api={api} attachment={it.dto} />
+          ) : (
+            <span className="attachment-thumb placeholder" aria-hidden="true" />
+          )}
+          <span className="attachment-name">{it.name}</span>
+          {it.status === 'uploading' && <span className="muted">uploading…</span>}
+          {it.status === 'error' && (
+            <span role="alert" className="error">
+              {it.error}
+            </span>
+          )}
+          <button
+            type="button"
+            className="attachment-remove"
+            aria-label={`Remove ${it.name}`}
+            onClick={() => uploads.remove(it.key)}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

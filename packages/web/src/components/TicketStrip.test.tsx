@@ -178,6 +178,28 @@ describe('ticket buttons (desktop)', () => {
   });
 });
 
+describe('the Attachments button (06 §Attachments)', () => {
+  it("opens the ticket's files any time; says so when there are none", async () => {
+    const { api } = await open(SEED_IDS.running.session, false);
+    const button = strip().getByRole('button', { name: 'Attachments' });
+    fireEvent.click(button);
+    const sheet = within(screen.getByRole('dialog', { name: 'Attachments' }));
+    expect(await sheet.findByText('No attachments yet.')).toBeTruthy();
+    fireEvent.click(sheet.getByRole('button', { name: 'Close attachments' }));
+    // A file sent in the chat shows under "Added in chat".
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'a.png', {
+      type: 'image/png',
+    });
+    const up = await api.uploadAttachment(png);
+    await api.sendMessage(SEED_IDS.running.session, { text: 'see', attachment_ids: [up.id] });
+    fireEvent.click(button);
+    const again = within(screen.getByRole('dialog', { name: 'Attachments' }));
+    const chat = await again.findByRole('region', { name: 'Added in chat' });
+    expect(within(chat).getByText('a.png')).toBeTruthy();
+    expect(again.queryByText('No attachments yet.')).toBeNull();
+  });
+});
+
 describe('latestPlan / planText', () => {
   const ctx = { planning: { plan: 'P1' }, review: { plan: 'P2' } };
   it('reads the asking state first, else any text plan, else nothing', () => {

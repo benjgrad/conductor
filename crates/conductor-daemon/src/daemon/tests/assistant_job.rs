@@ -67,6 +67,7 @@ async fn register_advertises_the_assistant_job_feature() {
             "assistant_job",
             "ticket_attachments",
             "agent_attachments",
+            "message_attachments",
             "pages",
             "permission_mode",
             "run_gate",

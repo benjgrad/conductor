@@ -5533,16 +5533,354 @@ pub struct RunCmdPayloadCheckout {
 ///`SendInputPayload`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct SendInputPayload {
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub attachments: ::std::vec::Vec<SendInputPayloadAttachmentsItem>,
     pub command_id: ::uuid::Uuid,
     pub input_request_id: ::uuid::Uuid,
     pub text: ::std::string::String,
 }
+///`SendInputPayloadAttachmentsItem`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct SendInputPayloadAttachmentsItem {
+    pub id: ::uuid::Uuid,
+    pub mime: SendInputPayloadAttachmentsItemMime,
+    pub name: SendInputPayloadAttachmentsItemName,
+    pub sha256: SendInputPayloadAttachmentsItemSha256,
+    pub size: ::std::num::NonZeroU64,
+}
+///`SendInputPayloadAttachmentsItemMime`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SendInputPayloadAttachmentsItemMime(::std::string::String);
+impl ::std::ops::Deref for SendInputPayloadAttachmentsItemMime {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SendInputPayloadAttachmentsItemMime> for ::std::string::String {
+    fn from(value: SendInputPayloadAttachmentsItemMime) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SendInputPayloadAttachmentsItemMime {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100usize {
+            return Err("longer than 100 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SendInputPayloadAttachmentsItemMime {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SendInputPayloadAttachmentsItemMime {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SendInputPayloadAttachmentsItemMime {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`SendInputPayloadAttachmentsItemName`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SendInputPayloadAttachmentsItemName(::std::string::String);
+impl ::std::ops::Deref for SendInputPayloadAttachmentsItemName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SendInputPayloadAttachmentsItemName> for ::std::string::String {
+    fn from(value: SendInputPayloadAttachmentsItemName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SendInputPayloadAttachmentsItemName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100usize {
+            return Err("longer than 100 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SendInputPayloadAttachmentsItemName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SendInputPayloadAttachmentsItemName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SendInputPayloadAttachmentsItemName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`SendInputPayloadAttachmentsItemSha256`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SendInputPayloadAttachmentsItemSha256(::std::string::String);
+impl ::std::ops::Deref for SendInputPayloadAttachmentsItemSha256 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SendInputPayloadAttachmentsItemSha256> for ::std::string::String {
+    fn from(value: SendInputPayloadAttachmentsItemSha256) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SendInputPayloadAttachmentsItemSha256 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SendInputPayloadAttachmentsItemSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SendInputPayloadAttachmentsItemSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SendInputPayloadAttachmentsItemSha256 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`SendMessagePayload`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct SendMessagePayload {
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub attachments: ::std::vec::Vec<SendMessagePayloadAttachmentsItem>,
     pub command_id: ::uuid::Uuid,
     pub target_command_id: ::uuid::Uuid,
     pub text: ::std::string::String,
+}
+///`SendMessagePayloadAttachmentsItem`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct SendMessagePayloadAttachmentsItem {
+    pub id: ::uuid::Uuid,
+    pub mime: SendMessagePayloadAttachmentsItemMime,
+    pub name: SendMessagePayloadAttachmentsItemName,
+    pub sha256: SendMessagePayloadAttachmentsItemSha256,
+    pub size: ::std::num::NonZeroU64,
+}
+///`SendMessagePayloadAttachmentsItemMime`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SendMessagePayloadAttachmentsItemMime(::std::string::String);
+impl ::std::ops::Deref for SendMessagePayloadAttachmentsItemMime {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SendMessagePayloadAttachmentsItemMime> for ::std::string::String {
+    fn from(value: SendMessagePayloadAttachmentsItemMime) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SendMessagePayloadAttachmentsItemMime {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100usize {
+            return Err("longer than 100 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SendMessagePayloadAttachmentsItemMime {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SendMessagePayloadAttachmentsItemMime {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SendMessagePayloadAttachmentsItemMime {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`SendMessagePayloadAttachmentsItemName`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SendMessagePayloadAttachmentsItemName(::std::string::String);
+impl ::std::ops::Deref for SendMessagePayloadAttachmentsItemName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SendMessagePayloadAttachmentsItemName> for ::std::string::String {
+    fn from(value: SendMessagePayloadAttachmentsItemName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SendMessagePayloadAttachmentsItemName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100usize {
+            return Err("longer than 100 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SendMessagePayloadAttachmentsItemName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SendMessagePayloadAttachmentsItemName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SendMessagePayloadAttachmentsItemName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`SendMessagePayloadAttachmentsItemSha256`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SendMessagePayloadAttachmentsItemSha256(::std::string::String);
+impl ::std::ops::Deref for SendMessagePayloadAttachmentsItemSha256 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SendMessagePayloadAttachmentsItemSha256> for ::std::string::String {
+    fn from(value: SendMessagePayloadAttachmentsItemSha256) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SendMessagePayloadAttachmentsItemSha256 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SendMessagePayloadAttachmentsItemSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SendMessagePayloadAttachmentsItemSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SendMessagePayloadAttachmentsItemSha256 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`SessionEventPayload`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
@@ -6553,6 +6891,7 @@ pub const CONDUCTOR_PORT_ENV: &str = "CONDUCTOR_PORT";
 pub const DAEMON_AUTH_HEADER: &str = "authorization";
 pub const DAEMON_FEATURE_AGENT_ATTACHMENTS: &str = "agent_attachments";
 pub const DAEMON_FEATURE_ASSISTANT_JOB: &str = "assistant_job";
+pub const DAEMON_FEATURE_MESSAGE_ATTACHMENTS: &str = "message_attachments";
 pub const DAEMON_FEATURE_PAGES: &str = "pages";
 pub const DAEMON_FEATURE_PERMISSION_MODE: &str = "permission_mode";
 pub const DAEMON_FEATURE_RUN_GATE: &str = "run_gate";

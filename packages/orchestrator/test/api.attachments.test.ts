@@ -1,13 +1,14 @@
 // 06 §Attachments: uploads (raw bytes, sniffed type), serving them, linking them to a ticket on
 // create / edit, the daemon's credentialed download, the start_session payload and the sweep.
 // Password mode, so the CSRF and session rules of the real deployment apply. Needs `pnpm db:up`.
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import {
   AGENT_ATTACHMENTS_PER_TICKET_MAX,
   API_PATHS,
   ATTACHMENT_MAX_IMAGE_BYTES,
   AttachmentDtoSchema,
+  DAEMON_FEATURE_MESSAGE_ATTACHMENTS,
   DAEMON_FEATURE_TICKET_ATTACHMENTS,
   EnrollResponseSchema,
   EnrollmentTokenCreatedSchema,
@@ -19,9 +20,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   UNLINKED_TTL_MS,
   attachmentsFallbackNote,
+  chatEchoText,
   sweepUnlinkedAttachments,
 } from '../src/api/attachments.js';
-import { withStartAttachments } from '../src/engine/attachments.js';
+import { messageAttachmentsFallbackNote, withStartAttachments } from '../src/engine/attachments.js';
 import {
   HTTPS_URL,
   cookieOf,
@@ -32,6 +34,8 @@ import {
   type TestApi,
 } from './auth/helpers.js';
 import { useTestDatabase } from './db.js';
+import { InMemoryBoardBus } from '../src/contracts.js';
+import { createEngineService } from '../src/engine/index.js';
 
 const db = useTestDatabase();
 const PASSWORD = 'correct horse battery staple';
@@ -194,7 +198,10 @@ const agentUpload = (
   });
 
 beforeAll(async () => {
-  api = await startApi({ db: db.pool, auth });
+  // The real engine: chat attachments ride on its send_message / send_input outbox rows.
+  const boardBus = new InMemoryBoardBus();
+  const { engine } = createEngineService({ db: db.pool, boardBus });
+  api = await startApi({ db: db.pool, auth, engine, boardBus });
   a = await signIn();
   b = await signIn();
 });
@@ -508,6 +515,149 @@ describe('start_session payload', () => {
     expect(
       await withStartAttachments(db.pool, payload, bare.id, `machine:${without.machine_id}`),
     ).toBe(payload);
+  });
+});
+
+describe('chat attachments (sent with a message, an answer or a reopen)', () => {
+  // One machine row for the block (no WS here, and enrolling is rate limited); each test sets
+  // its features.
+  const m = { machine_id: randomUUID() };
+  beforeAll(async () => {
+    await db.pool.query(
+      'INSERT INTO machine (id, account_id, name, hostname, os, arch, cpu_total, mem_total_mb, ' +
+        'disk_free_mb, budget_cpu, budget_mem_mb, max_sessions, max_concurrent_builds, features) ' +
+        "VALUES ($1, $2, 'Laptop', 'h', 'linux', 'x64', 8, 16000, 100000, 4, 8000, 2, 1, '{}')",
+      [m.machine_id, a.accountId],
+    );
+  });
+
+  /** A ticket of `a` with a running agent whose process is live on a machine (with `features`). */
+  async function agentAtWork(features: string[]) {
+    const t = TicketDtoSchema.parse((await createTicket(a)).json);
+    await db.pool.query('UPDATE machine SET features = $2 WHERE id = $1', [m.machine_id, features]);
+    const sessionId = await liveSession(t.id, m.machine_id);
+    await db.pool.query(
+      'UPDATE session SET agent_process_live = true, agent_command_id = gen_random_uuid() ' +
+        'WHERE id = $1',
+      [sessionId],
+    );
+    return { ticketId: t.id, sessionId, machineId: m.machine_id };
+  }
+
+  const sendMessage = (sessionId: string, body: object) =>
+    api.send('POST', `/api/sessions/${sessionId}/messages`, { ...as(a), body });
+
+  async function outboxPayload(sessionId: string, kind: string) {
+    const r = await db.pool.query<{ payload: Record<string, unknown> }>(
+      'SELECT payload FROM outbox WHERE session_id = $1 AND kind = $2 ORDER BY created_at DESC LIMIT 1',
+      [sessionId, kind],
+    );
+    return r.rows[0]?.payload;
+  }
+
+  it('a message links them under the session and state; send_message carries the refs', async () => {
+    const w = await agentAtWork([DAEMON_FEATURE_MESSAGE_ATTACHMENTS]);
+    const dto = await uploaded(a, PNG, 'like this.png');
+    const res = await sendMessage(w.sessionId, { text: 'Like this', attachment_ids: [dto.id] });
+    expect(res.status, res.text).toBe(202);
+    const after = await detail(a, w.ticketId);
+    expect(after.attachments).toEqual([
+      expect.objectContaining({
+        id: dto.id,
+        source: 'human',
+        session_id: w.sessionId,
+        workflow_state: 'implementing',
+      }),
+    ]);
+    const sha = createHash('sha256').update(PNG).digest('hex');
+    expect(await outboxPayload(w.sessionId, 'send_message')).toMatchObject({
+      text: 'Like this',
+      attachments: [
+        { id: dto.id, name: 'like this.png', mime: 'image/png', size: PNG.length, sha256: sha },
+      ],
+    });
+  });
+
+  it('only files: the agent gets a sentence; without the feature, a note on the text', async () => {
+    const w = await agentAtWork([]);
+    const dto = await uploaded(a, PNG, 'only.png');
+    const res = await sendMessage(w.sessionId, { text: '', attachment_ids: [dto.id] });
+    expect(res.status, res.text).toBe(202);
+    const payload = await outboxPayload(w.sessionId, 'send_message');
+    expect(payload?.attachments).toBeUndefined();
+    expect(payload?.text).toBe(
+      'The human attached files to this message.' +
+        messageAttachmentsFallbackNote([
+          { id: dto.id, name: 'only.png', mime: 'image/png', size: 1, sha256: 'x' },
+        ]),
+    );
+  });
+
+  it('empty text without files is 400; an unknown or linked id is 400 and sends nothing', async () => {
+    const w = await agentAtWork([DAEMON_FEATURE_MESSAGE_ATTACHMENTS]);
+    expect((await sendMessage(w.sessionId, { text: '  ' })).status).toBe(400);
+    const dto = await uploaded(a, PNG);
+    expect((await sendMessage(w.sessionId, { text: 'x', attachment_ids: [dto.id] })).status).toBe(
+      202,
+    );
+    const again = await sendMessage(w.sessionId, { text: 'y', attachment_ids: [dto.id] });
+    expect(again.status).toBe(400);
+    const other = await uploaded(b, PNG);
+    expect((await sendMessage(w.sessionId, { text: 'y', attachment_ids: [other.id] })).status).toBe(
+      400,
+    );
+    const sent = await db.pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM outbox WHERE session_id = $1 AND kind = 'send_message'",
+      [w.sessionId],
+    );
+    expect(sent.rows[0]!.n).toBe(1);
+  });
+
+  it('a message the session refuses leaves the upload unlinked, to send again', async () => {
+    const w = await agentAtWork([DAEMON_FEATURE_MESSAGE_ATTACHMENTS]);
+    await db.pool.query('UPDATE session SET agent_process_live = false WHERE id = $1', [
+      w.sessionId,
+    ]);
+    const dto = await uploaded(a, PNG);
+    const res = await sendMessage(w.sessionId, { text: 'hi', attachment_ids: [dto.id] });
+    expect(res.status).toBe(409);
+    const row = await db.pool.query<{ ticket_id: string | null; session_id: string | null }>(
+      'SELECT ticket_id, session_id FROM attachment WHERE id = $1',
+      [dto.id],
+    );
+    expect(row.rows[0]).toEqual({ ticket_id: null, session_id: null });
+  });
+
+  it('a reopen links them under the new session, and its start carries them', async () => {
+    const t = TicketDtoSchema.parse((await createTicket(a)).json);
+    const old = await liveSession(t.id, null, 'done');
+    const dto = await uploaded(a, PNG, 'redo.png');
+    const res = await api.send('POST', `/api/sessions/${old}/reopen`, {
+      ...as(a),
+      body: { text: '', attachment_ids: [dto.id] },
+    });
+    expect(res.status, res.text).toBe(202);
+    const fresh = (res.json as { session_id: string }).session_id;
+    expect((await detail(a, t.id)).attachments).toEqual([
+      expect.objectContaining({ id: dto.id, session_id: fresh, workflow_state: null }),
+    ]);
+    await db.pool.query('UPDATE machine SET features = $2 WHERE id = $1', [
+      m.machine_id,
+      [DAEMON_FEATURE_TICKET_ATTACHMENTS],
+    ]);
+    const got = await withStartAttachments(
+      db.pool,
+      { prompt: 'p' },
+      t.id,
+      `machine:${m.machine_id}`,
+    );
+    expect(got.attachments).toEqual([expect.objectContaining({ id: dto.id, name: 'redo.png' })]);
+  });
+
+  it("the chat bubble's text names each file on its own line", () => {
+    expect(chatEchoText('Look', ['a.png', 'b.gif'])).toBe('Look\n\u{1F4CE} a.png\n\u{1F4CE} b.gif');
+    expect(chatEchoText('', ['a.png'])).toBe('\u{1F4CE} a.png');
+    expect(chatEchoText('Just text', [])).toBe('Just text');
   });
 });
 

@@ -1141,6 +1141,41 @@ button.copy {
   color: var(--muted);
   opacity: 1;
 }
+/* 06 §Attachments (chat): the paperclip left of the text, the files to send above the box. */
+.composer-box:has(.composer-attach) textarea {
+  padding-left: calc(var(--space-6) + var(--space-2));
+}
+.composer-box .composer-attach {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+.composer-box .composer-attach:hover {
+  color: var(--text);
+}
+.composer-box.drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+.composer .attachment-uploads.compact {
+  margin-bottom: var(--space-2);
+}
+.composer .attachment-uploads.compact .attachment-thumb {
+  width: 36px;
+  height: 36px;
+}
+.composer .attachment-uploads.compact .attachment-remove {
+  min-height: 32px;
+}
 .history-notice {
   /* UXR-38: a notice like the others (ConductorChecks.css .conductor-checks), inset like the
      chat (.output-chat .output: 14px), not flush with the panel's edge. */

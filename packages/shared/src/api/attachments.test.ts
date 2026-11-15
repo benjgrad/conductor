@@ -11,6 +11,11 @@ import {
   sanitizeAttachmentName,
   sniffMime,
 } from './attachments.js';
+import {
+  AnswerInputRequestSchema,
+  ReopenSessionRequestSchema,
+  SendMessageRequestSchema,
+} from './rest.js';
 import { M2_WS_FIXTURES } from '../protocol/fixtures.js';
 import {
   DAEMON_FEATURES,
@@ -125,5 +130,37 @@ describe('REST and WS shapes', () => {
     const f = M2_WS_FIXTURES.start_session_attachments;
     expect(parseOrchestratorMessage(JSON.stringify(f))).toEqual(f);
     expect(DAEMON_FEATURES).toContain(DAEMON_FEATURE_TICKET_ATTACHMENTS);
+  });
+});
+
+describe('chat attachments on a message, an answer or a reopen', () => {
+  const id = '00000000-0000-4000-8000-0000000a7005';
+  const input_request_id = '00000000-0000-4000-8000-0000000a7006';
+  it('text may be empty only with attachment_ids', () => {
+    expect(SendMessageRequestSchema.safeParse({ text: ' ', attachment_ids: [id] }).success).toBe(
+      true,
+    );
+    expect(SendMessageRequestSchema.safeParse({ text: '  ' }).success).toBe(false);
+    expect(SendMessageRequestSchema.safeParse({ text: 'hi' }).success).toBe(true);
+    expect(ReopenSessionRequestSchema.safeParse({ text: '', attachment_ids: [id] }).success).toBe(
+      true,
+    );
+    expect(ReopenSessionRequestSchema.safeParse({ text: '' }).success).toBe(false);
+    expect(
+      AnswerInputRequestSchema.safeParse({ input_request_id, answer: '', attachment_ids: [id] })
+        .success,
+    ).toBe(true);
+    expect(AnswerInputRequestSchema.safeParse({ input_request_id, answer: '' }).success).toBe(
+      false,
+    );
+  });
+  it('at most the per-ticket count of files, as uuids', () => {
+    const many = Array.from({ length: ATTACHMENTS_PER_TICKET_MAX + 1 }, () => id);
+    expect(SendMessageRequestSchema.safeParse({ text: 'x', attachment_ids: many }).success).toBe(
+      false,
+    );
+    expect(SendMessageRequestSchema.safeParse({ text: 'x', attachment_ids: ['x'] }).success).toBe(
+      false,
+    );
   });
 });

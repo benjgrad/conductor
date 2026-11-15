@@ -1,4 +1,5 @@
 import {
+  DAEMON_FEATURE_MESSAGE_ATTACHMENTS,
   DAEMON_FEATURE_TICKET_ATTACHMENTS,
   type AttachmentRef,
   type JsonObject,
@@ -33,15 +34,27 @@ export async function loadTicketAttachments(
  */
 export async function attachmentRefs(q: Queryable, ticketId: string): Promise<AttachmentRef[]> {
   const all = await loadTicketAttachments(q, ticketId);
-  return all
-    .filter((a) => a.source === 'human')
-    .map((a) => ({
-      id: a.id,
-      name: a.name,
-      mime: a.mime,
-      size: a.size_bytes,
-      sha256: a.sha256.toString('hex'),
-    }));
+  return all.filter((a) => a.source === 'human').map(toRef);
+}
+
+function toRef(a: AttachmentRow): AttachmentRef {
+  return {
+    id: a.id,
+    name: a.name,
+    mime: a.mime,
+    size: a.size_bytes,
+    sha256: a.sha256.toString('hex'),
+  };
+}
+
+/** Does the machine of `target` (`machine:<id>`) advertise `feature`? */
+async function targetHasFeature(q: Queryable, target: string, feature: string): Promise<boolean> {
+  const machineId = target.startsWith('machine:') ? target.slice('machine:'.length) : null;
+  if (machineId === null) return false;
+  const m = await q.query<{ features: string[] }>('SELECT features FROM machine WHERE id = $1', [
+    machineId,
+  ]);
+  return m.rows[0]?.features.includes(feature) === true;
 }
 
 /**
@@ -70,20 +83,51 @@ export async function withStartAttachments(
 ): Promise<JsonObject> {
   const refs = await attachmentRefs(q, ticketId);
   if (refs.length === 0) return payload;
-  const machineId = target.startsWith('machine:') ? target.slice('machine:'.length) : null;
-  const m =
-    machineId === null
-      ? null
-      : (
-          await q.query<{ features: string[] }>('SELECT features FROM machine WHERE id = $1', [
-            machineId,
-          ])
-        ).rows[0];
-  if (m?.features.includes(DAEMON_FEATURE_TICKET_ATTACHMENTS) === true) {
+  if (await targetHasFeature(q, target, DAEMON_FEATURE_TICKET_ATTACHMENTS)) {
     return { ...payload, attachments: refs };
   }
   const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
   return { ...payload, prompt: prompt + attachmentsFallbackNote(refs) };
+}
+
+/**
+ * 06 §Attachments (chat): for a machine without DAEMON_FEATURE_MESSAGE_ATTACHMENTS, the paragraph
+ * appended to a message's text so the agent knows the files exist.
+ */
+export function messageAttachmentsFallbackNote(refs: readonly AttachmentRef[]): string {
+  const names = refs.map((r) => r.name).join(', ');
+  return (
+    `\n\nThe human attached ${refs.length} file${refs.length === 1 ? '' : 's'} (${names}) to ` +
+    "this message that this machine's conductor daemon can't download. If you need them, call " +
+    'ask_user to have them described.'
+  );
+}
+
+/**
+ * 06 §Attachments (chat): the `send_message` / `send_input` payload for `target` with the files
+ * sent with it (`ids`, the human's, linked to `ticketId`): as `attachments` when the machine
+ * advertises DAEMON_FEATURE_MESSAGE_ATTACHMENTS, else as a note on the text.
+ */
+export async function withMessageAttachments(
+  q: Queryable,
+  payload: JsonObject,
+  ticketId: string,
+  ids: readonly string[],
+  target: string,
+): Promise<JsonObject> {
+  if (ids.length === 0) return payload;
+  const r = await q.query<AttachmentRow>(
+    `SELECT ${ATTACHMENT_META_COLUMNS} FROM attachment a WHERE a.ticket_id = $1 ` +
+      "AND a.source = 'human' AND a.id = ANY($2::uuid[]) ORDER BY a.created_at, a.id",
+    [ticketId, [...ids]],
+  );
+  const refs = r.rows.map(toRef);
+  if (refs.length === 0) return payload;
+  if (await targetHasFeature(q, target, DAEMON_FEATURE_MESSAGE_ATTACHMENTS)) {
+    return { ...payload, attachments: refs };
+  }
+  const text = typeof payload.text === 'string' ? payload.text : '';
+  return { ...payload, text: text + messageAttachmentsFallbackNote(refs) };
 }
 
 /** Unlinked uploads older than this are deleted by `sweepUnlinkedAttachments`. */

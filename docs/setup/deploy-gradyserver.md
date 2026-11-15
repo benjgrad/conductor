@@ -139,6 +139,8 @@ The image serves the Rust daemon for every target (MR-T15), and those binaries a
 
 The orchestrator deliberately has no `depends_on` on `migrate` in `compose.yml`. Compose v2 recreates dependents in its create phase and only waits for `service_completed_successfully` at start, so a bare `up` would stop the old orchestrator before migrating and leave the new one `Created` when the migration fails.
 
+**Migration order.** node-pg-migrate refuses to run a migration whose name sorts before one that has already run. The gate then fails with `Not run migration X is preceding already run migration Y`. This happens when two branches each pick a timestamp and the one that sorts earlier merges later. A new migration's name must sort after every migration already on `main`. To fix one that doesn't, rename the file to a later timestamp (it hasn't run in production, so nothing else changes) and merge that. A database that already ran the file under its old name (a local board on `main`) needs the matching rename: `UPDATE pgmigrations SET name = '<new name>' WHERE name = '<old name>';` (names without `.sql`).
+
 Which sha is live: `ssh -p 1024 bengrady4@gradyserver.com 'cat ~/deploy/conductor/current.env'`.
 
 A deploy doesn't update the daemons yet (ADR-0021 is not built). Machines on an older daemon show **update** on the Machines page, with the command to run on each one ([add-a-machine.md §Upgrade](add-a-machine.md#upgrade)).

@@ -4,6 +4,8 @@
 -- last time a human overruled an answer conductor gave. All nullable and additive: older rows
 -- and requests without a default are unaffected. The row type is in
 -- packages/orchestrator/src/db/types.ts, checked by test/schema.test.ts.
+-- Renumbered from 1764100000002: 1764100000003_self-check-run had already been deployed, and
+-- node-pg-migrate will not run a migration that sorts before one already run.
 
 -- Up Migration
 

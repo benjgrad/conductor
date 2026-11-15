@@ -67,6 +67,8 @@ export async function reopenSession(
       peek.rows[0].ticket_id,
     ]);
     const ticket = t.rows[0]!;
+    // 06 §Attachments (chat): files come from the caller's account, onto its own ticket only.
+    if (attach && ticket.account_id !== attach.accountId) return { status: 'not_found' } as const;
     const s = await tx.query<SessionRow>('SELECT * FROM session WHERE id = $1 FOR UPDATE', [
       oldSessionId,
     ]);

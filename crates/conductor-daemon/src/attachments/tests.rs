@@ -221,3 +221,81 @@ async fn a_wrong_sha_or_status_is_a_failure_and_leaves_no_file() {
         Fetched::Failed("the download is larger than announced".into())
     );
 }
+
+#[test]
+fn message_block_lists_every_file_present_or_new() {
+    let d = vec![
+        Delivered {
+            name: "a.png".into(),
+            mime: "image/png".into(),
+            size: 2048,
+            fetched: Fetched::Present(PathBuf::from("/x/a.png")),
+        },
+        Delivered {
+            name: "b.mp4".into(),
+            mime: "video/mp4".into(),
+            size: 10,
+            fetched: Fetched::Failed("the server answered HTTP 404".into()),
+        },
+    ];
+    let block = message_block(&d).unwrap();
+    assert!(block.starts_with(
+        "## Attached to this message\n\nThe human attached these files to this message:\n"
+    ));
+    assert!(block.contains("- `/x/a.png` (image, image/png, 2 KB). Open it with the Read tool."));
+    assert!(
+        block.contains("- b.mp4 (video) could not be downloaded: the server answered HTTP 404.")
+    );
+    assert_eq!(message_block(&[]), None);
+}
+
+#[tokio::test]
+async fn a_later_file_never_replaces_one_already_there_with_other_bytes() {
+    let one = b"\x89PNG\r\n\x1a\none".to_vec();
+    let two = b"\x89PNG\r\n\x1a\ntwo".to_vec();
+    let served = Arc::new(Mutex::new(Served::default()));
+    {
+        let mut s = served.lock().unwrap();
+        s.files.insert(ID1.into(), one.clone());
+        s.files.insert(ID2.into(), two.clone());
+    }
+    let base = serve(served).await;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = attachments_dir(tmp.path(), "s");
+    let client = reqwest::Client::new();
+    let first = fetch_all(
+        &client,
+        &base,
+        None,
+        &[att(ID1, "shot.png", "image/png", &one)],
+        &dir,
+    )
+    .await;
+    assert_eq!(first[0].fetched, Fetched::New(dir.join("shot.png")));
+    // A message later sends another file of the same name: it gets the next name.
+    let later = fetch_all(
+        &client,
+        &base,
+        None,
+        &[att(ID2, "shot.png", "image/png", &two)],
+        &dir,
+    )
+    .await;
+    assert_eq!(later[0].fetched, Fetched::New(dir.join("shot-2.png")));
+    assert_eq!(std::fs::read(dir.join("shot.png")).unwrap(), one);
+    assert_eq!(std::fs::read(dir.join("shot-2.png")).unwrap(), two);
+    // Both again (a resume): each is found where it is.
+    let both = fetch_all(
+        &client,
+        &base,
+        None,
+        &[
+            att(ID1, "shot.png", "image/png", &one),
+            att(ID2, "shot.png", "image/png", &two),
+        ],
+        &dir,
+    )
+    .await;
+    assert_eq!(both[0].fetched, Fetched::Present(dir.join("shot.png")));
+    assert_eq!(both[1].fetched, Fetched::Present(dir.join("shot-2.png")));
+}

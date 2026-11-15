@@ -1,6 +1,6 @@
 // 06 §Attachments: what a human attached (instructions for the agent) and what an agent attached
 // (its screenshots, GIFs and recordings: evidence for the human) are shown apart.
-import type { AttachmentDto } from '@conductor/shared';
+import { CHAT_ATTACHMENT_MARK, type AttachmentDto } from '@conductor/shared';
 
 /** The human's attachments and the agents', each in upload order. */
 export function splitAttachments(list: readonly AttachmentDto[]): {
@@ -57,4 +57,34 @@ export function sessionCaptures(
 ): AttachmentDto[] {
   if (sessionId === null) return [];
   return list.filter((a) => a.source === 'agent' && a.session_id === sessionId);
+}
+
+/**
+ * 06 §Attachments (chat): a `user` chunk's text and the files it names in its trailing
+ * `📎 <name>` lines (the server appends one per file sent with the message).
+ */
+export function splitChatFiles(text: string): { text: string; names: string[] } {
+  const lines = text.split('\n');
+  const names: string[] = [];
+  const prefix = `${CHAT_ATTACHMENT_MARK} `;
+  while (lines.length > 0 && lines.at(-1)!.startsWith(prefix)) {
+    names.unshift(lines.pop()!.slice(prefix.length));
+  }
+  return names.length === 0 ? { text, names } : { text: lines.join('\n').trimEnd(), names };
+}
+
+/**
+ * The files `names` (one bubble's) among the human's chat attachments, in order: each name takes
+ * the first file of that name not taken yet; `null` where none matches (shown as text).
+ */
+export function matchChatFiles(
+  names: readonly string[],
+  files: readonly AttachmentDto[],
+): (AttachmentDto | null)[] {
+  const used = new Set<string>();
+  return names.map((n) => {
+    const hit = files.find((a) => a.name === n && !used.has(a.id));
+    if (hit) used.add(hit.id);
+    return hit ?? null;
+  });
 }

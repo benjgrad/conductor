@@ -60,7 +60,8 @@ import {
 import { RequestCard } from './RequestCard.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
-import { TicketAttachments, TicketSkipPermissions } from './TicketPanel.js';
+import { TicketAttachments, TicketSkipPermissions, useTicket } from './TicketPanel.js';
+import { splitAttachments, splitHumanByOrigin } from './attachment-groups.js';
 import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
 import { TransitionButtons } from './transitions.js';
 
@@ -157,6 +158,14 @@ export function DetailPanel({
       : null;
   const body = detail?.ticket_body ?? fromPrompt;
   const brief = useMemo(() => (body === null ? null : parseBrief(body)), [body]);
+  // 06 §Attachments (chat): the files sent in the ticket's chat, for the bubbles' thumbnails.
+  const ticketId = detail?.card.ticket_id ?? card?.ticket_id ?? '';
+  const { ticket } = useTicket(api, ticketId, detail?.card.updated_at ?? '', ticketId !== '');
+  const chatAttachments = ticket?.attachments;
+  const chatFiles = useMemo(() => {
+    const files = splitHumanByOrigin(splitAttachments(chatAttachments ?? []).human).chat;
+    return files.length === 0 ? undefined : { api, files };
+  }, [api, chatAttachments]);
   const unavailable =
     body !== null
       ? null
@@ -358,6 +367,7 @@ export function DetailPanel({
                 visible={tab === 'messages'}
                 tailKey={detail.pending_input?.id ?? detail.card.permission?.request_id ?? ''}
                 runs={wide ? 'separate' : 'inline'}
+                chatFiles={chatFiles}
               >
                 {/* The request ends the conversation and scrolls with it, so it never pins
                     part of the chat. On desktop it is its own region (UXR-37 FR-2). */}

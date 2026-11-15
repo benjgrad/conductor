@@ -23,10 +23,7 @@ import {
   chatEchoText,
   sweepUnlinkedAttachments,
 } from '../src/api/attachments.js';
-import {
-  messageAttachmentsFallbackNote,
-  withStartAttachments,
-} from '../src/engine/attachments.js';
+import { messageAttachmentsFallbackNote, withStartAttachments } from '../src/engine/attachments.js';
 import {
   HTTPS_URL,
   cookieOf,
@@ -606,9 +603,9 @@ describe('chat attachments (sent with a message, an answer or a reopen)', () => 
     const again = await sendMessage(w.sessionId, { text: 'y', attachment_ids: [dto.id] });
     expect(again.status).toBe(400);
     const other = await uploaded(b, PNG);
-    expect(
-      (await sendMessage(w.sessionId, { text: 'y', attachment_ids: [other.id] })).status,
-    ).toBe(400);
+    expect((await sendMessage(w.sessionId, { text: 'y', attachment_ids: [other.id] })).status).toBe(
+      400,
+    );
     const sent = await db.pool.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM outbox WHERE session_id = $1 AND kind = 'send_message'",
       [w.sessionId],
@@ -648,7 +645,12 @@ describe('chat attachments (sent with a message, an answer or a reopen)', () => 
       m.machine_id,
       [DAEMON_FEATURE_TICKET_ATTACHMENTS],
     ]);
-    const got = await withStartAttachments(db.pool, { prompt: 'p' }, t.id, `machine:${m.machine_id}`);
+    const got = await withStartAttachments(
+      db.pool,
+      { prompt: 'p' },
+      t.id,
+      `machine:${m.machine_id}`,
+    );
     expect(got.attachments).toEqual([expect.objectContaining({ id: dto.id, name: 'redo.png' })]);
   });
 

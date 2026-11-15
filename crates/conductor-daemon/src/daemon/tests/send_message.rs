@@ -151,3 +151,66 @@ async fn a_turn_that_ends_with_background_jobs_running_is_not_nudged_and_takes_m
     assert!(c.events(Some("no_outcome")).is_empty());
     c.done().await;
 }
+
+/// 06 §Attachments (chat): a message with files fetches them first (here the fake orchestrator
+/// can't serve them), then writes the text with their block into the working process, once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_with_attachments_lists_them_after_the_text() {
+    let c = Ctx::new().await;
+    let drv = driver(script(vec![
+        vec![say("first")],
+        vec![say("working"), FakeTurnAction::AwaitMessage, say("ok")],
+    ]));
+    c.make(drv.clone(), Make::default());
+    c.registered_and_asked().await;
+    let register = &c.of_type("register")[0];
+    assert!(
+        register["payload"]["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("message_attachments"))
+    );
+    let sid = Uuid::new_v4();
+    let start = c.start(sid, json!({}), 1);
+    c.send(&start.msg);
+    c.until_true(|| drv.last().is_some_and(|s| s.inputs().len() == 1))
+        .await;
+    let cid = Uuid::new_v4();
+    let m = cmd(
+        "send_message",
+        sid,
+        json!({
+            "command_id": cid,
+            "target_command_id": start.cid,
+            "text": "Like this",
+            "attachments": [{
+                "id": "00000000-0000-4000-8000-0000000a7005",
+                "name": "../shot.png",
+                "mime": "image/png",
+                "size": 4,
+                "sha256": "b".repeat(64),
+            }],
+        }),
+        1,
+    );
+    c.send(&m);
+    // A duplicate while the download runs is not written twice (it is in flight).
+    c.send(&m);
+    assert_eq!(
+        c.ack(cid).await,
+        json!({ "command_id": cid, "accepted": true })
+    );
+    let messages = drv.last().unwrap().messages();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(
+        messages[0].starts_with("Like this\n\n## Attached to this message\n"),
+        "{}",
+        messages[0]
+    );
+    assert!(
+        messages[0].contains("- shot.png (image) could not be downloaded:"),
+        "{}",
+        messages[0]
+    );
+    c.done().await;
+}

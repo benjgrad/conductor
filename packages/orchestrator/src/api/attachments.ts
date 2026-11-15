@@ -119,8 +119,15 @@ export async function linkChatAttachments(
 ): Promise<AttachmentRow[]> {
   const unique = [...new Set(input.ids)];
   if (unique.length === 0) return [];
-  // One link per ticket at a time, so two can't both pass the count check.
-  await tx.query('SELECT 1 FROM ticket WHERE id = $1 FOR UPDATE', [input.ticketId]);
+  // The ticket is the account's; one link per ticket at a time, so two can't both pass the
+  // count check.
+  const own = await tx.query('SELECT 1 FROM ticket WHERE id = $1 AND account_id = $2 FOR UPDATE', [
+    input.ticketId,
+    input.accountId,
+  ]);
+  if (own.rows.length === 0) {
+    throw new AttachmentLinkError(404, 'not_found', `ticket ${input.ticketId} not found`);
+  }
   const linked = await tx.query<AttachmentRow>(
     'UPDATE attachment a SET ticket_id = $1, session_id = $2, workflow_state = $3 ' +
       "WHERE a.id = ANY($4::uuid[]) AND a.account_id = $5 AND a.ticket_id IS NULL AND a.source = 'human' " +

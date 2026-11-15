@@ -1,6 +1,7 @@
 import {
   API_PATHS,
   attachmentProblem,
+  CHAT_ATTACHMENT_MARK,
   sanitizeAttachmentName,
   type AttachmentDto,
   ADMIN_USER_ROW_FIXTURES,
@@ -278,6 +279,28 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       }
     }
     for (const id of ids) attachments.get(id)!.ticketId = ticketId;
+  };
+  /**
+   * 06 §Attachments (chat): link uploads sent with a message, answer or reopen, filed under the
+   * session and its state, as the server does. The chat bubble's text: the message, then one
+   * `📎 <name>` line per file.
+   */
+  const linkChatUploads = (
+    ticketId: string,
+    sessionId: string,
+    state: string | null,
+    ids: readonly string[],
+    text: string,
+  ): string => {
+    linkUploads(ticketId, ids);
+    const names = ids.map((id) => {
+      const a = attachments.get(id)!;
+      a.dto = { ...a.dto, session_id: sessionId, workflow_state: state };
+      return a.dto.name;
+    });
+    return [text, ...names.map((n) => `${CHAT_ATTACHMENT_MARK} ${n}`)]
+      .filter((l) => l !== '')
+      .join('\n');
   };
   /** Workflow versions per id, oldest first (version N at index N-1). */
   const workflows = new Map<
@@ -1079,7 +1102,14 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         });
         s.return_to = null;
         // As the server: the answer shows in the Messages thread as a `user` chunk.
-        api.pushOutput(sessionId, req.answer, 'user');
+        const echo = linkChatUploads(
+          card.ticket_id,
+          sessionId,
+          card.workflow_state,
+          req.attachment_ids ?? [],
+          req.answer,
+        );
+        api.pushOutput(sessionId, echo, 'user');
         update(card, { status, workflow_state: target, input_request: null }, [
           {
             type: 'input.answered',
@@ -2031,8 +2061,15 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         if (card.status !== 'running' || state?.type !== 'agent') {
           throw new ApiRequestError(409, 'conflict', 'session has no live agent process');
         }
+        const ids = parsed.data.attachment_ids ?? [];
         const text = parsed.data.text;
-        api.pushOutput(sessionId, text, 'user');
+        api.pushOutput(
+          sessionId,
+          linkChatUploads(card.ticket_id, sessionId, card.workflow_state, ids, text),
+          'user',
+        );
+        // The panel refetches the ticket (its "Added in chat" files).
+        if (ids.length > 0) update(card, {});
         // A pretend agent, so `pnpm dev` with the mock answers back.
         setTimeout(() => {
           if (sessions.has(sessionId)) api.pushOutput(sessionId, fakeReply(text));
@@ -2110,7 +2147,11 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           { type: 'card.upserted', session_id: id, ticket_id: card.ticket_id, card: next },
         ]);
         const text = parsed.data.text;
-        api.pushOutput(id, text, 'user');
+        api.pushOutput(
+          id,
+          linkChatUploads(card.ticket_id, id, null, parsed.data.attachment_ids ?? [], text),
+          'user',
+        );
         setTimeout(() => {
           if (sessions.has(id)) api.pushOutput(id, fakeReply(text));
         }, replyDelay);

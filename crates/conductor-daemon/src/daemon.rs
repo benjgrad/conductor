@@ -29,17 +29,28 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::attachments;
+use conductor_protocol::StartSessionPayloadAttachmentsItem as AttachmentRef;
 use conductor_protocol::tool_policy::{forces_dont_ask, resolve_tool_policy};
 use conductor_protocol::{
     AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_AGENT_ATTACHMENTS,
-    DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_PAGES, DAEMON_FEATURE_PERMISSION_MODE,
-    DAEMON_FEATURE_RUN_GATE, DAEMON_FEATURE_TICKET_ATTACHMENTS, DAEMON_FEATURE_TRIAGE,
-    DaemonToOrchestrator, EvaluateConditionsArgs, KillPayload, NO_CONVERSATION_REASON,
-    NO_OUTCOME_OUTPUT_CHARS, OrchestratorToDaemon, PROTOCOL_VERSION, PermissionDecisionPayload,
-    RunActionPayload, RunActionPayloadAction, RunCmdPayload, STDERR_TAIL_CHARS, STDERR_TAIL_LINES,
-    SendInputPayload, SendMessagePayload, SessionEventPayload, StartSessionPayload,
-    TranscriptPayload, auth::daemon_auth_header_value,
+    DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_MESSAGE_ATTACHMENTS, DAEMON_FEATURE_PAGES,
+    DAEMON_FEATURE_PERMISSION_MODE, DAEMON_FEATURE_RUN_GATE, DAEMON_FEATURE_TICKET_ATTACHMENTS,
+    DAEMON_FEATURE_TRIAGE, DaemonToOrchestrator, EvaluateConditionsArgs, KillPayload,
+    NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS, OrchestratorToDaemon, PROTOCOL_VERSION,
+    PermissionDecisionPayload, RunActionPayload, RunActionPayloadAction, RunCmdPayload,
+    STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload, SendMessagePayload,
+    SessionEventPayload, StartSessionPayload, TranscriptPayload, auth::daemon_auth_header_value,
 };
+
+/// 06 §Attachments (chat): a message's attachment refs as the ones a start carries (the same
+/// shape, a different generated type); one that doesn't convert is dropped.
+fn message_refs<T: serde::Serialize>(items: &[T]) -> Vec<AttachmentRef> {
+    items
+        .iter()
+        .filter_map(|a| serde_json::to_value(a).ok())
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect()
+}
 use futures_util::FutureExt;
 use serde_json::{Value, json};
 use tokio::task::AbortHandle;
@@ -705,6 +716,8 @@ impl Core {
                 DAEMON_FEATURE_ASSISTANT_JOB,
                 DAEMON_FEATURE_TICKET_ATTACHMENTS,
                 DAEMON_FEATURE_AGENT_ATTACHMENTS,
+                // 06 §Attachments (chat): it downloads `send_message` / `send_input` attachments.
+                DAEMON_FEATURE_MESSAGE_ATTACHMENTS,
                 // ADR-0038: its outcome server has `publish_page`.
                 DAEMON_FEATURE_PAGES,
                 // ADR-0039: it honours `start_session.permission_mode` (skip permissions).
@@ -882,7 +895,26 @@ impl Core {
                     sid: session_id,
                     token: fencing_token,
                 };
-                self.sync_command(&mut st, m, |c, st| c.send_input(st, m, payload));
+                if payload.attachments.is_empty() {
+                    self.sync_command(&mut st, m, |c, st| c.send_input(st, m, payload));
+                } else if self.dedupe(&mut st, m) {
+                    // 06 §Attachments (chat): download first (never under the state lock).
+                    drop(st);
+                    if let Some(core) = self.arc() {
+                        let refs = message_refs(&payload.attachments);
+                        tokio::spawn(async move {
+                            core.with_message_files(
+                                m,
+                                refs,
+                                payload.text.clone(),
+                                |c, st, text| {
+                                    c.send_input(st, m, SendInputPayload { text, ..payload })
+                                },
+                            )
+                            .await;
+                        });
+                    }
+                }
             }
             OrchestratorToDaemon::SendMessage {
                 session_id,
@@ -896,7 +928,25 @@ impl Core {
                     sid: session_id,
                     token: fencing_token,
                 };
-                self.sync_command(&mut st, m, |c, st| c.send_message(st, m, payload));
+                if payload.attachments.is_empty() {
+                    self.sync_command(&mut st, m, |c, st| c.send_message(st, m, payload));
+                } else if self.dedupe(&mut st, m) {
+                    drop(st);
+                    if let Some(core) = self.arc() {
+                        let refs = message_refs(&payload.attachments);
+                        tokio::spawn(async move {
+                            core.with_message_files(
+                                m,
+                                refs,
+                                payload.text.clone(),
+                                |c, st, text| {
+                                    c.send_message(st, m, SendMessagePayload { text, ..payload })
+                                },
+                            )
+                            .await;
+                        });
+                    }
+                }
             }
             OrchestratorToDaemon::Kill {
                 session_id,
@@ -1213,6 +1263,13 @@ impl Core {
                     p.prompt = format!("{}\n\n{block}", p.prompt);
                 }
                 add_dirs.push(dir);
+            } else if wt.is_ok() && p.review != Some(true) {
+                // 06 §Attachments (chat): files sent with a later message land here; Claude may
+                // read the directory from the start, so it needs no permission prompt for them.
+                let dir = attachments::attachments_dir(&self.config.root_dir, &m.sid.to_string());
+                if std::fs::create_dir_all(&dir).is_ok() {
+                    add_dirs.push(dir);
+                }
             }
             // R2 (07 §Worktree setup): a working agent's worktree gets the repo's setup first.
             let mut step = SetupStep::Ready(None);
@@ -1250,19 +1307,32 @@ impl Core {
         m: &Meta,
         p: &StartSessionPayload,
     ) -> (PathBuf, Option<String>) {
+        let (dir, delivered) = self.fetch_refs(m, &p.attachments).await;
+        let resume = p.resume_claude_session_id.is_some();
+        (dir, attachments::prompt_block(&delivered, resume))
+    }
+
+    /// 06 §Attachments: fetch `refs` into the session's attachments dir (within
+    /// FETCH_TIMEOUT), logging what failed; each says what became of it.
+    async fn fetch_refs(
+        &self,
+        m: &Meta,
+        refs: &[AttachmentRef],
+    ) -> (PathBuf, Vec<attachments::Delivered>) {
         // TD-214: nothing removes `<root>/artifacts/<session>/` yet.
         let dir = attachments::attachments_dir(&self.config.root_dir, &m.sid.to_string());
-        let delivered = match attachments::http_base(&self.config.orchestrator_url) {
-            None => p
-                .attachments
-                .iter()
+        let failed_all = |why: &str| -> Vec<attachments::Delivered> {
+            refs.iter()
                 .map(|a| attachments::Delivered {
                     name: attachments::safe_name(a.name.as_str()),
                     mime: a.mime.as_str().to_string(),
                     size: a.size.get(),
-                    fetched: attachments::Fetched::Failed("no orchestrator URL".into()),
+                    fetched: attachments::Fetched::Failed(why.into()),
                 })
-                .collect(),
+                .collect()
+        };
+        let delivered = match attachments::http_base(&self.config.orchestrator_url) {
+            None => failed_all("no orchestrator URL"),
             Some(base) => {
                 let client = reqwest::Client::builder()
                     .redirect(reqwest::redirect::Policy::none())
@@ -1272,21 +1342,12 @@ impl Core {
                     &client,
                     &base,
                     self.config.credential.as_deref(),
-                    &p.attachments,
+                    refs,
                     &dir,
                 );
                 match tokio::time::timeout(attachments::FETCH_TIMEOUT, fetch).await {
                     Ok(d) => d,
-                    Err(_) => p
-                        .attachments
-                        .iter()
-                        .map(|a| attachments::Delivered {
-                            name: attachments::safe_name(a.name.as_str()),
-                            mime: a.mime.as_str().to_string(),
-                            size: a.size.get(),
-                            fetched: attachments::Fetched::Failed("the download timed out".into()),
-                        })
-                        .collect(),
+                    Err(_) => failed_all("the download timed out"),
                 }
             }
         };
@@ -1295,8 +1356,33 @@ impl Core {
                 self.log(&format!("session {}: attachment {}: {why}", m.sid, d.name));
             }
         }
-        let resume = p.resume_claude_session_id.is_some();
-        (dir, attachments::prompt_block(&delivered, resume))
+        (dir, delivered)
+    }
+
+    /// 06 §Attachments (chat): a `send_input` / `send_message` with files, already deduped and
+    /// in flight: fetch them (off the state lock), append their block to `text`, then run `send`
+    /// under the lock with it, acking as `sync_command` does. The live-process checks run then,
+    /// so a process that exited during the download is refused as usual.
+    async fn with_message_files(
+        self: Arc<Self>,
+        m: Meta,
+        refs: Vec<AttachmentRef>,
+        text: String,
+        send: impl FnOnce(&Core, &mut State, String) -> Result<(), String>,
+    ) {
+        let (_, delivered) = self.fetch_refs(&m, &refs).await;
+        let text = match attachments::message_block(&delivered) {
+            Some(block) if text.is_empty() => block,
+            Some(block) => format!("{text}\n\n{block}"),
+            None => text,
+        };
+        let mut st = self.lock();
+        if let Err(e) = send(&self, &mut st, text) {
+            self.failed(&mut st, m, &e);
+        }
+        if let Some(cid) = m.cid {
+            st.in_flight.remove(&cid);
+        }
     }
 
     /// The part of start_session before the worktree: refusals, supersede, `starting`.

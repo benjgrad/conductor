@@ -69,20 +69,47 @@ pub fn safe_name(raw: &str) -> String {
     }
 }
 
-/// `name`, or `stem-2.ext`, `stem-3.ext`… when an earlier attachment of this start took it.
-fn unique_name(name: &str, taken: &mut BTreeSet<String>) -> String {
-    if taken.insert(name.to_string()) {
+/// The `n`th candidate for `name`: `name` itself, then `stem-2.ext`, `stem-3.ext`…
+fn candidate(name: &str, n: usize) -> String {
+    if n <= 1 {
         return name.to_string();
     }
     let (stem, ext) = match name.rfind('.') {
         Some(i) if i > 0 => (&name[..i], &name[i..]),
         _ => (name, ""),
     };
-    for n in 2.. {
-        let candidate = format!("{stem}-{n}{ext}");
-        if taken.insert(candidate.clone()) {
-            return candidate;
+    format!("{stem}-{n}{ext}")
+}
+
+/// `name`, or `stem-2.ext`, `stem-3.ext`… when an earlier attachment of this start took it.
+fn unique_name(name: &str, taken: &mut BTreeSet<String>) -> String {
+    for n in 1.. {
+        let c = candidate(name, n);
+        if taken.insert(c.clone()) {
+            return c;
         }
+    }
+    unreachable!()
+}
+
+/// Where `name` goes in `dir`: the first candidate (see [`unique_name`]) that this call hasn't
+/// taken and that is either free or already holds these bytes (`true`: present). A file left by
+/// an earlier start or message with other bytes keeps its name, so a later file never replaces
+/// one the agent was already told about; a symlink or directory is skipped the same way.
+fn pick_dest(dir: &Path, name: &str, sha256: &str, taken: &mut BTreeSet<String>) -> (String, bool) {
+    for n in 1.. {
+        let c = candidate(name, n);
+        if taken.contains(&c) {
+            continue;
+        }
+        let path = dir.join(&c);
+        let present = match std::fs::symlink_metadata(&path) {
+            Err(_) => false,
+            Ok(m) if m.is_file() && sha256_file(&path).as_deref() == Some(sha256) => true,
+            Ok(_) => continue,
+        };
+        taken.insert(c.clone());
+        return (c, present);
     }
     unreachable!()
 }
@@ -181,25 +208,27 @@ pub async fn fetch_all(
     let made = std::fs::create_dir_all(dir).map_err(|e| e.to_string());
     let mut out = Vec::with_capacity(refs.len());
     for a in refs {
-        let name = unique_name(&safe_name(a.name.as_str()), &mut taken);
+        let (name, present) = match &made {
+            Ok(()) => pick_dest(
+                dir,
+                &safe_name(a.name.as_str()),
+                a.sha256.as_str(),
+                &mut taken,
+            ),
+            Err(_) => (unique_name(&safe_name(a.name.as_str()), &mut taken), false),
+        };
         let dest = dir.join(&name);
         let fetched = if let Err(e) = &made {
             Fetched::Failed(format!("could not create the attachments directory: {e}"))
-        } else if std::fs::symlink_metadata(&dest).is_ok_and(|m| m.is_file())
-            && sha256_file(&dest).as_deref() == Some(a.sha256.as_str())
-        {
+        } else if present {
             Fetched::Present(dest)
         } else {
             match base.join(&format!("api/daemon/attachments/{}/content", a.id)) {
                 Err(e) => Fetched::Failed(format!("bad URL: {e}")),
-                Ok(url) => {
-                    // A stale or tampered file (or a symlink) at the name is replaced.
-                    let _ = std::fs::remove_file(&dest);
-                    match fetch_one(client, url, credential, a, &dest).await {
-                        Ok(()) => Fetched::New(dest),
-                        Err(e) => Fetched::Failed(e),
-                    }
-                }
+                Ok(url) => match fetch_one(client, url, credential, a, &dest).await {
+                    Ok(()) => Fetched::New(dest),
+                    Err(e) => Fetched::Failed(e),
+                },
             }
         };
         out.push(Delivered {
@@ -220,12 +249,8 @@ fn kind(mime: &str) -> &'static str {
     }
 }
 
-/// The prompt block. `only_new`: on a resumed conversation, only what was downloaded now (the
-/// agent already saw the rest); None when there is nothing to say.
-pub fn prompt_block(delivered: &[Delivered], only_new: bool) -> Option<String> {
-    let lines: Vec<String> = delivered
-        .iter()
-        .filter(|d| !only_new || !matches!(d.fetched, Fetched::Present(_)))
+fn file_lines<'a>(delivered: impl Iterator<Item = &'a Delivered>) -> Vec<String> {
+    delivered
         .map(|d| match &d.fetched {
             Fetched::New(p) | Fetched::Present(p) => {
                 let hint = if kind(&d.mime) == "video" {
@@ -247,7 +272,17 @@ pub fn prompt_block(delivered: &[Delivered], only_new: bool) -> Option<String> {
                 kind(&d.mime)
             ),
         })
-        .collect();
+        .collect()
+}
+
+/// The prompt block. `only_new`: on a resumed conversation, only what was downloaded now (the
+/// agent already saw the rest); None when there is nothing to say.
+pub fn prompt_block(delivered: &[Delivered], only_new: bool) -> Option<String> {
+    let lines = file_lines(
+        delivered
+            .iter()
+            .filter(|d| !only_new || !matches!(d.fetched, Fetched::Present(_))),
+    );
     if lines.is_empty() {
         return None;
     }
@@ -257,6 +292,20 @@ pub fn prompt_block(delivered: &[Delivered], only_new: bool) -> Option<String> {
         "## Attachments\n\nThe human attached these files to the ticket. Look at them before you start:"
     };
     Some(format!("{head}\n{}", lines.join("\n")))
+}
+
+/// 06 §Attachments (chat): the block appended to a message or answer for the files the human
+/// sent with it (every one, even if an earlier start already fetched the same bytes). None when
+/// there are none.
+pub fn message_block(delivered: &[Delivered]) -> Option<String> {
+    let lines = file_lines(delivered.iter());
+    if lines.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "## Attached to this message\n\nThe human attached these files to this message:\n{}",
+        lines.join("\n")
+    ))
 }
 
 pub mod pages;

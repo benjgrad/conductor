@@ -1143,7 +1143,7 @@ button.copy {
 }
 /* 06 §Attachments (chat): the paperclip left of the text, the files to send above the box. */
 .composer-box:has(.composer-attach) textarea {
-  padding-left: 42px;
+  padding-left: calc(var(--space-6) + var(--space-2));
 }
 .composer-box .composer-attach {
   position: absolute;

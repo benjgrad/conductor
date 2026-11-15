@@ -1046,12 +1046,30 @@ export const OverruleDefaultRequestSchema = z.object({
 export type OverruleDefaultRequest = z.infer<typeof OverruleDefaultRequestSchema>;
 
 /** POST /api/sessions/:id/input → 202 `{ok: true}`; 409 if already answered / not pending. */
-export const AnswerInputRequestSchema = z.object({
-  input_request_id: UuidSchema,
-  answer: z.string().min(1),
-  /** "skip to <state>" (06). Omit to return to `return_to`. */
-  goto: z.string().optional(),
-});
+/** 06 §Attachments (chat): the uploads a message, answer or reopen carries. */
+export const ChatAttachmentIdsSchema = z.array(UuidSchema).max(ATTACHMENTS_PER_TICKET_MAX);
+const hasTextOrFiles = (r: { text: string; attachment_ids?: string[] | undefined }) =>
+  r.text.length > 0 || (r.attachment_ids?.length ?? 0) > 0;
+/** What the agent gets as the text of a message (or answer) that is only attachments. */
+export const ATTACHMENTS_ONLY_TEXT = 'The human attached files to this message.';
+
+export const AnswerInputRequestSchema = z
+  .object({
+    input_request_id: UuidSchema,
+    /** May be empty only with `attachment_ids` (the server then says the files are the answer). */
+    answer: z.string(),
+    /** "skip to <state>" (06). Omit to return to `return_to`. */
+    goto: z.string().optional(),
+    /**
+     * 06 §Attachments (chat): uploaded, unlinked attachments (POST /api/attachments) sent with the
+     * answer. They are linked to the ticket (filed under the session) in the answer's transaction.
+     */
+    attachment_ids: ChatAttachmentIdsSchema.optional(),
+  })
+  .refine((r) => r.answer.length > 0 || (r.attachment_ids?.length ?? 0) > 0, {
+    message: 'answer or attachment_ids is required',
+    path: ['answer'],
+  });
 export type AnswerInputRequest = z.infer<typeof AnswerInputRequestSchema>;
 
 export const OkResponseSchema = z.object({ ok: z.literal(true) });
@@ -1134,7 +1152,14 @@ export type PushTestResponse = z.infer<typeof PushTestResponseSchema>;
  * session is not `running` an agent state with a live process (a `needs_input` session is
  * answered through /input instead).
  */
-export const SendMessageRequestSchema = z.object({ text: z.string().trim().min(1).max(20_000) });
+export const SendMessageRequestSchema = z
+  .object({
+    /** May be empty only with `attachment_ids`. */
+    text: z.string().trim().max(20_000),
+    /** 06 §Attachments (chat): uploads sent with the message, as AnswerInputRequest's. */
+    attachment_ids: ChatAttachmentIdsSchema.optional(),
+  })
+  .refine(hasTextOrFiles, { message: 'text or attachment_ids is required', path: ['text'] });
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 
 /**
@@ -1162,9 +1187,14 @@ export type TranscriptResponse = z.infer<typeof TranscriptResponseSchema>;
  * ticket starts at the workflow's start state, on the same branch and machine, resuming the
  * same Claude conversation with `text` as its prompt. 409 `conflict` otherwise; 404 unknown.
  */
-export const ReopenSessionRequestSchema = z.object({
-  text: z.string().trim().min(1).max(20_000),
-});
+export const ReopenSessionRequestSchema = z
+  .object({
+    /** May be empty only with `attachment_ids`. */
+    text: z.string().trim().max(20_000),
+    /** 06 §Attachments (chat): uploads sent with the reopen, filed under the new session. */
+    attachment_ids: ChatAttachmentIdsSchema.optional(),
+  })
+  .refine(hasTextOrFiles, { message: 'text or attachment_ids is required', path: ['text'] });
 export type ReopenSessionRequest = z.infer<typeof ReopenSessionRequestSchema>;
 export const ReopenSessionResponseSchema = z.object({ session_id: UuidSchema });
 export type ReopenSessionResponse = z.infer<typeof ReopenSessionResponseSchema>;

@@ -8,6 +8,7 @@ import {
   type SessionStatus,
   withoutWatch,
 } from '@conductor/shared';
+import { linkChatAttachments } from '../api/attachments.js';
 import { insertBoardEvents } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { SessionRow } from '../db/types.js';
@@ -33,7 +34,13 @@ import { readSession, splitStep, TICKET_SELECT, type TicketCardRow } from './row
 export const REOPENABLE_STATUSES: ReadonlySet<SessionStatus> = new Set(['done', 'failed']);
 
 export type ReopenResult =
-  | { status: 'reopened'; sessionId: string; boardEvents: BoardSseEvent[] }
+  | {
+      status: 'reopened';
+      sessionId: string;
+      boardEvents: BoardSseEvent[];
+      /** 06 §Attachments (chat): the names of the files linked with the reopen, in order. */
+      attachmentNames: string[];
+    }
   | { status: 'not_found' }
   | { status: 'conflict'; reason: string };
 
@@ -42,6 +49,12 @@ export async function reopenSession(
   oldSessionId: string,
   text: string,
   actor: string | null = null,
+  /**
+   * 06 §Attachments (chat): uploads sent with the reopen, linked to the ticket under the new
+   * session in this transaction (the claim's start_session then carries them). Throws
+   * AttachmentLinkError when one can't be linked (nothing is written).
+   */
+  attach?: { accountId: string; ids: readonly string[] },
 ): Promise<ReopenResult> {
   return withTransaction(db, async (tx) => {
     const peek = await tx.query<{ ticket_id: string }>(
@@ -102,6 +115,16 @@ export async function reopenSession(
         old.notified_transitions ?? [],
       ],
     );
+    const linked =
+      attach && attach.ids.length > 0
+        ? await linkChatAttachments(tx, {
+            accountId: attach.accountId,
+            ticketId: ticket.id,
+            sessionId,
+            workflowState: null,
+            ids: attach.ids,
+          })
+        : [];
     await tx.query(
       `UPDATE ticket SET status = 'ready', workflow_version = $2, updated_at = now() WHERE id = $1`,
       [ticket.id, version],
@@ -144,7 +167,12 @@ export async function reopenSession(
       },
       { type: 'card.upserted', session_id: sessionId, ticket_id: ticket.id, card: after },
     ]);
-    return { status: 'reopened', sessionId, boardEvents } as const;
+    return {
+      status: 'reopened',
+      sessionId,
+      boardEvents,
+      attachmentNames: linked.map((a) => a.name),
+    } as const;
   });
 }
 

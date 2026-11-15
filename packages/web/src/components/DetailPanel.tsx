@@ -60,7 +60,7 @@ import {
 import { RequestCard } from './RequestCard.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
-import { TicketSkipPermissions } from './TicketPanel.js';
+import { TicketAttachments, TicketSkipPermissions } from './TicketPanel.js';
 import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
 import { TransitionButtons } from './transitions.js';
 
@@ -432,6 +432,13 @@ export function DetailPanel({
                 brief={brief}
                 body={body}
                 onReload={reload}
+              />
+              {/* 06 §Attachments: the ticket's files, in every column. */}
+              <TicketAttachments
+                key={`files-${sessionId}`}
+                api={api}
+                ticketId={detail.card.ticket_id}
+                version={detail.card.updated_at}
               />
               {/* ADR-0039: while the session isn't finished. */}
               {!(detail.card.status !== null && TERMINAL_STATUSES.has(detail.card.status)) && (

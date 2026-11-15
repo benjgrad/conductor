@@ -500,6 +500,12 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     input_request_id: UuidSchema,
     answer: z.string(),
     goto: z.string().optional(),
+    /**
+     * 06 §Attachments (chat): human attachments sent with the answer, already linked to the
+     * ticket. apply ignores them; the wrapper puts them on the `send_input` (a resume's
+     * start_session carries them as the ticket's).
+     */
+    attachment_ids: z.array(UuidSchema).optional(),
   }),
   /** O/U: a named external event for an `event` state's `wait_for` (e.g. `ui.approve`). */
   z.object({
@@ -645,7 +651,12 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
    * (transitions only on outcomes). A `/...` text is passed through; Claude Code runs it as a
    * slash command.
    */
-  z.object({ type: z.literal('operator.message'), text: z.string().min(1) }),
+  z.object({
+    type: z.literal('operator.message'),
+    text: z.string().min(1),
+    /** 06 §Attachments (chat): as `input.provided`'s; the wrapper puts them on `send_message`. */
+    attachment_ids: z.array(UuidSchema).optional(),
+  }),
   /**
    * O (ADR-0041): the default-answer sweep. The open request's `default_at` passed with no human
    * answer. Ignored (`stale_timer`) unless the session is parked in `state`, on the visit the

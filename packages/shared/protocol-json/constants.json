@@ -34,6 +34,7 @@
   "NO_CONVERSATION_REASON": "no_conversation",
   "DAEMON_FEATURE_ASSISTANT_JOB": "assistant_job",
   "DAEMON_FEATURE_TICKET_ATTACHMENTS": "ticket_attachments",
+  "DAEMON_FEATURE_MESSAGE_ATTACHMENTS": "message_attachments",
   "DAEMON_FEATURE_AGENT_ATTACHMENTS": "agent_attachments",
   "DAEMON_FEATURE_PAGES": "pages",
   "DAEMON_FEATURE_PERMISSION_MODE": "permission_mode",

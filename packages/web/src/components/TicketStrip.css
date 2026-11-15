@@ -54,11 +54,13 @@
   }
 }
 @media (pointer: coarse), (max-width: 899.98px) {
-  .ticket-strip-edit {
+  .ticket-strip-edit,
+  .ticket-strip-files {
     min-width: var(--tap);
   }
 }
-.ticket-strip-edit {
+.ticket-strip-edit,
+.ticket-strip-files {
   justify-content: center;
   padding: var(--space-1) var(--space-2);
 }

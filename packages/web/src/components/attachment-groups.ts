@@ -13,6 +13,20 @@ export function splitAttachments(list: readonly AttachmentDto[]): {
   };
 }
 
+/**
+ * A human's attachments: those of the ticket itself (`session_id` null: created or edited in) and
+ * those sent with a chat message (filed under the session), each in upload order.
+ */
+export function splitHumanByOrigin(list: readonly AttachmentDto[]): {
+  original: AttachmentDto[];
+  chat: AttachmentDto[];
+} {
+  return {
+    original: list.filter((a) => a.session_id === null),
+    chat: list.filter((a) => a.session_id !== null),
+  };
+}
+
 export interface AttachmentGroup {
   /** The workflow state the agent captured them in; null when unknown. */
   state: string | null;

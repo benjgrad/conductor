@@ -178,6 +178,29 @@ describe('ticket buttons (desktop)', () => {
   });
 });
 
+describe('the Attachments button (06 §Attachments)', () => {
+  it('opens the ticket\'s files any time; says so when there are none', async () => {
+    const { api } = await open(SEED_IDS.running.session, false);
+    const button = strip().getByRole('button', { name: 'Attachments' });
+    fireEvent.click(button);
+    const sheet = within(screen.getByRole('dialog', { name: 'Attachments' }));
+    expect(await sheet.findByText('No attachments yet.')).toBeTruthy();
+    fireEvent.click(sheet.getByRole('button', { name: 'Close attachments' }));
+    // An original upload of the ticket shows under "Attachments".
+    const detail = await api.getSession(SEED_IDS.running.session);
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])], 'a.png', {
+      type: 'image/png',
+    });
+    const up = await api.uploadAttachment(png);
+    const t = await api.getTicket(detail.card.ticket_id);
+    await api.updateTicket(t.id, { expected_updated_at: t.updated_at, add_attachment_ids: [up.id] });
+    fireEvent.click(button);
+    const again = within(screen.getByRole('dialog', { name: 'Attachments' }));
+    expect(await again.findByRole('region', { name: 'Attachments' })).toBeTruthy();
+    expect(again.getByText('a.png')).toBeTruthy();
+  });
+});
+
 describe('latestPlan / planText', () => {
   const ctx = { planning: { plan: 'P1' }, review: { plan: 'P2' } };
   it('reads the asking state first, else any text plan, else nothing', () => {

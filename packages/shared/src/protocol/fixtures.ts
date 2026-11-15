@@ -734,6 +734,7 @@ export const M2_WS_FIXTURES: {
   heartbeat_draining: Extract<DaemonToOrchestrator, { type: 'heartbeat' }>;
   alert_update_failed: Extract<DaemonToOrchestrator, { type: 'alert' }>;
   start_session_attachments: Extract<OrchestratorToDaemon, { type: 'start_session' }>;
+  send_message_attachments: Extract<OrchestratorToDaemon, { type: 'send_message' }>;
 } = {
   register_v2: {
     ...DAEMON_FIXTURES.register,
@@ -835,6 +836,24 @@ export const M2_WS_FIXTURES: {
           mime: 'video/mp4',
           size: 1_048_576,
           sha256: '0123456789abcdef'.repeat(4),
+        },
+      ],
+    },
+  },
+  /** 06 §Attachments (chat): a message carrying the files sent with it (fixed ids). */
+  send_message_attachments: {
+    ...ORCHESTRATOR_FIXTURES.send_message,
+    msg_id: '00000000-0000-4000-8000-0000000a7004',
+    payload: {
+      ...ORCHESTRATOR_FIXTURES.send_message.payload,
+      text: 'Like this one.',
+      attachments: [
+        {
+          id: '00000000-0000-4000-8000-0000000a7005',
+          name: 'screenshot.png',
+          mime: 'image/png',
+          size: 4096,
+          sha256: 'b'.repeat(64),
         },
       ],
     },

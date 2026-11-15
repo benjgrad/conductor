@@ -59,7 +59,7 @@ import {
 } from './rows.js';
 import { repinParked } from './repin.js';
 import { storeProposedChecks } from './check-proposals.js';
-import { withStartAttachments } from './attachments.js';
+import { withMessageAttachments, withStartAttachments } from './attachments.js';
 import { withSkipPermissions } from './skip-permissions.js';
 import { withPagesFeature } from './pages.js';
 import { withRunGateFeature } from './run-gate.js';
@@ -770,7 +770,18 @@ export class EngineServiceImpl implements EngineService {
               ticket.id,
               cmd.target,
             )
-          : cmd.payload;
+          : // 06 §Attachments (chat): the files the human sent with the message or answer.
+            (cmd.kind === 'send_message' || cmd.kind === 'send_input') &&
+              (event.type === 'operator.message' || event.type === 'input.provided') &&
+              event.attachment_ids !== undefined
+            ? await withMessageAttachments(
+                tx,
+                cmd.payload as JsonObject,
+                ticket.id,
+                event.attachment_ids,
+                cmd.target,
+              )
+            : cmd.payload;
       await tx.query(
         'INSERT INTO outbox (command_id, target, kind, session_id, payload, fencing_token, ' +
           'next_attempt_at, created_at, idempotency_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)',

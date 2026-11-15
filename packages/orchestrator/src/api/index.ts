@@ -2,6 +2,7 @@ import {
   API_PATHS,
   AdoptDefaultWorkflowRequestSchema,
   AnswerInputRequestSchema,
+  ATTACHMENTS_ONLY_TEXT,
   CONDUCTOR_WORKFLOW_ID,
   ApproveProposalRequestSchema,
   ApproveSessionRequestSchema,
@@ -30,7 +31,7 @@ import {
   type TranscriptResponse,
   RETRY_CHECKS,
 } from '@conductor/shared';
-import Fastify, { type FastifyReply } from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { DEFAULT_AUTH, type AuthConfig } from '../auth/config.js';
 import { authHook } from '../auth/middleware.js';
 import { argon2Hasher, type PasswordHasher } from '../auth/password.js';
@@ -51,7 +52,13 @@ import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
 import { adoptDefaultWorkflow, defaultComparison, saveWorkflowDefinition } from './workflows.js';
 import { registerMachineRoutes } from './machines.js';
-import { overruleDefault, provideAnswer, sendOperatorMessage } from './messages.js';
+import {
+  overruleDefault,
+  provideAnswer,
+  sendOperatorMessage,
+  type ChatAttachments,
+} from './messages.js';
+
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
@@ -68,12 +75,21 @@ import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
 import { searchTickets, toSearchResult } from './ticket-search.js';
 import { registerTeamRoutes } from './team.js';
 import { cancelTicket, reopenTicket } from './ticket-lifecycle.js';
-import { registerAttachmentRoutes } from './attachments.js';
+import { AttachmentLinkError, chatEchoText, registerAttachmentRoutes } from './attachments.js';
 import { registerPageRoutes } from './pages.js';
 import { registerRunGateRoutes } from './run-gate.js';
 import { registerGithubWebhookRoutes } from './github-webhook.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
+
+/** 06 §Attachments (chat): the request's uploads, from its account; undefined when none. */
+function chatAttachments(
+  req: FastifyRequest,
+  ids: readonly string[] | undefined,
+): ChatAttachments | undefined {
+  if (!ids || ids.length === 0) return undefined;
+  return { accountId: req.auth!.scope.account_id, ids };
+}
 
 /** Recorded as `input_request.answered_by` for answers from the web UI (no auth in M1, 09). */
 export const UI_ACTOR = 'ui';
@@ -286,7 +302,21 @@ export const createApi = (({
       ...(body.goto !== undefined ? { goto: body.goto } : {}),
     };
     // As /messages: the answer shows in the Messages thread as a `user` chunk once applied.
-    const result = await provideAnswer({ engine, outputBus }, id, event, { actor: UI_ACTOR });
+    let result;
+    try {
+      result = await provideAnswer(
+        { engine, outputBus, db, boardBus },
+        id,
+        event,
+        { actor: UI_ACTOR },
+        chatAttachments(req, body.attachment_ids),
+      );
+    } catch (err) {
+      if (err instanceof AttachmentLinkError) {
+        return sendError(reply, err.status, err.code, err.message);
+      }
+      throw err;
+    }
     if (result.status === 'applied') return reply.code(202).send(OK);
     const { status, code } = httpForApplyResult('input', result);
     return sendError(reply, status, code, `${event.type}: ${result.reason}`);
@@ -409,7 +439,20 @@ export const createApi = (({
     if (id === undefined) return reply;
     const body = parseBody(SendMessageRequestSchema, req.body, reply);
     if (!body) return reply;
-    const result = await sendOperatorMessage({ engine, outputBus }, id, body.text);
+    let result;
+    try {
+      result = await sendOperatorMessage(
+        { engine, outputBus, db, boardBus },
+        id,
+        body.text,
+        chatAttachments(req, body.attachment_ids),
+      );
+    } catch (err) {
+      if (err instanceof AttachmentLinkError) {
+        return sendError(reply, err.status, err.code, err.message);
+      }
+      throw err;
+    }
     if (result.status !== 'applied') {
       const { status, code } = httpForApplyResult('message', result);
       return sendError(reply, status, code, `operator.message: ${result.reason}`);
@@ -467,14 +510,28 @@ export const createApi = (({
     if (id === undefined) return reply;
     const body = parseBody(ReopenSessionRequestSchema, req.body, reply);
     if (!body) return reply;
-    const res = await reopenSession(db, id, body.text, UI_ACTOR);
+    let res;
+    try {
+      res = await reopenSession(
+        db,
+        id,
+        body.text === '' ? ATTACHMENTS_ONLY_TEXT : body.text,
+        UI_ACTOR,
+        chatAttachments(req, body.attachment_ids),
+      );
+    } catch (err) {
+      if (err instanceof AttachmentLinkError) {
+        return sendError(reply, err.status, err.code, err.message);
+      }
+      throw err;
+    }
     if (res.status === 'not_found') {
       return sendError(reply, 404, 'not_found', `session ${id} not found`);
     }
     if (res.status === 'conflict') return sendError(reply, 409, 'conflict', res.reason);
     for (const ev of res.boardEvents) boardBus.publish(ev);
     // Claude does not echo user messages: show what the human asked, as for /messages.
-    outputBus.append(res.sessionId, 'user', body.text);
+    outputBus.append(res.sessionId, 'user', chatEchoText(body.text, res.attachmentNames));
     const out: ReopenSessionResponse = { session_id: res.sessionId };
     return reply.code(202).send(out);
   });

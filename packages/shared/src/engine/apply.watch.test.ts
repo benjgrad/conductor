@@ -434,6 +434,32 @@ describe('watch: on_broken, the move form', () => {
     expect(watchRuntime(h.snap.context)).toMatchObject({ state: 'needs_input' });
   });
 
+  it('a human round resets the lap count (05 §Counting "Rounds")', () => {
+    const h = inReview();
+    for (let lap = 1; lap <= 2; lap++) {
+      tick(h);
+      answer(h, 'failed', 'CONFLICTING');
+      h.started();
+      h.run({ type: 'agent.complete_state', result: {}, transition: 'pr_ready', reason: 'ok' });
+    }
+    expect(h.snap.retry_counters['watch:in_review']).toBe(2);
+    // Ben asks for changes: a new round, so the next breaks get the full 3 laps again.
+    h.run({ type: 'human.transition', name: 'request_changes', text: 'more', actor: 'ui' });
+    expect(h.snap.retry_counters['watch:in_review']).toBeUndefined();
+    h.started();
+    h.run({ type: 'agent.complete_state', result: {}, transition: 'pr_ready', reason: 'ok' });
+    for (let lap = 1; lap <= 3; lap++) {
+      tick(h);
+      answer(h, 'failed', 'CONFLICTING');
+      expect(h.snap.workflow_state).toBe('implementing');
+      h.started();
+      h.run({ type: 'agent.complete_state', result: {}, transition: 'pr_ready', reason: 'ok' });
+    }
+    tick(h);
+    answer(h, 'failed', 'CONFLICTING');
+    expect(h.snap.workflow_state).toBe('needs_input');
+  });
+
   it('an event state watches the same way (waiting_external)', () => {
     const h = new Harness(DEF, freshSnapshot(DEF)).claimAndStart();
     h.run({ type: 'agent.complete_state', result: {}, transition: 'to_waiting', reason: 'x' });

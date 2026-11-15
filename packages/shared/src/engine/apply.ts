@@ -126,6 +126,7 @@ import {
   type QaState,
 } from './qa.js';
 import { applySpend } from './spend.js';
+import { withoutHumanRoundCounters } from './counters.js';
 import {
   canOverrule,
   defaultAnswerText,
@@ -678,6 +679,8 @@ function onHumanTransition(
   if (!plan.ok) return plan.reason;
   // A human decided where the ticket goes: a broken watch's way back no longer applies.
   st.s.context = withWatchReturn(st.s.context, null);
+  // 05 §Counting "Rounds": a human acted, so the gate and watch loops start a new round.
+  resetHumanRoundCounters(st);
   // ADR-0020 §2: a human sending the ticket back opens a new round of QA ("Back with this
   // answer", `$return_to`, continues the round it interrupted).
   if (plan.transition.goto !== RETURN_TO) resetQaRounds(st, plan.goto);
@@ -749,6 +752,7 @@ function onFreshConversation(
   if (target === null || st.def.states[target]?.type !== 'agent') return 'wrong_status';
   const text = e.text.trim();
   if (text === '') return 'wrong_status';
+  resetHumanRoundCounters(st);
   releaseAgent(st, 'a human started a fresh conversation');
   // TD-182: a lost-machine (non-revoked) park keeps its machine pin, so fresh conversation can't move off a dead machine.
   const earlier = leaveLostPark(st, true, true);
@@ -1005,6 +1009,8 @@ function onInput(
   const target = e.goto ?? st.s.return_to ?? st.def.start;
   const targetState = st.def.states[target];
   if (targetState === undefined) return 'unexpected_event';
+  // 05 §Counting "Rounds": the answer (e.g. "retry" to an exhausted gate) buys a new round.
+  resetHumanRoundCounters(st);
   const continuation = target === st.s.return_to;
   const earlier = leaveLostPark(
     st,
@@ -1154,6 +1160,7 @@ function onBudgetAnswer(
   const target = s.return_to ?? st.def.start;
   const targetState = st.def.states[target];
   if (targetState === undefined) return 'unexpected_event';
+  resetHumanRoundCounters(st);
   const by = raiseStep(st.def, mark.dimension);
   const limit = effectiveBudget(st.def, s.context);
   const raised =
@@ -4091,6 +4098,11 @@ function qaNoVerdict(st: Step, name: string, state: QaState, why: string): void 
   }
   const q = qaNoVerdictQuestion(why);
   toFallbackHuman(st, 'retries_exhausted', q, engineMove('review_unmet', null, q));
+}
+
+/** 05 §Counting "Rounds": clear the gate and watch loop counters on a human's answer or move. */
+function resetHumanRoundCounters(st: Step): void {
+  st.s.retry_counters = withoutHumanRoundCounters(st.s.retry_counters);
 }
 
 function resetQaRounds(st: Step, goto: string): void {

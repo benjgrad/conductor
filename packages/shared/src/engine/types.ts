@@ -1098,9 +1098,12 @@ export function isOutboxEffect(e: Effect): e is OutboxEffect {
 
 // ---------------------------------------------------------------- moves (ADR-0011)
 
+/** Prefix of every `moveCounterKey`. */
+export const MOVE_COUNTER_PREFIX = 'move:';
+
 /** `retry_counters` key of a move step's `on_unmet` loop: `"move:<from>:<name>"`. */
 export function moveCounterKey(from: string, name: string): string {
-  return `move:${from}:${name}`;
+  return `${MOVE_COUNTER_PREFIX}${from}:${name}`;
 }
 
 /** The synthetic `workflow_state` of a move step, e.g. `implementing → waiting_external (move: ready_for_testing)`. */

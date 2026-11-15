@@ -9,6 +9,7 @@
 // as phase dividers at their time.
 import {
   transitionTitle,
+  type AttachmentDto,
   type BoardChecking,
   type MoveDto,
   type OutputChunk,
@@ -24,6 +25,9 @@ import {
   runStatus,
   type RunSegment,
 } from './CheckOutput.js';
+import type { ApiClient } from '../api/client.js';
+import { ChatFiles } from './AttachmentGallery.js';
+import { splitChatFiles } from './attachment-groups.js';
 import { Markdown } from './markdown.js';
 import { phaseStateName } from './state-name.js';
 import { moveTitle } from './transitions.js';
@@ -763,6 +767,11 @@ export interface OutputLogProps {
    * output that is only runs leaves the chat empty rather than "No output yet.".
    */
   runs?: 'inline' | 'separate';
+  /**
+   * 06 §Attachments (chat): the human's files sent in this session's chat; a bubble's trailing
+   * `📎 <name>` lines show as their thumbnails. Without it those lines stay text.
+   */
+  chatFiles?: { api: ApiClient; files: readonly AttachmentDto[] } | undefined;
 }
 
 export function OutputLog({
@@ -778,6 +787,7 @@ export function OutputLog({
   failedItem,
   active,
   runs = 'inline',
+  chatFiles,
 }: OutputLogProps) {
   const entries = useMemo(() => buildEntries(output), [output]);
   const short = useMemo(() => shortener(worktree), [worktree]);
@@ -834,7 +844,13 @@ export function OutputLog({
             <Markdown text={short(e.text)} />
           </div>
         );
-      case 'user':
+      case 'user': {
+        // 06 §Attachments (chat): the files the message names, under its text.
+        const split = chatFiles ? splitChatFiles(e.text) : { text: e.text, names: [] };
+        const files =
+          chatFiles && split.names.length > 0 ? (
+            <ChatFiles api={chatFiles.api} names={split.names} files={chatFiles.files} />
+          ) : null;
         if (e.ticket) {
           return (
             <div
@@ -845,8 +861,9 @@ export function OutputLog({
             >
               <span className="user-label">Ticket</span>
               <div className="user-text">
-                <Markdown text={e.text} />
+                <Markdown text={split.text} />
               </div>
+              {files}
             </div>
           );
         }
@@ -859,16 +876,19 @@ export function OutputLog({
                   ↳ {firstLine(e.answer.question)}
                 </p>
               )}
-              <p className="user-text">{e.text}</p>
+              {split.text !== '' && <p className="user-text">{split.text}</p>}
+              {files}
             </div>
           );
         }
         return (
           <div key={e.key} className="user-msg" role="group" aria-label="Your message">
             <span className="user-label">You</span>
-            <p className="user-text">{e.text}</p>
+            {split.text !== '' && <p className="user-text">{split.text}</p>}
+            {files}
           </div>
         );
+      }
       case 'tool':
         return <ToolRow key={e.key} entry={e} short={short} />;
       case 'stream':

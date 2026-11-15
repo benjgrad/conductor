@@ -46,9 +46,12 @@ export function entryStateLabel(from: string, to: string): string {
   return `${from} → ${to} (entry)`;
 }
 
+/** Prefix of every `entryCounterKey`. */
+export const ENTRY_COUNTER_PREFIX = 'entry:';
+
 /** `retry_counters` key of an entry step's `on_unmet` loop (ADR-0010), per target state. */
 export function entryCounterKey(to: string): string {
-  return `entry:${to}`;
+  return `${ENTRY_COUNTER_PREFIX}${to}`;
 }
 
 /** The first line of every reviewer prompt (the e2e fake keys its reviewer scenario on it). */
@@ -59,9 +62,12 @@ export function reviewStateLabel(from: string, to: string): string {
   return `${from} → ${to} (review)`;
 }
 
+/** Prefix of every `reviewCounterKey`. */
+export const REVIEW_COUNTER_PREFIX = 'requirements:';
+
 /** `retry_counters` key of a gated transition's `on_unmet` loop. */
 export function reviewCounterKey(from: string, outcome: string): string {
-  return `requirements:${from}:${outcome}`;
+  return `${REVIEW_COUNTER_PREFIX}${from}:${outcome}`;
 }
 
 export interface ReviewPromptInput {

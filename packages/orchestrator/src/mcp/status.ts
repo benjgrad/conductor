@@ -1,7 +1,9 @@
 import {
+  lastAssistantText,
   latestPlanEntry,
   setupFailureSummary,
   type BoardCard,
+  type HandoffBrief,
   type InputRequestKind,
   type SessionDetail,
   type TicketStatus,
@@ -85,6 +87,12 @@ export interface StatusLineInput {
   handoff?: boolean;
   /** The ticket's own status: a cancelled ticket's session is `failed`, but it was cancelled. */
   ticketStatus?: TicketStatus;
+  /**
+   * The plain "why it stopped" sentence (`handoffBrief`). It leads a request conductor raised (a
+   * failure, the budget, a lost machine) in place of the kind's label; the agent's own question
+   * or hand-off already says it in its words.
+   */
+  why?: string | null;
 }
 
 /** One sentence a voice assistant can read out as it is. */
@@ -95,6 +103,7 @@ export function statusLine({
   minutesInState,
   handoff,
   ticketStatus,
+  why,
 }: StatusLineInput): string {
   const where = stateTitle ?? card.workflow_state ?? 'its current step';
   const names = card.human_transitions.map((t) => t.name).join(', ');
@@ -112,6 +121,9 @@ export function statusLine({
             `${setupFailureSummary(card.input_request.question)} ` +
             "Fix it with set_repo_checks (or the board's repo checks); the checks then re-run (or take_transition $retry_checks)."
           );
+        }
+        if (why && !isAgentKind(card.input_request.kind)) {
+          return `Waiting on you: ${why} Conductor's note: "${clip(card.input_request.question, 200)}"`;
         }
         const what =
           handoff === true && card.input_request.kind === 'agent_question'
@@ -154,20 +166,11 @@ export const STATUS_REPORT_MAX = 1200;
 const PLAN_EXCERPT = 400;
 const OUTPUT_EXCERPT = 400;
 
-/** The last `max` characters of the session's assistant output in the ring, or null. */
-export function lastAssistantText(
-  chunks: SessionDetail['recent_output'],
-  max = OUTPUT_EXCERPT,
-): string | null {
-  const text = chunks
-    .filter((c) => c.stream === 'assistant')
-    .map((c) => c.text)
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (text === '') return null;
-  return text.length <= max ? text : '…' + text.slice(text.length - (max - 1));
-}
+/** The agent's own requests (its question, its hand-off): their text already says why. */
+const isAgentKind = (kind: InputRequestKind): boolean =>
+  kind === 'agent_question' || kind === 'handoff';
+
+export { lastAssistantText };
 
 /**
  * ADR-0031 (FR5): a deterministic status report, ≤ STATUS_REPORT_MAX characters, built only
@@ -180,8 +183,14 @@ export function statusReport(
     'card' | 'context' | 'return_to' | 'moves' | 'spend_usd' | 'recent_output'
   >,
   line: string,
+  brief: HandoffBrief | null = null,
 ): string {
   const parts: string[] = [`${clip(d.card.title, 120)}: ${line}`];
+  // Ticket "Improved handoff": why it stopped and what was done come right after the status.
+  if (brief !== null) {
+    if (!line.includes(brief.why)) parts.push(`Why it stopped: ${brief.why}`);
+    if (brief.summary !== null) parts.push(`What was done: ${clip(brief.summary, 300)}`);
+  }
   const entry = latestPlanEntry(d);
   const summary = entry ? (d.context[entry.from_state] as Record<string, unknown>).summary : null;
   if (typeof summary === 'string' && summary.trim() !== '') {
@@ -201,8 +210,8 @@ export function statusReport(
   }
   if (d.card.pr_url) parts.push(`PR: ${d.card.pr_url}`);
   parts.push(`Spent $${d.spend_usd.toFixed(2)}.`);
-  const said = lastAssistantText(d.recent_output);
-  if (said !== null) parts.push(`Agent last said: ${said}`);
+  const said = lastAssistantText(d.recent_output, OUTPUT_EXCERPT);
+  if (said !== null && said !== brief?.summary) parts.push(`Agent last said: ${said}`);
   // Each part is already short; the status comes first, so cutting the tail always keeps it.
   const out = parts.join('\n');
   return out.length <= STATUS_REPORT_MAX ? out : out.slice(0, STATUS_REPORT_MAX - 1) + '…';

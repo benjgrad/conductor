@@ -6,6 +6,7 @@ import {
   ATTACHMENT_FILENAME_HEADER,
   ATTACHMENT_MAX_VIDEO_BYTES,
   ATTACHMENT_TICKET_MAX_BYTES,
+  CHAT_ATTACHMENT_MARK,
   DAEMON_AUTH_HEADER,
   UuidSchema,
   attachmentMaxBytes,
@@ -98,6 +99,64 @@ export async function linkAttachments(
     throw new AttachmentLinkError(400, 'bad_request', 'unknown or already linked attachment');
   }
   await checkTicketLimits(tx, ticketId, 'human');
+}
+
+/**
+ * 06 §Attachments (chat): link uploads sent with a chat message, answer or reopen to `ticketId`,
+ * filed under the session (and the state it is in) so the UI shows them as "Added in chat",
+ * inside the caller's transaction. Same checks as `linkAttachments`; bumps the ticket's
+ * updated_at so an open panel refetches it. Returns the linked rows in the order of `ids`.
+ */
+export async function linkChatAttachments(
+  tx: Queryable,
+  input: {
+    accountId: string;
+    ticketId: string;
+    sessionId: string;
+    workflowState: string | null;
+    ids: readonly string[];
+  },
+): Promise<AttachmentRow[]> {
+  const unique = [...new Set(input.ids)];
+  if (unique.length === 0) return [];
+  // The ticket is the account's; one link per ticket at a time, so two can't both pass the
+  // count check.
+  const own = await tx.query('SELECT 1 FROM ticket WHERE id = $1 AND account_id = $2 FOR UPDATE', [
+    input.ticketId,
+    input.accountId,
+  ]);
+  if (own.rows.length === 0) {
+    throw new AttachmentLinkError(404, 'not_found', `ticket ${input.ticketId} not found`);
+  }
+  const linked = await tx.query<AttachmentRow>(
+    'UPDATE attachment a SET ticket_id = $1, session_id = $2, workflow_state = $3 ' +
+      "WHERE a.id = ANY($4::uuid[]) AND a.account_id = $5 AND a.ticket_id IS NULL AND a.source = 'human' " +
+      `RETURNING ${META}`,
+    [input.ticketId, input.sessionId, input.workflowState, unique, input.accountId],
+  );
+  if (linked.rows.length !== unique.length) {
+    throw new AttachmentLinkError(400, 'bad_request', 'unknown or already linked attachment');
+  }
+  await checkTicketLimits(tx, input.ticketId, 'human');
+  await tx.query('UPDATE ticket SET updated_at = now() WHERE id = $1', [input.ticketId]);
+  const byId = new Map(linked.rows.map((r) => [r.id, r]));
+  return unique.map((id) => byId.get(id)!);
+}
+
+/** Undo `linkChatAttachments` (the message they came with was not accepted). */
+export async function unlinkChatAttachments(tx: Queryable, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await tx.query(
+    'UPDATE attachment SET ticket_id = NULL, session_id = NULL, workflow_state = NULL ' +
+      "WHERE id = ANY($1::uuid[]) AND source = 'human'",
+    [[...new Set(ids)]],
+  );
+}
+
+/** The chat bubble's text: what the human wrote, then one `📎 <name>` line per file. */
+export function chatEchoText(text: string, names: readonly string[]): string {
+  const lines = names.map((n) => `${CHAT_ATTACHMENT_MARK} ${n}`);
+  return [text, ...lines].filter((l) => l !== '').join('\n');
 }
 
 /**

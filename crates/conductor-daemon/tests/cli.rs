@@ -144,6 +144,7 @@ async fn run_registers_and_exits_0_on_sigterm() {
             "assistant_job",
             "ticket_attachments",
             "agent_attachments",
+            "message_attachments",
             "pages",
             // ADR-0039: it honours start_session.permission_mode.
             "permission_mode",

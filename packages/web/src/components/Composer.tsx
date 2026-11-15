@@ -1,9 +1,24 @@
 // The Messages composer: answers an open input request, else messages the running agent
 // (ADR-0007), else reopens a finished ticket with the same agent (ADR-0008), else is disabled
-// with the reason. A `/` at the start opens the slash menu.
-import { gateStepSource, isAgentRequest, type SessionDetail } from '@conductor/shared';
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+// with the reason. A `/` at the start opens the slash menu. 06 §Attachments (chat): images and
+// videos can go with the text (the paperclip, a paste or a drop); they become the ticket's.
+import {
+  ATTACHMENT_ACCEPT,
+  gateStepSource,
+  isAgentRequest,
+  type SessionDetail,
+} from '@conductor/shared';
+import { Paperclip } from 'lucide-react';
+import {
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { AttachmentUploadList, useAttachmentUploads } from './AttachmentPicker.js';
 import { displayState } from '../workflow/review.js';
 import { isConductorStep } from './ConductorChecks.js';
 import { PresetChips } from './PresetChips.js';
@@ -134,6 +149,9 @@ export function Composer({
   const [help, setHelp] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const uploads = useAttachmentUploads(api);
+  const [dragOver, setDragOver] = useState(false);
   const ids = useId();
   const listId = `${ids}-slash`;
   const inputId = `${ids}-input`;
@@ -177,7 +195,11 @@ export function Composer({
     setError(null);
     try {
       await fn();
-      if (clear) setText('');
+      if (clear) {
+        setText('');
+        // Sent: the uploads are the ticket's now.
+        uploads.reset();
+      }
       onDone();
     } catch (err) {
       setError(errorMessage(err));
@@ -189,13 +211,16 @@ export function Composer({
 
   function deliver(body: string) {
     if (sessionId === null) return;
+    const files = uploads.ids.length > 0 ? { attachment_ids: uploads.ids } : {};
     if (request) {
-      void call(() => api.answer(sessionId, { input_request_id: request.id, answer: body }));
+      void call(() =>
+        api.answer(sessionId, { input_request_id: request.id, answer: body, ...files }),
+      );
     } else if (m.mode === 'message') {
-      void call(() => api.sendMessage(sessionId, { text: body }));
+      void call(() => api.sendMessage(sessionId, { text: body, ...files }));
     } else if (m.mode === 'reopen') {
       void call(async () => {
-        const res = await api.reopen(sessionId, { text: body });
+        const res = await api.reopen(sessionId, { text: body, ...files });
         onReopened?.(res.session_id);
       });
     }
@@ -238,9 +263,15 @@ export function Composer({
       runCommand(items[activeIndex]!);
       return;
     }
+    if (uploads.uploading) return;
     const body = text.trim();
-    if (body === '') return;
+    const withFiles = uploads.ids.length > 0;
+    if (body === '' && !withFiles) return;
     const slash = parseSlash(body);
+    if (slash && withFiles) {
+      setError(`Remove the attachments to run /${slash.name}`);
+      return;
+    }
     if (slash && isConductorCommand(slash.name)) {
       const cmd = commands.find((c) => c.name === slash.name);
       if (cmd) runCommand(cmd, slash.rest);
@@ -293,6 +324,14 @@ export function Composer({
     fromAgent: request !== null && isAgentRequest(request.kind),
   });
   const hint = finePointer && (answering || m.mode === 'message');
+  const canAttach = m.mode !== 'off';
+  const ready = !uploads.uploading && (text.trim() !== '' || uploads.ids.length > 0);
+  const onDrop = (e: DragEvent) => {
+    setDragOver(false);
+    if (!canAttach || e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    uploads.add(e.dataTransfer.files);
+  };
   // ADR-0037 P5: answering a review, the text button's saved instructions fill the box.
   const presets = answering ? reviewPresets(detail) : undefined;
 
@@ -377,7 +416,45 @@ export function Composer({
           box.current?.focus();
         }}
       />
-      <div className={`composer-box${m.mode === 'off' ? ' off' : ''}`}>
+      {canAttach && (
+        <AttachmentUploadList api={api} uploads={uploads} label="Attachments to send" compact />
+      )}
+      <div
+        className={`composer-box${m.mode === 'off' ? ' off' : ''}${dragOver ? ' drag-over' : ''}`}
+        onDragOver={(e) => {
+          if (!canAttach) return;
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+      >
+        {canAttach && (
+          <>
+            <button
+              type="button"
+              className="composer-attach"
+              aria-label="Attach images or videos"
+              title="Attach images or videos"
+              disabled={busy}
+              onClick={() => fileInput.current?.click()}
+            >
+              <Paperclip size={18} aria-hidden="true" />
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept={ATTACHMENT_ACCEPT}
+              multiple
+              hidden
+              aria-label="Attach files to the message"
+              onChange={(e) => {
+                if (e.target.files) uploads.add(e.target.files);
+                e.target.value = '';
+              }}
+            />
+          </>
+        )}
         <label htmlFor={inputId} className="visually-hidden">
           {label}
         </label>
@@ -391,6 +468,7 @@ export function Composer({
           aria-describedby={m.mode === 'off' ? reasonId : undefined}
           onChange={(e) => change(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={canAttach ? uploads.onPaste : undefined}
           role="combobox"
           aria-expanded={menuOpen}
           aria-controls={menuOpen ? listId : undefined}
@@ -398,12 +476,7 @@ export function Composer({
           aria-activedescendant={menuOpen ? `${listId}-${items[activeIndex]!.name}` : undefined}
         />
         {reopening ? (
-          <button
-            type="button"
-            className="reopen"
-            disabled={busy || text.trim() === ''}
-            onClick={submit}
-          >
+          <button type="button" className="reopen" disabled={busy || !ready} onClick={submit}>
             Reopen
           </button>
         ) : (
@@ -412,7 +485,7 @@ export function Composer({
             className="send"
             aria-label={answering ? 'Send answer' : 'Send'}
             title={answering ? 'Send answer' : 'Send'}
-            disabled={busy || m.mode === 'off' || text.trim() === ''}
+            disabled={busy || m.mode === 'off' || !ready}
             onClick={submit}
           >
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">

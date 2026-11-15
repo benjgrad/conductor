@@ -5,6 +5,7 @@
 // where, the workflow, spend and the context under Technical details.
 import {
   isAgentRequest,
+  handoffBrief,
   setupFailureSummary,
   type BoardCard,
   type InputRequestDto,
@@ -44,6 +45,7 @@ import { Markdown } from './markdown.js';
 import { CheckRuns, latestRunText, OutputLog, runCount } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
 import { QuestionOptions } from './QuestionOptions.js';
+import { HandoffBrief } from './HandoffBrief.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
 import { ProposedTickets, visibleProposals } from './ProposedTickets.js';
 import {
@@ -58,7 +60,8 @@ import {
 import { RequestCard } from './RequestCard.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
-import { TicketSkipPermissions } from './TicketPanel.js';
+import { TicketAttachments, TicketSkipPermissions, useTicket } from './TicketPanel.js';
+import { splitAttachments, splitHumanByOrigin } from './attachment-groups.js';
 import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
 import { TransitionButtons } from './transitions.js';
 
@@ -155,6 +158,14 @@ export function DetailPanel({
       : null;
   const body = detail?.ticket_body ?? fromPrompt;
   const brief = useMemo(() => (body === null ? null : parseBrief(body)), [body]);
+  // 06 §Attachments (chat): the files sent in the ticket's chat, for the bubbles' thumbnails.
+  const ticketId = detail?.card.ticket_id ?? card?.ticket_id ?? '';
+  const { ticket } = useTicket(api, ticketId, detail?.card.updated_at ?? '', ticketId !== '');
+  const chatAttachments = ticket?.attachments;
+  const chatFiles = useMemo(() => {
+    const files = splitHumanByOrigin(splitAttachments(chatAttachments ?? []).human).chat;
+    return files.length === 0 ? undefined : { api, files };
+  }, [api, chatAttachments]);
   const unavailable =
     body !== null
       ? null
@@ -356,6 +367,7 @@ export function DetailPanel({
                 visible={tab === 'messages'}
                 tailKey={detail.pending_input?.id ?? detail.card.permission?.request_id ?? ''}
                 runs={wide ? 'separate' : 'inline'}
+                chatFiles={chatFiles}
               >
                 {/* The request ends the conversation and scrolls with it, so it never pins
                     part of the chat. On desktop it is its own region (UXR-37 FR-2). */}
@@ -430,6 +442,13 @@ export function DetailPanel({
                 brief={brief}
                 body={body}
                 onReload={reload}
+              />
+              {/* 06 §Attachments: the ticket's files, in every column. */}
+              <TicketAttachments
+                key={`files-${sessionId}`}
+                api={api}
+                ticketId={detail.card.ticket_id}
+                version={detail.card.updated_at}
               />
               {/* ADR-0039: while the session isn't finished. */}
               {!(detail.card.status !== null && TERMINAL_STATUSES.has(detail.card.status)) && (
@@ -643,6 +662,27 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
   // The escape hatch for an agent that can't resume: first (highlighted) on a failure, the stuck
   // case; otherwise a secondary action at the end.
   const offer = freshConversationOffer(detail, request);
+  const brief = handoffBrief(detail);
+  const technical = (
+    <>
+      {request.kind === 'check_config' && (
+        <p className="step-failed-item">
+          <strong>{setupFailureSummary(request.question)}</strong>
+        </p>
+      )}
+      {failed?.error && (
+        <p className="step-failed-item">
+          {failed.item && <strong>{failed.item}</strong>}
+          {failed.item ? ': ' : ''}
+          {failed.error}
+        </p>
+      )}
+      <div className="question-text">
+        <Markdown text={request.question} />
+      </div>
+      {failureText !== null && <FailureOutput text={failureText} />}
+    </>
+  );
   const fresh =
     offer === 'none' ? null : (
       <FreshConversation
@@ -667,22 +707,17 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
       }
       ariaLabel="Pending input"
     >
-      {request.kind === 'check_config' && (
-        <p className="step-failed-item">
-          <strong>{setupFailureSummary(request.question)}</strong>
-        </p>
+      {brief !== null && <HandoffBrief brief={brief} showSummary={!fromAgent} />}
+      {tone === 'failure' ? (
+        // Ticket "Improved handoff": the brief says why in plain words; conductor's own text and
+        // the failed check's output are there for whoever wants them, one click away.
+        <details className="request-details">
+          <summary>Technical details</summary>
+          {technical}
+        </details>
+      ) : (
+        technical
       )}
-      {failed?.error && (
-        <p className="step-failed-item">
-          {failed.item && <strong>{failed.item}</strong>}
-          {failed.item ? ': ' : ''}
-          {failed.error}
-        </p>
-      )}
-      <div className="question-text">
-        <Markdown text={request.question} />
-      </div>
-      {failureText !== null && <FailureOutput text={failureText} />}
       {/* ADR-0041: the agent's recommended answer conductor gives if nobody answers in time. */}
       {request.default_answer != null && request.default_at != null && (
         <p className="muted question-default">

@@ -144,7 +144,7 @@ pub const ASK_USER_PENDING_QUESTION: &str = "Not sent: a question to the human i
 pub const ASK_USER_AFTER_COMPLETE: &str =
     "Not sent: complete_state was already recorded for this state. End your turn now.";
 
-const COMPLETE_STATE_BASE: &str = "Call exactly once when the current workflow state's work is finished. `result` holds the keys the state asked for. After calling it, stop: do not call any other tool and end your turn.";
+const COMPLETE_STATE_BASE: &str = "Call exactly once when the current workflow state's work is finished. `result` holds the keys the state asked for. Write any answer the human asked for as a chat message before this call: nothing you write after it reaches them. After calling it, stop: do not call any other tool and end your turn.";
 /// ask_user's `proposed_checks` parameter (the TS outcome server's `.describe`).
 pub const PROPOSED_CHECKS_DESCRIPTION: &str = "Only when a check or its setup fails because of conductor's check config, not your branch: the repo's full corrected checks ({setup?, checks: [{name, cmd, timeout?}]}; null = the workflow's checks), a title and why. Ben applies it; you never change the checks yourself.";
 
@@ -2903,5 +2903,7 @@ mod tests {
             "Not recorded: complete_state named no transition (that means \"done\"), which is not allowed here. Call complete_state again with `transition` set to exactly one of:\n- a: x"
         );
         assert_eq!(complete_state_description(Some(&[])), COMPLETE_STATE_BASE);
+        // The agent's answer must be chat text written before the call (06 §Chat answers).
+        assert!(COMPLETE_STATE_BASE.contains("as a chat message before this call"));
     }
 }

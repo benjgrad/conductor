@@ -393,7 +393,7 @@ function howToFinish(state: AgentState, transitions: readonly AgentTransitionOpt
     '',
     ...lines,
     '',
-    `Call the \`complete_state\` tool once with \`transition\` set to its name, \`reason\` saying why in one or two sentences, and ${result}, then stop.`,
+    `Call the \`complete_state\` tool once with \`transition\` set to its name, \`reason\` (the first thing the human reads when you stop: one sentence on what you did, then one on why you are stopping here), and ${result}, then stop.`,
     'For a transition that asks a human, write the question in `reason`; the `result` may then be empty.',
     'Any other name is refused.',
   ].join('\n');

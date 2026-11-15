@@ -12,6 +12,7 @@ import {
   TicketSizeSchema,
   TicketBaseSchema,
   TicketPrioritySchema,
+  handoffBrief,
   httpForApplyResult,
   inputClass,
   latestPlanEntry,
@@ -646,12 +647,15 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       );
       const state = d.card.workflow_state;
       const req = d.card.input_request;
+      // Ticket "Improved handoff": why it stopped and what was done, when it waits on a human.
+      const brief = handoffBrief(d);
       const line = statusLine({
         card: d.card,
         waiting,
         stateTitle: state === null ? null : (d.workflow.states[state]?.title ?? state),
         minutesInState: (Date.now() - Date.parse(d.state_entered_at)) / 60_000,
         ...(ticketStatus !== undefined ? { ticketStatus } : {}),
+        why: brief?.why ?? null,
         handoff:
           req !== null &&
           inputClass(
@@ -672,7 +676,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         ...(ticketStatus !== undefined ? { ticket_status: ticketStatus } : {}),
         waiting_on: waiting,
         status_line: line,
-        status_report: statusReport(d, line),
+        status_report: statusReport(d, line, brief),
         session_id: sid,
         open_question: d.pending_input
           ? { input_request_id: d.pending_input.id, question: d.pending_input.question }

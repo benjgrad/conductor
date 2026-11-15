@@ -1,6 +1,13 @@
 import type { AttachmentDto } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
-import { groupByState, sessionCaptures, splitAttachments } from './attachment-groups.js';
+import {
+  groupByState,
+  matchChatFiles,
+  sessionCaptures,
+  splitAttachments,
+  splitChatFiles,
+  splitHumanByOrigin,
+} from './attachment-groups.js';
 
 const S1 = '00000000-0000-4000-8000-000000000001';
 const S2 = '00000000-0000-4000-8000-000000000002';
@@ -52,5 +59,29 @@ describe('attachment groups', () => {
   it("picks one session's captures", () => {
     expect(sessionCaptures(list, S1).map((a) => a.id)).toEqual(['before', 'plan']);
     expect(sessionCaptures(list, null)).toEqual([]);
+  });
+});
+
+describe('chat attachments (06 §Attachments, chat)', () => {
+  it("splitHumanByOrigin: the ticket's own files apart from those sent in a chat", () => {
+    const own = att('own', 'human', '2026-11-01T00:00:00.000Z');
+    const chat = att('chat', 'human', '2026-11-02T00:00:00.000Z', 'implementing', S1);
+    expect(splitHumanByOrigin([own, chat])).toEqual({ original: [own], chat: [chat] });
+  });
+
+  it('splitChatFiles takes the trailing paperclip lines only', () => {
+    expect(splitChatFiles('Look\n\u{1F4CE} a.png\n\u{1F4CE} b c.png')).toEqual({
+      text: 'Look',
+      names: ['a.png', 'b c.png'],
+    });
+    expect(splitChatFiles('\u{1F4CE} a.png')).toEqual({ text: '', names: ['a.png'] });
+    const mid = '\u{1F4CE} not a file\nthen text';
+    expect(splitChatFiles(mid)).toEqual({ text: mid, names: [] });
+  });
+
+  it('matchChatFiles uses each file once, in order; null where none matches', () => {
+    const a1 = { ...att('a1', 'human', '2026-11-01T00:00:00.000Z', null, S1), name: 'a.png' };
+    const a2 = { ...att('a2', 'human', '2026-11-02T00:00:00.000Z', null, S2), name: 'a.png' };
+    expect(matchChatFiles(['a.png', 'a.png', 'x.png'], [a1, a2])).toEqual([a1, a2, null]);
   });
 });

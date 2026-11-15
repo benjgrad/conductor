@@ -1,9 +1,9 @@
 // 11-web-ui §Detail panel, ticket buttons: at every width the session panel's tab row holds
-// Brief, Plan and Edit next to the Messages and Details tabs (TicketButtons). Each opens a sheet
+// Brief, Plan, Attachments and Edit next to the Messages and Details tabs (TicketButtons). Each opens a sheet
 // (TicketSheet) over the tab bodies, chat and composer included, so the chat keeps the panel and
 // the brief and plan are always one click away. DetailPanel places both and owns the open sheet.
 import { latestPlanEntry, type SessionDetail } from '@conductor/shared';
-import { Pencil, X } from 'lucide-react';
+import { Paperclip, Pencil, X } from 'lucide-react';
 import { memo, useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { tally, type Brief } from '../brief/parse.js';
@@ -15,11 +15,12 @@ import type { PlanOptions } from './request-preview.js';
 import { EditTicket, TicketAttachments } from './TicketPanel.js';
 import './TicketStrip.css';
 
-export type StripSheet = 'brief' | 'plan' | 'edit';
+export type StripSheet = 'brief' | 'plan' | 'files' | 'edit';
 
 const SHEET_TITLES: Record<StripSheet, string> = {
   brief: 'Brief',
   plan: 'Plan',
+  files: 'Attachments',
   edit: 'Edit ticket',
 };
 
@@ -135,6 +136,13 @@ export const TicketButtons = memo(function TicketButtons({
           ),
           planActions ? PLAN_APPROVAL_LABEL : undefined,
         )}
+      {/* 06 §Attachments: the ticket's files (the originals, the chat's, the agent's), any time. */}
+      {button(
+        'files',
+        'ticket-strip-files',
+        <Paperclip size={16} aria-hidden="true" />,
+        'Attachments',
+      )}
       {detail.ticket_editable &&
         button('edit', 'ticket-strip-edit', <Pencil size={16} aria-hidden="true" />, 'Edit ticket')}
     </div>
@@ -224,6 +232,18 @@ function SheetBody({
           api={api}
           ticketId={detail.card.ticket_id}
           version={detail.card.updated_at}
+        />
+      </div>
+    );
+  }
+  if (sheet === 'files') {
+    return (
+      <div className="ticket-sheet-body files-sheet">
+        <TicketAttachments
+          api={api}
+          ticketId={detail.card.ticket_id}
+          version={detail.card.updated_at}
+          empty="No attachments yet."
         />
       </div>
     );

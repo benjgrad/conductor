@@ -38,6 +38,12 @@ export const ATTACHMENT_FILENAME_HEADER = 'x-conductor-filename';
 /** The request header that carries an agent attachment's caption (URL-encoded). */
 export const ATTACHMENT_CAPTION_HEADER = 'x-conductor-caption';
 
+/**
+ * 06 §Attachments (chat): a `user` chat chunk ends with one `${CHAT_ATTACHMENT_MARK} <name>` line per
+ * file sent with the message; the web shows those lines as the files' thumbnails.
+ */
+export const CHAT_ATTACHMENT_MARK = '\u{1F4CE}';
+
 /** The per-ticket count limit of attachments from `source`. */
 export function attachmentCountMax(source: AttachmentSource): number {
   return source === 'agent' ? AGENT_ATTACHMENTS_PER_TICKET_MAX : ATTACHMENTS_PER_TICKET_MAX;

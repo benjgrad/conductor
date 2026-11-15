@@ -31,9 +31,12 @@ export function watchOf(def: WorkflowDefinition, state: string | null): Watch | 
   return s.watch;
 }
 
+/** Prefix of every `watchCounterKey`. */
+export const WATCH_COUNTER_PREFIX = 'watch:';
+
 /** `retry_counters` key of a watch's `on_broken` move (the validator's rule-4 edge). */
 export function watchCounterKey(state: string): string {
-  return `watch:${state}`;
+  return `${WATCH_COUNTER_PREFIX}${state}`;
 }
 
 /** The armed watch in `context.__watch`, or null (absent or unreadable). */

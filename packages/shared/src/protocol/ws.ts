@@ -66,6 +66,12 @@ export const DAEMON_FEATURE_TICKET_ATTACHMENTS = 'ticket_attachments';
  * 06 §Attachments: the daemon's outcome server has `attach_file`, which uploads what the agent
  * captured (POST `API_PATHS.daemonSessionAttachments` with its credential). Informational.
  */
+/**
+ * 06 §Attachments (chat): the daemon downloads `send_message.attachments` /
+ * `send_input.attachments` before it writes the text, and lists their paths in it. A machine
+ * without it gets a note in the text instead.
+ */
+export const DAEMON_FEATURE_MESSAGE_ATTACHMENTS = 'message_attachments';
 export const DAEMON_FEATURE_AGENT_ATTACHMENTS = 'agent_attachments';
 /**
  * ADR-0038: the daemon's outcome server has `publish_page` for a state with the `pages` tool
@@ -93,6 +99,7 @@ export const DAEMON_FEATURES = [
   DAEMON_FEATURE_ASSISTANT_JOB,
   DAEMON_FEATURE_TICKET_ATTACHMENTS,
   DAEMON_FEATURE_AGENT_ATTACHMENTS,
+  DAEMON_FEATURE_MESSAGE_ATTACHMENTS,
   DAEMON_FEATURE_PAGES,
   DAEMON_FEATURE_PERMISSION_MODE,
   DAEMON_FEATURE_RUN_GATE,
@@ -1040,6 +1047,12 @@ export const SendInputPayloadSchema = z.object({
    * the gateway turns into EngineEvent `command.refused` (apply then resumes via start_session).
    */
   text: z.string(),
+  /**
+   * 06 §Attachments (chat): files the human sent with the answer, to download into the session's
+   * attachments directory before the text is written (their paths are appended to it). Only to a
+   * daemon with DAEMON_FEATURE_MESSAGE_ATTACHMENTS. Absent = none.
+   */
+  attachments: z.array(AttachmentRefSchema).max(START_SESSION_ATTACHMENTS_MAX).optional(),
 });
 export const SendInputMessageSchema = msg('send_input', SendInputPayloadSchema, orchSessionEnv);
 
@@ -1057,6 +1070,8 @@ export const SendMessagePayloadSchema = z.object({
   target_command_id: UuidSchema,
   /** null once the outbox row is terminal (scrubbed, like start_session.prompt, U-039). */
   text: z.string(),
+  /** 06 §Attachments (chat): as `send_input.attachments`. */
+  attachments: z.array(AttachmentRefSchema).max(START_SESSION_ATTACHMENTS_MAX).optional(),
 });
 export const SendMessageMessageSchema = msg(
   'send_message',

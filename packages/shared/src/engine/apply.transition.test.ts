@@ -716,7 +716,7 @@ describe('prompts (conductor v2)', () => {
       - ready_for_testing: The work is complete and should go to testing.
       - ask_user: You need a decision or information from a human.
 
-      Call the \`complete_state\` tool once with \`transition\` set to its name, \`reason\` saying why in one or two sentences, and a \`result\` object summarising what you did, then stop.
+      Call the \`complete_state\` tool once with \`transition\` set to its name, \`reason\` (the first thing the human reads when you stop: one sentence on what you did, then one on why you are stopping here), and a \`result\` object summarising what you did, then stop.
       For a transition that asks a human, write the question in \`reason\`; the \`result\` may then be empty.
       Any other name is refused."
     `);

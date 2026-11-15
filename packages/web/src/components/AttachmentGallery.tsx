@@ -5,7 +5,7 @@
 // for a human; an agent's attachments carry the workflow state they were captured in).
 // `AgentAttachments` shows what the agents attached (their screenshots, GIFs and recordings),
 // grouped by that state, with one lightbox that steps across every group.
-import { isVideoMime, type AttachmentDto } from '@conductor/shared';
+import { CHAT_ATTACHMENT_MARK, isVideoMime, type AttachmentDto } from '@conductor/shared';
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from 'lucide-react';
 import {
   useCallback,
@@ -18,7 +18,7 @@ import {
 } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { AttachmentThumb } from './AttachmentPicker.js';
-import { groupByState } from './attachment-groups.js';
+import { groupByState, matchChatFiles } from './attachment-groups.js';
 import {
   NO_ZOOM,
   TOGGLE_SCALE,
@@ -368,4 +368,32 @@ function pointIn(el: HTMLElement | null, clientX: number, clientY: number) {
 function spread(pointers: Map<number, { x: number; y: number }>) {
   const [a, b] = [...pointers.values()];
   return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+}
+
+/**
+ * 06 §Attachments (chat): the files a chat bubble names (`splitChatFiles`): the ones found among
+ * the ticket's as thumbnails that open in a lightbox, the rest as their `📎 name` line.
+ */
+export function ChatFiles({
+  api,
+  names,
+  files,
+}: {
+  api: ApiClient;
+  names: readonly string[];
+  files: readonly AttachmentDto[];
+}) {
+  const matched = matchChatFiles(names, files);
+  const found = matched.filter((a): a is AttachmentDto => a !== null);
+  const missing = names.filter((_, i) => matched[i] === null);
+  return (
+    <div className="chat-files">
+      <AttachmentGallery api={api} attachments={found} />
+      {missing.map((n, i) => (
+        <p key={`${n}-${i}`} className="chat-file-name">
+          {CHAT_ATTACHMENT_MARK} {n}
+        </p>
+      ))}
+    </div>
+  );
 }

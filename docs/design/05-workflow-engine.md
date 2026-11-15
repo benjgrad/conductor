@@ -16,7 +16,9 @@ Users design an FSM, stored as **versioned JSON** in `workflow_definition`. The 
       "type": "agent | command | event | connector | human | terminal",
       // type-specific config (below)
       "guard": "<guard name>",           // optional, checked before leaving on success
-      "timeout": "30m",                   // optional; fires the "timeout" outcome
+      "timeout": "30m",                   // optional; fires the "timeout" outcome. Agent states may omit it:
+                                          //   the budget, a lost machine or the agent's exit still end at a human
+                                          //   (conductor v7 has no agent-state timeouts)
       "on": { "<transition name>": "<state>" | { "goto": "<state>", "attach": "output", "retries": 3, "else": "<state>", /* ADR-0011 fields below */ } },
       "ticket_editable": true             // optional; may people edit the ticket in this column (below)
     }
@@ -95,6 +97,8 @@ Each key of `on` is a **transition name**; the value is a state name (shorthand 
 
 ### Counting (ADR-0011)
 `isCountedTransition(t)` (`shared/src/workflow/transition-rules.ts`) decides which transitions are counted `"<from>-><goto>"` failure loops: only an object with `attach`, `retries` or `else`. Every other transition (a state name, or an object with only `when` / `kinds` / `question` / `requires` / `on_unmet` / `title` / `actor`, or ADR-0009 `requirements`) is a plain forward move with no failure-loop counter. Retries of a transition's requirements count under `move:<from>:<name>` (`moveCounterKey`), never under `<from>-><goto>`. The engine (M1b-T03) and the validator's loop analysis (rule 4, M1b-T02) must both use this helper rather than "is it an object".
+
+- **Rounds (human resets).** A human answer (`input.provided`, a budget raise included), a human transition (`human.transition`, `$return_to` included) or a fresh conversation clears the gate and watch counters: `move:`, `requirements:`, `entry:` and `watch:` (`engine/counters.ts`). A loop that passes through a human is bounded by that human, so each round gets the full `retries`; between two human events every loop still stops at its cap. A gate that passes resets nothing, so a system-only loop (a watch break, the agent's hand-off, the next break) stays bounded. Outcome loops (`<from>-><goto>`), QA rounds ([ADR-0020](../adr/0020-review-and-merge-flow.md): `$return_to` continues the round), triage, `default:` and `start_failed` keep their own rules. Before this, a ticket with many feedback rounds used up its retries over its whole life and its next unmet gate went straight to the human.
 
 ### Transitions (ADR-0011, M1b-T03)
 How `apply()` takes a named transition. Code: `shared/src/engine/transitions.ts` (which transition), `move-step.ts` (its requirements), `apply.ts` (dispatch, the shared gate-step machinery).

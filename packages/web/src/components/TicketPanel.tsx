@@ -17,7 +17,7 @@ import { routingSentence } from '../machines/format.js';
 import { routeHash } from '../nav.js';
 import { FocusToggle } from './FocusToggle.js';
 import { AgentAttachments, AttachmentGallery } from './AttachmentGallery.js';
-import { splitAttachments } from './attachment-groups.js';
+import { splitAttachments, splitHumanByOrigin } from './attachment-groups.js';
 import { ago, TICKET_KIND_LABELS } from './format.js';
 import { Markdown } from './markdown.js';
 import { SkipPermissionsSection } from './SkipPermissions.js';
@@ -475,13 +475,25 @@ export function TicketAttachments({
   api,
   ticketId,
   version,
+  empty,
 }: {
   api: ApiClient;
   ticketId: string;
   version: string;
+  /** Shown when the ticket has no attachments (else nothing). */
+  empty?: string;
 }) {
-  const { ticket } = useTicket(api, ticketId, version);
-  if (ticket === null) return null;
+  const { ticket, error } = useTicket(api, ticketId, version);
+  if (ticket === null) {
+    return error && empty !== undefined ? (
+      <p role="alert" className="error">
+        {error}
+      </p>
+    ) : null;
+  }
+  if ((ticket.attachments ?? []).length === 0) {
+    return empty === undefined ? null : <p className="muted">{empty}</p>;
+  }
   return (
     <div className="ticket-attachments">
       <TicketAttachmentSections api={api} ticket={ticket} />
@@ -508,8 +520,8 @@ export function TicketSkipPermissions({
 }
 
 /**
- * 06 §Attachments: the human's attachments ("Attachments") and what the agents attached ("From
- * the agent", grouped by state). Each section only when it has files.
+ * 06 §Attachments: the human's attachments from the ticket ("Attachments") and from the chat
+ * ("Added in chat"), and what the agents attached ("From the agent", grouped by state). Each section only when it has files.
  */
 export function TicketAttachmentSections({
   api,
@@ -519,12 +531,19 @@ export function TicketAttachmentSections({
   ticket: Pick<TicketDetail, 'attachments'>;
 }) {
   const { human, agent } = splitAttachments(ticket.attachments ?? []);
+  const { original, chat } = splitHumanByOrigin(human);
   return (
     <>
-      {human.length > 0 && (
+      {original.length > 0 && (
         <section aria-label="Attachments">
           <h3>Attachments</h3>
-          <AttachmentGallery api={api} attachments={human} />
+          <AttachmentGallery api={api} attachments={original} />
+        </section>
+      )}
+      {chat.length > 0 && (
+        <section aria-label="Added in chat">
+          <h3>Added in chat</h3>
+          <AttachmentGallery api={api} attachments={chat} />
         </section>
       )}
       <AgentAttachments api={api} attachments={agent} />

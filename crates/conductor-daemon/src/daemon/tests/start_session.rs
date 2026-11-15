@@ -687,17 +687,26 @@ async fn a_failed_attachment_download_never_refuses_the_start() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_start_without_attachments_adds_no_dir() {
+async fn a_start_without_attachments_still_adds_the_empty_dir_for_chat_files() {
+    // 06 §Attachments (chat): files sent with a later message land in that dir; Claude may read
+    // it from the start. The prompt says nothing about attachments.
     let c = Ctx::new().await;
     let drv = driver(complete(json!({ "summary": "done" })));
     c.make(drv.clone(), Make::default());
     c.registered_and_asked().await;
-    let start = c.start(Uuid::new_v4(), json!({}), 1);
+    let sid = Uuid::new_v4();
+    let start = c.start(sid, json!({}), 1);
     c.send(&start.msg);
     c.first_event("exit").await;
     let opts = drv.starts()[0].clone();
     assert_eq!(opts.prompt, "Implement the ticket");
-    assert!(opts.add_dirs.is_empty());
+    let dir = c
+        .root()
+        .join("artifacts")
+        .join(sid.to_string())
+        .join("attachments");
+    assert_eq!(opts.add_dirs, vec![dir.clone()]);
+    assert!(dir.is_dir());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

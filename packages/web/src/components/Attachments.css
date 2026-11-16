@@ -275,10 +275,10 @@
   font-weight: 500;
 }
 
-.review-captures {
+.request-captures {
   margin: var(--space-2) 0;
 }
 
-.review-captures p {
+.request-captures p {
   margin: 0 0 var(--space-1);
 }

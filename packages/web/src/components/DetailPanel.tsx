@@ -59,6 +59,7 @@ import {
 } from './request-preview.js';
 import { RequestCard } from './RequestCard.js';
 import { ReviewRequest } from './ReviewRequest.js';
+import { SessionCaptures } from './SessionCaptures.js';
 import { StarDetails } from './StarDetails.js';
 import { TicketAttachments, TicketSkipPermissions, useTicket } from './TicketPanel.js';
 import { splitAttachments, splitHumanByOrigin } from './attachment-groups.js';
@@ -718,6 +719,8 @@ function PendingInput({ api, detail, agent, request, onDone, output }: PendingIn
       ) : (
         technical
       )}
+      {/* 06 §Attachments: what the agent attached (its GIFs, screenshots), under its words. */}
+      {fromAgent && <SessionCaptures api={api} detail={detail} />}
       {/* ADR-0041: the agent's recommended answer conductor gives if nobody answers in time. */}
       {request.default_answer != null && request.default_at != null && (
         <p className="muted question-default">

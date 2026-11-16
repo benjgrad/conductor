@@ -14,6 +14,7 @@ import { PlanPages, pagesOf } from './PlanPages.js';
 import { usePlanAnswer } from './plan-answer.js';
 import { HandoffBrief } from './HandoffBrief.js';
 import { RequestCard } from './RequestCard.js';
+import { SessionCaptures } from './SessionCaptures.js';
 import { planApproveRequest, planChangesRequest, type PlanOptions } from './request-preview.js';
 import { TransitionButtons } from './transitions.js';
 import './PlanApprovalRequest.css';
@@ -75,6 +76,7 @@ export function PlanApprovalRequest({
       <PlanView plan={planOf(detail)} {...(onOpenPlan ? { onOpenPlan } : {})} />
       {/* ADR-0038: the mockups and diagrams the planning state attached. */}
       <PlanPages pages={pagesOf(detail, detail.return_to)} api={api} />
+      <SessionCaptures api={api} detail={detail} />
       <PlanAnswerActions api={api} sessionId={sessionId} plan={plan} onDone={onDone} />
       {others.length > 0 && (
         <details className="plan-other-actions">

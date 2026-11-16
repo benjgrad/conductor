@@ -33,6 +33,34 @@ describe('status-bar backdrop (iOS 26 top-edge blur)', () => {
   });
 });
 
+describe('phone shell: nothing scrolls under the status bar', () => {
+  // iOS 26 blurs content that scrolls under the status bar. The top bar is a still, opaque flex
+  // child at the top edge and only `.app-body`, below it, scrolls (as in fantasyhockey's Layout).
+  const css = read('./styles.css');
+
+  it('the shell is a column that does not scroll itself', () => {
+    const r = rule(css, '  .app.mobile');
+    expect(r).toContain('display: flex');
+    expect(r).toContain('flex-direction: column');
+    expect(r).toContain('overflow: hidden');
+    expect(r).not.toContain('overflow-y: auto');
+  });
+
+  it('the top bar does not scroll, and the body under it does', () => {
+    const bar = rule(css, '.app.mobile > .topbar');
+    expect(bar).toContain('flex: none');
+    expect(bar).not.toContain('sticky');
+    const body = rule(css, '.app.mobile > .app-body');
+    expect(body).toContain('overflow-y: auto');
+    expect(body).toContain('min-height: 0');
+    expect(rule(css, '.app.mobile.creating > .app-body')).toContain('overflow: hidden');
+  });
+
+  it('on desktop the wrapper adds no box', () => {
+    expect(rule(css, '\n.app-body')).toContain('display: contents');
+  });
+});
+
 describe('attachment lightbox', () => {
   it('stays inside the visual viewport and the safe areas', () => {
     const css = read('./components/Attachments.css');

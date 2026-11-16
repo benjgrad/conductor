@@ -67,6 +67,11 @@ describe('phone app shell (11-web-ui §Breakpoint)', () => {
     await renderAt(375);
     expect(locked()).toBe(true);
     expect(document.querySelector('.app.mobile')).toBeTruthy();
+    // The top bar sits above the scroller, not in it: nothing scrolls under the status bar.
+    expect(document.querySelector('.app.mobile > header.topbar')).toBeTruthy();
+    const body = document.querySelector('.app.mobile > .app-body')!;
+    expect(body.querySelector('main')).toBeTruthy();
+    expect(body.querySelector('.topbar')).toBeNull();
     cleanup();
     expect(locked()).toBe(false);
   });
@@ -101,6 +106,8 @@ describe('desktop board shell (UXR-26, 11-web-ui §Breakpoint)', () => {
   it('at 1440 the board is in the fixed shell, and the document is not locked', async () => {
     await renderAt(1440);
     expect(shell()).toBeTruthy();
+    // The same DOM at every width: crossing the breakpoint doesn't remount the page.
+    expect(document.querySelector('.app > .app-body > main')).toBeTruthy();
     expect(document.documentElement.classList.contains('app-shell')).toBe(false);
   });
 

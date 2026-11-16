@@ -757,10 +757,11 @@ function measure(deviceWidth) {
       );
     }
   }
-  // UXR-44: on a phone the shell (`.app.mobile`, overflow-x hidden) and the full-screen panels clip
-  // what overflows them, so the document's width alone can't see it.
+  // UXR-44: on a phone the shell's scroller (`.app.mobile > .app-body`, overflow-x hidden), the
+  // shell itself and the full-screen panels clip what overflows them, so the document's width alone
+  // can't see it.
   const clipped = [];
-  for (const sel of ['.app.mobile', 'aside.wf-editor', 'aside.detail']) {
+  for (const sel of ['.app.mobile', '.app.mobile > .app-body', 'aside.wf-editor', 'aside.detail']) {
     for (const el of document.querySelectorAll(sel)) {
       if (el.scrollWidth > el.clientWidth + 1) {
         clipped.push(`${sel} ${el.scrollWidth}>${el.clientWidth}`);

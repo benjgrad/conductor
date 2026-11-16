@@ -20,8 +20,8 @@
 #    the image is gone), re-points current at it, smokes it, and alerts Discord. Success is silent.
 # 6. on any failure (in 4, or one before it), also reports it to the board (R14): the sha, the step
 #    that failed and the last 50 log lines, piped as JSON into `conductor-admin deploy-failed` in
-#    the running orchestrator container, which opens (or, for a sha that failed before, updates)
-#    the ticket `Deploy of <short sha> failed: <step>` and sends a push. The docker socket is the
+#    the running orchestrator container, which opens the ticket `Deploy of <short sha> failed:
+#    <step>` (or, while the repo has one open, appends the attempt to it) and sends a push. The docker socket is the
 #    credential: no deploy token exists. A report that can't be sent is logged, never fatal.
 #
 # DEPLOY_DRILL=1 fails the first smoke on purpose, so the rollback and the alert run end to end and

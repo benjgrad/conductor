@@ -415,7 +415,9 @@ async function insertNewTicket(
 
 /**
  * WF-T03: the kind of the account's most recent ticket on `repo` (as stored: canonical in
- * `password` mode), or null when it has none. Tickets from before M1b have no kind and are skipped.
+ * `password` mode), or null when it has none. Tickets from before M1b have no kind and are skipped,
+ * and so are deploy-failure tickets (`external_ref` `deploy:…`, R14): they take their kind from
+ * this, so they must never set it.
  */
 export async function lastTicketKind(
   q: Queryable,
@@ -424,6 +426,7 @@ export async function lastTicketKind(
 ): Promise<TicketKind | null> {
   const res = await q.query<{ kind: TicketKind }>(
     'SELECT kind FROM ticket WHERE account_id = $1 AND repo = $2 AND kind IS NOT NULL ' +
+      "AND (external_ref IS NULL OR external_ref NOT LIKE 'deploy:%') " +
       'ORDER BY created_at DESC, id DESC LIMIT 1',
     [accountId, repo],
   );

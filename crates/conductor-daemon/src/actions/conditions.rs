@@ -11,7 +11,8 @@
 //! The mapping (ADR-0016 §The connector registry, see the TS header for every rule):
 //! `pr_checks_green`, `pr_approvals {min}` (only OWNER / MEMBER / COLLABORATOR reviewers, never
 //! the author; stale approvals don't count; a changes-requested blocks until that reviewer
-//! approves the head or is dismissed), `pr_merged`, `pr_screenshots {ui_paths, min_pairs}`, head
+//! approves the head or is dismissed; a merged PR meets it, approved or not: once it is merged
+//! there is nothing left to approve), `pr_merged`, `pr_screenshots {ui_paths, min_pairs}`, head
 //! pinning with `head_sha`; Azure / Jira → unsupported (M5). A missing or logged-out gh keeps every
 //! gh condition pending.
 //!
@@ -904,6 +905,11 @@ pub fn map_condition(c: &Condition, pr: &PrView, head_sha: Option<&str>) -> Cond
                 .map(|(a, _)| a.as_str())
                 .collect();
             let value = Some(format!("{}/{min}", approvers.len()));
+            // Merged (by its owner, on a repo where nobody else reviews): waiting for an approval
+            // would hold the ticket until condition_timeout for nothing.
+            if pr.merged {
+                return result(t, Met, value, some("merged"));
+            }
             if !blockers.is_empty() || pr.review_decision.as_deref() == Some("CHANGES_REQUESTED") {
                 let who = if blockers.is_empty() {
                     String::new()

@@ -443,6 +443,8 @@ describe('create_ticket kind default (WF-T03)', () => {
       expect(queries).toHaveLength(1);
       expect(queries[0]!.sql).toContain('account_id = $1 AND repo = $2');
       expect(queries[0]!.sql).toContain('ORDER BY created_at DESC');
+      // R14: a deploy-failure ticket takes its kind from here, so it never sets it.
+      expect(queries[0]!.sql).toContain("external_ref NOT LIKE 'deploy:%'");
       expect(queries[0]!.args).toEqual(['acc-1', 'github.com/me/app']);
     }
   });

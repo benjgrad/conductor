@@ -1,5 +1,6 @@
-// R14: `conductor-admin deploy-failed`, run in-process against a test database: one ticket per
-// failed sha, updated on a repeat, and one push per failed attempt. Needs `pnpm db:up`.
+// R14: `conductor-admin deploy-failed`, run in-process against a test database: one open ticket
+// per repo, updated by every later failure (any sha), one push per failed attempt, and the repo's
+// kind. Needs `pnpm db:up`.
 import { randomUUID } from 'node:crypto';
 import { LOCAL_ACCOUNT_ID } from '@conductor/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -9,6 +10,7 @@ import { useTestDatabase } from '../db.js';
 const db = useTestDatabase();
 const SHA = 'abcdef1234567890abcdef1234567890abcdef12';
 const OTHER = '1111111111111111111111111111111111111111';
+const REPO = 'github.com/benjgrad/conductor';
 
 const report = (over: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -18,7 +20,7 @@ const report = (over: Record<string, unknown> = {}) =>
     outcome: 'rolled_back',
     running: '0123456789abcdef0123456789abcdef01234567',
     run_url: 'https://github.com/benjgrad/conductor/actions/runs/1',
-    repo: 'github.com/benjgrad/conductor',
+    repo: REPO,
     log_tail: 'boom',
     attempted_at: '2026-11-11T10:00:00Z',
     ...over,
@@ -43,6 +45,18 @@ const tickets = (sha: string) =>
     'SELECT id, title, body, status, kind FROM ticket WHERE external_ref = $1',
     [`deploy:${sha}`],
   );
+const deployTickets = async () =>
+  (
+    await db.pool.query<{ id: string; title: string; body: string; kind: string }>(
+      "SELECT id, title, body, kind FROM ticket WHERE external_ref LIKE 'deploy:%' ORDER BY created_at, id",
+    )
+  ).rows;
+const otherTicket = (kind: string, externalRef: string | null = null) =>
+  db.pool.query(
+    `INSERT INTO ticket (account_id, repo, title, body, workflow_id, kind, external_ref)
+     VALUES ($1, $2, 'other', '', 'conductor', $3, $4)`,
+    [LOCAL_ACCOUNT_ID, REPO, kind, externalRef],
+  );
 const pushKeys = async () =>
   (
     await db.pool.query<{ idempotency_key: string; session_id: string | null }>(
@@ -53,6 +67,7 @@ const pushKeys = async () =>
 beforeEach(async () => {
   await db.pool.query("DELETE FROM outbox WHERE idempotency_key LIKE 'deploy:%'");
   await db.pool.query("DELETE FROM ticket WHERE external_ref LIKE 'deploy:%'");
+  await db.pool.query("DELETE FROM ticket WHERE title = 'other'");
   await db.pool.query('DELETE FROM push_subscription');
   await db.pool.query(
     `INSERT INTO push_subscription (account_id, user_id, endpoint, p256dh, auth)
@@ -80,12 +95,13 @@ describe('deploy-failed', () => {
       status: 'ready',
       kind: 'work',
     });
-    expect(rows[0]!.body).toContain('## Attempt 2 (2026-11-11T11:00:00Z)');
+    expect(rows[0]!.body).toContain('## Attempt 2 (abcdef1, 2026-11-11T11:00:00Z)');
     expect(rows[0]!.body).toContain('again');
 
+    const id = rows[0]!.id;
     expect(await pushKeys()).toEqual([
-      { idempotency_key: `deploy:${SHA}:1`, session_id: null },
-      { idempotency_key: `deploy:${SHA}:2`, session_id: null },
+      { idempotency_key: `deploy:${id}:1`, session_id: null },
+      { idempotency_key: `deploy:${id}:2`, session_id: null },
     ]);
   });
 
@@ -98,11 +114,44 @@ describe('deploy-failed', () => {
     expect(await pushKeys()).toHaveLength(2);
   });
 
-  it('opens a second ticket for a different sha', async () => {
+  it('appends a different sha to the open ticket', async () => {
     await run(report());
-    await run(report({ sha: OTHER }));
-    expect((await tickets(SHA)).rows).toHaveLength(1);
-    expect((await tickets(OTHER)).rows).toHaveLength(1);
+    const second = await run(
+      report({ sha: OTHER, step: 'running migrations', attempted_at: '2026-11-11T12:00:00Z' }),
+    );
+    expect(second.out).toMatch(/^updated ticket \S+ \(attempt 2, 1 push\(es\)\)$/);
+    const rows = await deployTickets();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.title).toBe('Deploy of 1111111 failed: running migrations');
+    expect(rows[0]!.body).toContain('## Attempt 2 (1111111, 2026-11-11T12:00:00Z)');
+    expect(rows[0]!.body).toContain(`- Commit: \`${OTHER}\``);
+    expect((await pushKeys()).map((k) => k.idempotency_key)).toEqual([
+      `deploy:${rows[0]!.id}:1`,
+      `deploy:${rows[0]!.id}:2`,
+    ]);
+  });
+
+  it.each(['done', 'failed', 'cancelled'])(
+    'opens a new ticket once the open one is %s',
+    async (status) => {
+      await run(report());
+      await db.pool.query("UPDATE ticket SET status = $1 WHERE external_ref LIKE 'deploy:%'", [
+        status,
+      ]);
+      // The same sha again: the fix didn't hold, so it is a new ticket, and it still pushes.
+      const again = await run(report({ attempted_at: '2026-11-11T12:00:00Z' }));
+      expect(again.out).toMatch(/^created ticket \S+ \(attempt 1, 1 push\(es\)\)$/);
+      expect(await deployTickets()).toHaveLength(2);
+      expect(await pushKeys()).toHaveLength(2);
+    },
+  );
+
+  it('takes the kind of the repo’s last ticket, never of a deploy ticket', async () => {
+    await otherTicket('personal');
+    await otherTicket('work', `deploy:${OTHER}`); // newer, but a deploy ticket: ignored
+    await db.pool.query("UPDATE ticket SET status = 'done' WHERE external_ref LIKE 'deploy:%'");
+    await run(report());
+    expect((await tickets(SHA)).rows[0]!.kind).toBe('personal');
   });
 
   it('refuses a bad report, and arguments', async () => {

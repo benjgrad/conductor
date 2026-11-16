@@ -1518,3 +1518,25 @@ fn parse_duration_reads_the_workflow_durations() {
     assert_eq!(parse_duration("0s"), None);
     assert_eq!(parse_duration("soon"), None);
 }
+
+#[test]
+fn pr_approvals_is_met_once_the_pr_is_merged() {
+    let merged = json!({"state": "MERGED", "mergedAt": "2026-11-13T00:00:00Z"});
+    let none = map_condition(&approvals(1), &pr_of(merged.clone()), None);
+    assert_eq!(
+        (none.status, none.value.as_deref(), none.detail.as_deref()),
+        (Met, Some("0/1"), Some("merged"))
+    );
+    let mut blocked = merged;
+    blocked["reviews"] = json!([review("rev", "CHANGES_REQUESTED")]);
+    blocked["reviewDecision"] = json!("CHANGES_REQUESTED");
+    assert_eq!(
+        map_condition(&approvals(1), &pr_of(blocked), None).status,
+        Met
+    );
+    // Still open without an approval: pending, as before.
+    assert_eq!(
+        map_condition(&approvals(1), &pr_of(json!({})), None).status,
+        Pending
+    );
+}

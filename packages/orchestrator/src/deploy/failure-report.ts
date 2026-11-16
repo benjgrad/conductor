@@ -4,7 +4,9 @@ import { clip, type PushNotification } from '../push/payload.js';
 // R14: a failed deploy of main (deploy/gradyserver/ci-deploy.sh, runbook §12) is reported to the
 // board as a ticket and a push, through `conductor-admin deploy-failed` (JSON on stdin). This file
 // is the pure half: the report's shape, the ticket's title and body, the idempotency keys and the
-// notification. record-failure.ts writes them.
+// notification. record-failure.ts writes them. One repo has at most one open deploy ticket: a
+// failure while it is open (any sha, any step) is appended to it as an attempt, because main stays
+// broken until the fix merges and every merge in between is a new sha failing the same way.
 
 /** Lines of the deploy log a report keeps (the newest). */
 export const DEPLOY_LOG_TAIL_LINES = 50;
@@ -41,14 +43,21 @@ export type DeployFailureReport = z.output<typeof DeployFailureReportSchema>;
 
 const short = (sha: string) => sha.slice(0, 7);
 
-/** The ticket's `external_ref`, and the root of every idempotency key of one sha's failures. */
+/** Every deploy ticket's `external_ref` starts with this. */
+export const DEPLOY_REF_PREFIX = 'deploy:';
+
+/** The `external_ref` of the ticket a failure of `sha` opens. */
 export function deployRef(sha: string): string {
-  return `deploy:${sha}`;
+  return `${DEPLOY_REF_PREFIX}${sha}`;
 }
 
-/** The outbox idempotency key of attempt `n`'s push: one per failed attempt, never two. */
-export function deployPushKey(sha: string, attempt: number): string {
-  return `${deployRef(sha)}:${attempt}`;
+/**
+ * The outbox idempotency key of attempt `n`'s push on one ticket: one per failed attempt, never
+ * two. Keyed by the ticket, not the sha: the attempts of one ticket span shas, and a sha that
+ * fails again after its ticket was closed opens a new ticket whose attempt 1 must still push.
+ */
+export function deployPushKey(ticketId: string, attempt: number): string {
+  return `${DEPLOY_REF_PREFIX}${ticketId}:${attempt}`;
 }
 
 export function deployTicketTitle(r: DeployFailureReport): string {
@@ -94,7 +103,7 @@ export function deployTicketBody(r: DeployFailureReport): string {
     `Find why the deploy of \`${short(r.sha)}\` to gradyserver failed at "${r.step}" and fix it on main. Merging the fix deploys it.`,
     '',
     '## Context',
-    'Opened by deploy/gradyserver/ci-deploy.sh (runbook docs/setup/deploy-gradyserver.md §12). A repeated failure of this sha appends an attempt below.',
+    'Opened by deploy/gradyserver/ci-deploy.sh (runbook docs/setup/deploy-gradyserver.md §12). Any later failed deploy on this repo (this sha or a newer one) appends an attempt below while this ticket is open.',
     '',
     ...facts(r),
     '',
@@ -110,11 +119,11 @@ export function deployTicketBody(r: DeployFailureReport): string {
   ].join('\n');
 }
 
-/** Appended to the ticket's body when the same sha fails again. */
+/** Appended to the open ticket's body when a deploy on its repo fails again. */
 export function deployAttemptSection(r: DeployFailureReport, attempt: number): string {
   return [
     '',
-    `## Attempt ${attempt} (${r.attempted_at})`,
+    `## Attempt ${attempt} (${short(r.sha)}, ${r.attempted_at})`,
     '',
     ...facts(r),
     '',
@@ -135,7 +144,7 @@ export function deployFailureNotification(
     title: clip(deployTicketTitle(r), 120),
     body: outcomeSentence(r),
     url: `/#/?ticket=${ticketId}`,
-    // One sha's notifications replace each other in the browser.
-    tag: deployRef(r.sha),
+    // One ticket's notifications replace each other in the browser.
+    tag: `${DEPLOY_REF_PREFIX}${ticketId}`,
   };
 }

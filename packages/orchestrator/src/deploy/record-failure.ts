@@ -1,5 +1,10 @@
 import { CONDUCTOR_WORKFLOW_ID, LOCAL_ACCOUNT_ID } from '@conductor/shared';
-import { insertTicketRow, latestSession, sessionlessCardUpserted } from '../api/tickets.js';
+import {
+  insertTicketRow,
+  lastTicketKind,
+  latestSession,
+  sessionlessCardUpserted,
+} from '../api/tickets.js';
 import { withTransaction } from '../db/index.js';
 import { seedConductorWorkflow } from '../engine/seed.js';
 import { TICKET_SELECT, type TicketCardRow } from '../engine/rows.js';
@@ -7,6 +12,7 @@ import type { Db } from '../main.js';
 import { cardUpserted } from '../permissions/store.js';
 import { enqueueDeployFailurePush } from '../push/enqueue.js';
 import {
+  DEPLOY_REF_PREFIX,
   attemptsInBody,
   deployAttemptSection,
   deployFailureNotification,
@@ -17,8 +23,12 @@ import {
   type DeployFailureReport,
 } from './failure-report.js';
 
-// R14 FR-2/FR-3: one ticket per failed sha (`external_ref = deploy:<sha>`) on the server's own
-// account, and one push per failed attempt. Run by `conductor-admin deploy-failed`, in another
+// R14 FR-2/FR-3: at most one open deploy ticket per repo on the server's own account
+// (`external_ref = deploy:<first failed sha>`), and one push per failed attempt. A failure while
+// that ticket is open, of any sha, is appended to it: until the fix merges every merge to main is
+// a new sha failing the same way, and a ticket per sha was the same problem five times over. The
+// ticket's kind is the repo's (`lastTicketKind`, deploy tickets excluded), else `work`: on a
+// repo whose tickets are `personal` nobody reviews PRs, and a `work` ticket waits for an approval. Run by `conductor-admin deploy-failed`, in another
 // process than the orchestrator: the outbox row is sent by the orchestrator's push dispatcher (it
 // polls), the ticket is claimed by its queue, and the card event is in the event table.
 
@@ -43,26 +53,29 @@ export async function recordDeployFailure(
 ): Promise<RecordedDeployFailure> {
   // ADR-0010: seeded on start too; a bare database (tests) needs it here.
   await seedConductorWorkflow(db, { log: null });
-  const ref = deployRef(report.sha);
   return withTransaction(db, async (tx) => {
     const account = await tx.query('SELECT 1 FROM account WHERE id = $1', [accountId]);
     if (account.rowCount === 0) throw new NoAccountError(`no account ${accountId}`);
-    // Two reports for one sha never both insert (deploys are serialised by flock anyway).
-    await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [ref]);
+    // Two reports for one repo never both insert (deploys are serialised by flock anyway).
+    await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      `${DEPLOY_REF_PREFIX}${accountId}:${report.repo}`,
+    ]);
     const found = await tx.query<TicketCardRow>(
       TICKET_SELECT +
-        'WHERE t.account_id = $1 AND t.external_ref = $2 ORDER BY t.created_at, t.id LIMIT 1 ' +
-        'FOR UPDATE OF t',
-      [accountId, ref],
+        'WHERE t.account_id = $1 AND t.repo = $2 AND t.external_ref LIKE $3 ' +
+        "AND t.status NOT IN ('done', 'failed', 'cancelled') " +
+        'ORDER BY t.created_at, t.id LIMIT 1 FOR UPDATE OF t',
+      [accountId, report.repo, `${DEPLOY_REF_PREFIX}%`],
     );
     const existing = found.rows[0];
     let row: TicketCardRow;
     let attempt: number;
     if (existing === undefined) {
       attempt = 1;
+      const kind = (await lastTicketKind(tx, accountId, report.repo)) ?? 'work';
       const inserted = (await insertTicketRow(tx, {
         account_id: accountId,
-        external_ref: ref,
+        external_ref: deployRef(report.sha),
         repo: report.repo,
         title: deployTicketTitle(report),
         body: deployTicketBody(report),
@@ -70,7 +83,7 @@ export async function recordDeployFailure(
         required_tags: [],
         repo_allow_machines: null,
         priority: DEPLOY_TICKET_PRIORITY,
-        kind: 'work',
+        kind,
         size: 'S',
       }))!;
       row = { ...inserted, agent_name: null };
@@ -94,7 +107,7 @@ export async function recordDeployFailure(
       accountId,
       ticketId: row.id,
       notification: deployFailureNotification(row.id, report),
-      idempotencyKey: deployPushKey(report.sha, attempt),
+      idempotencyKey: deployPushKey(row.id, attempt),
       now,
     });
     // Last write of the transaction (insertBoardEvents holds the board lock to COMMIT). A ticket

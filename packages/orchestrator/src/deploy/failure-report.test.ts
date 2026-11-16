@@ -59,9 +59,9 @@ describe('DeployFailureReportSchema', () => {
 });
 
 describe('keys', () => {
-  it('ties the ticket to the sha and each push to an attempt', () => {
+  it('ties the ticket to its first sha and each push to an attempt of that ticket', () => {
     expect(deployRef(SHA)).toBe(`deploy:${SHA}`);
-    expect(deployPushKey(SHA, 2)).toBe(`deploy:${SHA}:2`);
+    expect(deployPushKey('t-1', 2)).toBe('deploy:t-1:2');
   });
 });
 
@@ -96,18 +96,21 @@ describe('the ticket', () => {
     const body = deployTicketBody(report());
     expect(attemptsInBody(body)).toBe(1);
     const two = body + deployAttemptSection(report(), 2);
-    expect(two).toContain('## Attempt 2 (2026-11-11T10:00:00Z)');
+    expect(two).toContain('## Attempt 2 (abcdef1, 2026-11-11T10:00:00Z)');
     expect(attemptsInBody(two)).toBe(2);
+    const other = two + deployAttemptSection(report({ sha: PREV }), 3);
+    expect(other).toContain('## Attempt 3 (0123456, 2026-11-11T10:00:00Z)');
+    expect(attemptsInBody(other)).toBe(3);
   });
 });
 
 describe('the push', () => {
-  it('opens the ticket and replaces the sha’s earlier notification', () => {
+  it('opens the ticket and replaces the ticket’s earlier notification', () => {
     expect(deployFailureNotification('t-1', report())).toEqual({
       title: 'Deploy of abcdef1 failed: building the orchestrator image',
       body: 'Production rolled back to 0123456 and passes its smoke test; nothing new shipped.',
       url: '/#/?ticket=t-1',
-      tag: `deploy:${SHA}`,
+      tag: 'deploy:t-1',
     });
   });
 });

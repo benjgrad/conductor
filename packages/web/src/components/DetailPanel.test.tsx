@@ -914,7 +914,11 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
   const PR = 'https://github.com/benjgrad/conductor/pull/42';
   /** The askNewer session's open request, as a review request (or not). */
   const asReview =
-    (input: Partial<InputRequestDto>, moves?: SessionDetail['moves']) =>
+    (
+      input: Partial<InputRequestDto>,
+      moves?: SessionDetail['moves'],
+      extra: Partial<SessionDetail> = {},
+    ) =>
     (api: ReturnType<typeof createMockApi>) => {
       const get = api.getSession.bind(api);
       api.getSession = async (sid) => {
@@ -926,6 +930,7 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
           card: { ...d.card, pr_url: PR, input_request: pending },
           pending_input: pending,
           ...(moves ? { moves } : {}),
+          ...extra,
         };
       };
     };
@@ -955,6 +960,44 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
     // The composer still answers it, asking for changes (FR-3).
     const box = panel.getByLabelText<HTMLTextAreaElement>('Answer');
     expect(box.placeholder).toMatch(/^Ask .+ for changes…$/);
+  });
+
+  it("Full report shows the agent's own summary, not its hand-off line again (Poor handoff)", async () => {
+    const summary =
+      '- **Shell:** the top bar sits above the scroller.\n- Desktop is unchanged.\n\n' +
+      '**Not verified:** needs a real iPhone after deploy.';
+    const { panel } = await setup(
+      'Add audit log table',
+      asReview(
+        { origin_transition: 'personal_pr_ready_for_review', question: 'Moved the top bar.' },
+        undefined,
+        { return_to: 'implementing', context: { implementing: { summary } } },
+      ),
+    );
+    const card = within(await panel.findByRole('region', { name: 'Ready for review' }));
+    fireEvent.click(card.getByRole('button', { name: 'Full report' }));
+    const report = within(card.getByRole('region', { name: 'Full report' }));
+    expect(report.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Shell: the top bar sits above the scroller.',
+      'Desktop is unchanged.',
+    ]);
+    expect(report.getByText(/needs a real iPhone/)).toBeTruthy();
+    expect(report.queryByText('Moved the top bar.')).toBeNull();
+  });
+
+  it('Full report falls back to the hand-off text without a summary', async () => {
+    const { panel } = await setup(
+      'Add audit log table',
+      asReview(
+        { origin_transition: 'personal_pr_ready_for_review', question: 'Moved the top bar.' },
+        undefined,
+        { return_to: 'implementing', context: {} },
+      ),
+    );
+    const card = within(await panel.findByRole('region', { name: 'Ready for review' }));
+    fireEvent.click(card.getByRole('button', { name: 'Full report' }));
+    const report = within(card.getByRole('region', { name: 'Full report' }));
+    expect(report.getByText('Moved the top bar.')).toBeTruthy();
   });
 
   it('Request changes… puts the cursor in the composer (FR-2)', async () => {

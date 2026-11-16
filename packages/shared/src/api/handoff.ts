@@ -165,6 +165,16 @@ function why(d: HandoffBriefInput, last: MoveDto | null): string {
 
 const same = (a: string, b: string | undefined): boolean => b !== undefined && flat(a) === flat(b);
 
+/**
+ * Ticket "Poor handoff": the asking state's own `result.summary` as the agent wrote it (markdown,
+ * not flattened or clipped), e.g. implementing's PR description. The review card's full report.
+ */
+export function agentSummary(d: Pick<HandoffBriefInput, 'context' | 'return_to'>): string | null {
+  if (d.return_to === null) return null;
+  const own = (d.context[d.return_to] as Record<string, unknown> | undefined)?.summary;
+  return typeof own === 'string' && own.trim() !== '' ? own : null;
+}
+
 function summary(d: HandoffBriefInput): string | null {
   const question = d.pending_input?.question;
   const keep = (s: unknown): string | null =>
@@ -172,11 +182,8 @@ function summary(d: HandoffBriefInput): string | null {
       ? clip(s, HANDOFF_SUMMARY_MAX)
       : null;
   // 1. The asking state's own result summary (e.g. planning's `summary`).
-  if (d.return_to !== null) {
-    const own = (d.context[d.return_to] as Record<string, unknown> | undefined)?.summary;
-    const s = keep(own);
-    if (s !== null) return s;
-  }
+  const own = keep(agentSummary(d));
+  if (own !== null) return own;
   // 2. The agent's latest reason in this visit of the asking state (its hand-off text).
   const moves = d.moves ?? [];
   let start = 0;

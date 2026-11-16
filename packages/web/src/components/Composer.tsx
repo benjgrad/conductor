@@ -434,8 +434,8 @@ export function Composer({
             <button
               type="button"
               className="composer-attach"
-              aria-label="Attach images or videos"
-              title="Attach images or videos"
+              aria-label="Attach images, videos or 3D models"
+              title="Attach images, videos or 3D models"
               disabled={busy}
               onClick={() => fileInput.current?.click()}
             >

@@ -52,8 +52,20 @@ describe('AttachmentPicker', () => {
       expect(screen.getByLabelText('ids').textContent?.split(',')).toHaveLength(2),
     );
     expect(sent).toEqual(['shot.png', 'repro.mp4']);
-    expect(list.getByText(/only PNG, JPEG, GIF, WebP, MP4 and WebM/)).toBeTruthy();
+    expect(list.getByText(/3D models \(STL, OBJ/)).toBeTruthy();
     expect(list.getByText(/too large/)).toBeTruthy();
+  });
+
+  it('uploads a 3D model the browser gives no type, and shows it as a model tile', async () => {
+    const api = createMockApi({ replyDelayMs: 0 });
+    render(<Picker api={api} />);
+    expect(fileInput().accept.split(',')).toContain('.stl');
+    pick(new File([new Uint8Array(134)], 'Bracket.STL', { type: '' }));
+    await waitFor(() => expect(screen.getByLabelText('ids').textContent).not.toBe(''));
+    const list = within(screen.getByRole('list', { name: 'Attachments to add' }));
+    expect(list.getByText('Bracket.stl')).toBeTruthy();
+    expect(list.getByTestId('model-thumb').textContent).toBe('STL');
+    expect(list.queryByRole('img')).toBeNull();
   });
 
   it('a pasted image is uploaded; Remove drops it and deletes the upload', async () => {
@@ -205,6 +217,21 @@ function att(
     url: `/api/attachments/${id}/content`,
   };
 }
+
+describe('AttachmentGallery: a 3D model', () => {
+  it('shows a model tile and, opened, a Download link instead of an image or video', () => {
+    const model = att('m', 'model/stl', '2026-11-01T00:00:00.000Z');
+    render(<AttachmentGallery api={createMockApi({ replyDelayMs: 0 })} attachments={[model]} />);
+    expect(screen.getByTestId('model-thumb').textContent).toBe('STL');
+    fireEvent.click(screen.getByRole('button', { name: 'Open m.stl' }));
+    const d = within(screen.getByRole('dialog'));
+    const link = d.getByRole('link', { name: 'Download' });
+    expect(link.getAttribute('download')).toBe('m.stl');
+    expect(link.getAttribute('href')).toContain('/api/attachments/m/content');
+    expect(screen.getByRole('dialog').querySelector('img, video')).toBeNull();
+    expect(d.queryByRole('button', { name: 'Zoom in' })).toBeNull();
+  });
+});
 
 describe('AttachmentGallery lightbox: previous / next and zoom', () => {
   const items = [

@@ -1,5 +1,6 @@
 import {
   API_PATHS,
+  attachmentMime,
   attachmentProblem,
   CHAT_ATTACHMENT_MARK,
   sanitizeAttachmentName,
@@ -1194,7 +1195,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
             problem,
           );
         }
-        const mime = file.type as AttachmentDto['mime'];
+        const mime = attachmentMime(file)!;
         const id = crypto.randomUUID();
         const dto: AttachmentDto = {
           id,

@@ -244,6 +244,8 @@ pub async fn fetch_all(
 fn kind(mime: &str) -> &'static str {
     if mime.starts_with("video/") {
         "video"
+    } else if mime.starts_with("model/") {
+        "3D model"
     } else {
         "image"
     }
@@ -253,10 +255,10 @@ fn file_lines<'a>(delivered: impl Iterator<Item = &'a Delivered>) -> Vec<String>
     delivered
         .map(|d| match &d.fetched {
             Fetched::New(p) | Fetched::Present(p) => {
-                let hint = if kind(&d.mime) == "video" {
-                    " You can't watch a video directly; extract frames with ffmpeg if you need to see it."
-                } else {
-                    " Open it with the Read tool."
+                let hint = match kind(&d.mime) {
+                    "video" => " You can't watch a video directly; extract frames with ffmpeg if you need to see it.",
+                    "3D model" => " It's a 3D model file, not an image: inspect it with a script (e.g. Python with numpy-stl or trimesh) instead of the Read tool.",
+                    _ => " Open it with the Read tool.",
                 };
                 format!(
                     "- `{}` ({}, {}, {} KB).{hint}",

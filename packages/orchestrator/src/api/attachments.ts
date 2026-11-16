@@ -6,12 +6,14 @@ import {
   ATTACHMENT_FILENAME_HEADER,
   ATTACHMENT_MAX_VIDEO_BYTES,
   ATTACHMENT_TICKET_MAX_BYTES,
+  ATTACHMENT_TYPES_MESSAGE,
   CHAT_ATTACHMENT_MARK,
   DAEMON_AUTH_HEADER,
   UuidSchema,
   attachmentMaxBytes,
   parseDaemonAuthHeader,
   attachmentCountMax,
+  isModelMime,
   sanitizeAttachmentName,
   sniffMime,
   type ApiErrorCode,
@@ -209,15 +211,21 @@ export async function removeAttachments(
 
 type Refusal = { ok: false; status: number; code: ApiErrorCode; message: string };
 
-/** The bytes' sniffed type, or the refusal (415 not a known type, 413 over its type's limit). */
-export function checkBytes(data: Buffer): { ok: true; mime: AttachmentMime } | Refusal {
-  const mime = sniffMime(data);
+/**
+ * The bytes' sniffed type, or the refusal (415 not a known type, 413 over its type's limit).
+ * `rawName` only says which 3D model format to check the bytes against (`sniffMime`).
+ */
+export function checkBytes(
+  data: Buffer,
+  rawName = '',
+): { ok: true; mime: AttachmentMime } | Refusal {
+  const mime = sniffMime(data, rawName);
   if (mime === null) {
     return {
       ok: false,
       status: 415,
       code: 'attachment_type',
-      message: 'only PNG, JPEG, GIF, WebP, MP4 and WebM files can be attached',
+      message: ATTACHMENT_TYPES_MESSAGE,
     };
   }
   const max = attachmentMaxBytes(mime);
@@ -237,7 +245,7 @@ export async function storeUpload(
   db: Db,
   input: { accountId: string; userId: string | null; rawName: string; data: Buffer },
 ): Promise<{ ok: true; dto: AttachmentDto } | Refusal> {
-  const checked = checkBytes(input.data);
+  const checked = checkBytes(input.data, input.rawName);
   if (!checked.ok) return checked;
   const mime = checked.mime;
   const name = sanitizeAttachmentName(input.rawName, mime);
@@ -280,7 +288,7 @@ export async function storeAgentAttachment(
   session: AttachingSession,
   input: { rawName: string; caption: string | null; data: Buffer },
 ): Promise<{ ok: true; created: boolean; dto: AttachmentDto; events: BoardSseEvent[] } | Refusal> {
-  const checked = checkBytes(input.data);
+  const checked = checkBytes(input.data, input.rawName);
   if (!checked.ok) return checked;
   const mime = checked.mime;
   const name = sanitizeAttachmentName(input.rawName, mime);
@@ -358,12 +366,16 @@ export function uploadName(header: string | string[] | undefined): string {
   }
 }
 
-/** The headers the bytes are served with: the sniffed type, never rendered as a document. */
+/**
+ * The headers the bytes are served with: the sniffed type, never rendered as a document. A 3D
+ * model is downloaded (`attachment`): browsers can't show one.
+ */
 export function contentHeaders(row: Pick<AttachmentRow, 'mime' | 'name' | 'size_bytes'>) {
+  const disposition = isModelMime(row.mime) ? 'attachment' : 'inline';
   return {
     'content-type': row.mime,
     'content-length': String(row.size_bytes),
-    'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(row.name)}`,
+    'content-disposition': `${disposition}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
     'x-content-type-options': 'nosniff',
     'content-security-policy': "sandbox; default-src 'none'",
     'cache-control': 'private, max-age=31536000, immutable',

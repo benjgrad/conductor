@@ -750,7 +750,7 @@ export interface AttachmentRow {
   source: 'human' | 'agent';
   /** sanitizeAttachmentName's output. */
   name: string;
-  /** One of ATTACHMENT_MIMES, sniffed from the bytes. */
+  /** One of ATTACHMENT_MIMES, sniffed from the bytes (a 3D model: checked against its name's format). */
   mime: string;
   size_bytes: number;
   /** 32 bytes. */

@@ -1,13 +1,15 @@
-// 06 §Attachments: pick, drop or paste images and videos into a ticket form. Each file is checked
+// 06 §Attachments: pick, drop or paste images, videos and 3D models into a ticket form. Each file is checked
 // here first (type and size, `attachmentProblem`) and uploaded at once (POST /api/attachments);
 // the form links the uploaded ids when it saves. The server re-checks everything from the bytes.
 import {
   ATTACHMENT_ACCEPT,
+  ATTACHMENT_EXTENSIONS,
   attachmentProblem,
+  isModelMime,
   isVideoMime,
   type AttachmentDto,
 } from '@conductor/shared';
-import { ImagePlus, X } from 'lucide-react';
+import { Box, Paperclip, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -148,7 +150,7 @@ export function AttachmentPicker({ api, uploads }: AttachmentPickerProps) {
     >
       <div className="attachment-picker-row">
         <button type="button" onClick={() => input.current?.click()}>
-          <ImagePlus size={18} aria-hidden="true" /> Attach images or videos
+          <Paperclip size={18} aria-hidden="true" /> Attach images, videos or 3D models
         </button>
         <span className="muted">or drop or paste them here</span>
         <input
@@ -207,7 +209,19 @@ export function AttachmentUploadList({
   );
 }
 
-/** A small preview: the image itself, or a video's first frame. */
+/** A 3D model's tile: an icon and the format (the browser can't draw the model). */
+export function ModelIcon({ attachment, size = 24 }: { attachment: AttachmentDto; size?: number }) {
+  return (
+    <span className="attachment-thumb model" data-testid="model-thumb" aria-hidden="true">
+      <Box size={size} />
+      <span className="attachment-model-ext">
+        {ATTACHMENT_EXTENSIONS[attachment.mime].toUpperCase()}
+      </span>
+    </span>
+  );
+}
+
+/** A small preview: the image itself, a video's first frame, or a 3D model's icon. */
 export function AttachmentThumb({
   api,
   attachment,
@@ -215,6 +229,7 @@ export function AttachmentThumb({
   api: ApiClient;
   attachment: AttachmentDto;
 }) {
+  if (isModelMime(attachment.mime)) return <ModelIcon attachment={attachment} />;
   const src = api.attachmentUrl(attachment);
   return isVideoMime(attachment.mime) ? (
     <video className="attachment-thumb" src={src} preload="metadata" muted aria-hidden="true" />

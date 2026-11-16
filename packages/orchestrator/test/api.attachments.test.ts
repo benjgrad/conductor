@@ -240,6 +240,31 @@ describe('POST /api/attachments', () => {
     expect(tooBig.json.error?.code).toBe('attachment_too_large');
   });
 
+  it('stores a 3D model checked against its name, and serves it as a download', async () => {
+    // A binary STL: 80-byte header, one triangle (50 bytes).
+    const stl = Buffer.alloc(84 + 50);
+    stl.write('binary stl');
+    stl.writeUInt32LE(1, 80);
+    const dto = await uploaded(a, stl, 'Bracket v2.STL');
+    expect(dto).toMatchObject({
+      name: 'Bracket v2.stl',
+      mime: 'model/stl',
+      size_bytes: stl.length,
+    });
+    const got = await raw('GET', dto.url, as(a));
+    expect(got.status).toBe(200);
+    expect(got.bytes.equals(stl)).toBe(true);
+    expect(got.headers['content-type']).toBe('model/stl');
+    expect(got.headers['x-content-type-options']).toBe('nosniff');
+    expect(got.headers['content-disposition']).toBe(
+      "attachment; filename*=UTF-8''Bracket%20v2.stl",
+    );
+    // HTML named as a text model format is still refused.
+    const html = await upload(a, Buffer.from('<!doctype html><script>alert(1)</script>'), 'x.obj');
+    expect(html.status).toBe(415);
+    expect(html.json.error?.code).toBe('attachment_type');
+  });
+
   it('CSRF: octet-stream elsewhere is 415, and the upload without Origin is 403', async () => {
     const elsewhere = await raw('POST', API_PATHS.tickets, {
       headers: { cookie: a.cookie, 'content-type': 'application/octet-stream' },

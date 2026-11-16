@@ -1,11 +1,16 @@
-// 06 §Attachments: a ticket's images and videos, as a grid of thumbnails; one opens full size in
-// a lightbox (Escape or Close closes it). The lightbox steps through the gallery (← / →, its
+// 06 §Attachments: a ticket's images, videos and 3D models, as a grid of thumbnails; one opens
+// full size in a lightbox (a 3D model shows its icon and a Download link) (Escape or Close closes it). The lightbox steps through the gallery (← / →, its
 // Previous / Next buttons, a swipe) and zooms an image (a click or tap, the wheel, a pinch, its
 // Zoom buttons, + / - / 0), panned by dragging while zoomed. Who attached each is shown ("you"
 // for a human; an agent's attachments carry the workflow state they were captured in).
 // `AgentAttachments` shows what the agents attached (their screenshots, GIFs and recordings),
 // grouped by that state, with one lightbox that steps across every group.
-import { CHAT_ATTACHMENT_MARK, isVideoMime, type AttachmentDto } from '@conductor/shared';
+import {
+  CHAT_ATTACHMENT_MARK,
+  isImageMime,
+  isModelMime,
+  type AttachmentDto,
+} from '@conductor/shared';
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from 'lucide-react';
 import {
   useCallback,
@@ -17,7 +22,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { ApiClient } from '../api/client.js';
-import { AttachmentThumb } from './AttachmentPicker.js';
+import { AttachmentThumb, ModelIcon } from './AttachmentPicker.js';
 import { groupByState, matchChatFiles } from './attachment-groups.js';
 import {
   NO_ZOOM,
@@ -128,7 +133,7 @@ function Lightbox({ api, items, openId, onOpen, onClose }: LightboxProps) {
   // The zoom belongs to one item: moving to another starts unzoomed.
   const [zoomed, setZoomed] = useState<{ id: string; z: Zoom } | null>(null);
   const zoom = open !== null && zoomed?.id === open.id ? zoomed.z : NO_ZOOM;
-  const isImage = open !== null && !isVideoMime(open.mime);
+  const isImage = open !== null && isImageMime(open.mime);
   const many = items.length > 1;
 
   const setZoom = (f: (z: Zoom) => Zoom) => {
@@ -328,6 +333,16 @@ function Lightbox({ api, items, openId, onOpen, onClose }: LightboxProps) {
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
             />
+          ) : isModelMime(open.mime) ? (
+            <div key={open.id} className="attachment-lightbox-model">
+              <ModelIcon attachment={open} size={64} />
+              <span>
+                {open.name} ({Math.max(1, Math.ceil(open.size_bytes / 1024))} KB)
+              </span>
+              <a href={url} download={open.name}>
+                Download
+              </a>
+            </div>
           ) : (
             <video key={open.id} src={url} controls autoPlay />
           )}

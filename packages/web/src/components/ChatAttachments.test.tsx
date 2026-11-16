@@ -81,7 +81,7 @@ describe('chat attachments', () => {
 
   it('no paperclip while the composer is off', async () => {
     await open(SEED_IDS.checking.session);
-    expect(screen.queryByRole('button', { name: 'Attach images or videos' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Attach images, videos or 3D models' })).toBeNull();
   });
 
   it('the Details tab lists the files sent in the chat', async () => {

@@ -249,6 +249,30 @@ fn message_block_lists_every_file_present_or_new() {
     assert_eq!(message_block(&[]), None);
 }
 
+#[test]
+fn a_3d_model_is_not_called_an_image() {
+    let d = vec![
+        Delivered {
+            name: "part.stl".into(),
+            mime: "model/stl".into(),
+            size: 2048,
+            fetched: Fetched::New(PathBuf::from("/x/part.stl")),
+        },
+        Delivered {
+            name: "b.obj".into(),
+            mime: "model/obj".into(),
+            size: 10,
+            fetched: Fetched::Failed("the server answered HTTP 404".into()),
+        },
+    ];
+    let block = message_block(&d).unwrap();
+    assert!(block.contains(
+        "- `/x/part.stl` (3D model, model/stl, 2 KB). It's a 3D model file, not an image: inspect it with a script"
+    ));
+    assert!(!block.contains("Open it with the Read tool"));
+    assert!(block.contains("- b.obj (3D model) could not be downloaded"));
+}
+
 #[tokio::test]
 async fn a_later_file_never_replaces_one_already_there_with_other_bytes() {
     let one = b"\x89PNG\r\n\x1a\none".to_vec();

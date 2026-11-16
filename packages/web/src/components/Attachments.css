@@ -61,6 +61,19 @@
   border-radius: var(--radius-sm);
   background: var(--bg);
 }
+.attachment-thumb.model {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--muted);
+}
+.attachment-model-ext {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1;
+}
 .attachment-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -164,6 +177,19 @@
   display: flex;
   justify-content: center;
   overflow: hidden;
+}
+/* 06 §Attachments: a 3D model can't be drawn here: its icon, name and a Download link. */
+.attachment-lightbox-model {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+.attachment-lightbox-model .attachment-thumb.model {
+  width: 160px;
+  height: 160px;
 }
 /* 06 §Attachments: zoom is a transform on the image; a tap toggles it, a drag pans it. */
 .attachment-lightbox-media img {

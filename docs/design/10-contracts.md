@@ -900,7 +900,7 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 
 | Seam | File | Producer → consumers |
 |---|---|---|
-| `ATTACHMENT_MIMES`, limits, `sniffMime`, `sanitizeAttachmentName`, `attachmentProblem`, `AttachmentDtoSchema` | `shared/src/api/attachments.ts` | orchestrator routes, web picker, mock |
+| `ATTACHMENT_MIMES`, limits, `sniffMime(bytes, name)`, `attachmentMimeFromName`, `isModelMime`, `sanitizeAttachmentName`, `attachmentProblem`, `AttachmentDtoSchema` | `shared/src/api/attachments.ts` | orchestrator routes, web picker, mock |
 | `POST /api/attachments` (raw bytes, `content-type: application/octet-stream`, name in `x-conductor-filename`, URL-encoded) → 201 `AttachmentDto` (unlinked). 415 `attachment_type`, 413 `attachment_too_large` (also above the route's 50 MB body limit) | `orchestrator/src/api/attachments.ts` | web `uploadAttachment` |
 | `GET /api/attachments/:id/content` → the bytes, account-scoped (404 otherwise), with `content-type` = the sniffed type, `x-content-type-options: nosniff`, `content-security-policy: sandbox; default-src 'none'`, `content-disposition: inline`, `cache-control: private, max-age=31536000, immutable`. No Range support (TD-213) | same | web `<img>` / `<video>` |
 | `DELETE /api/attachments/:id` → OkResponse while unlinked; 409 `conflict` once linked (remove it with PATCH) | same | web picker (Remove) |

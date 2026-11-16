@@ -4,7 +4,10 @@ import {
   ATTACHMENTS_PER_TICKET_MAX,
   ATTACHMENT_MAX_IMAGE_BYTES,
   ATTACHMENT_MAX_VIDEO_BYTES,
+  ATTACHMENT_ACCEPT,
   ATTACHMENT_NAME_RE,
+  ATTACHMENT_TYPES_MESSAGE,
+  attachmentMimeFromName,
   attachmentCountMax,
   attachmentMaxBytes,
   attachmentProblem,
@@ -51,6 +54,58 @@ describe('sniffMime', () => {
   ])('%s → null', (_n, b) => expect(sniffMime(b)).toBeNull());
 });
 
+describe('sniffMime: 3D models', () => {
+  /** A binary STL with `n` triangles (80-byte header, count, 50 bytes per triangle). */
+  const binaryStl = (n: number, header = 'binary stl') => {
+    const b = new Uint8Array(84 + 50 * n);
+    b.set(bytes(header));
+    new DataView(b.buffer).setUint32(80, n, true);
+    return b;
+  };
+  it.each([
+    ['binary stl', binaryStl(1), 'a.stl', 'model/stl'],
+    ['binary stl, header says solid', binaryStl(2, 'solid but binary'), 'A.STL', 'model/stl'],
+    ['ascii stl', bytes('solid cube\nfacet normal 0 0 1\nendsolid\n'), 'cube.stl', 'model/stl'],
+    ['ascii stl with BOM', bytes([0xef, 0xbb, 0xbf], 'solid x\n'), 'x.stl', 'model/stl'],
+    ['obj', bytes('# made by hand\n\nv 0 0 0\nf 1 2 3\n'), 'a.obj', 'model/obj'],
+    ['obj with mtllib', bytes('mtllib a.mtl\no cube\n'), 'a.obj', 'model/obj'],
+    ['3mf', bytes([0x50, 0x4b, 0x03, 0x04, 0x14]), 'part.3mf', 'model/3mf'],
+    ['glb, no name', bytes('glTF', [2, 0, 0, 0]), '', 'model/gltf-binary'],
+    ['step', bytes('ISO-10303-21;\nHEADER;\n'), 'part.stp', 'model/step'],
+    ['ply, no name', bytes('ply\nformat ascii 1.0\n'), '', 'model/x-ply'],
+    ['ply crlf', bytes('ply\r\nformat ascii 1.0\r\n'), 'a.ply', 'model/x-ply'],
+  ])('%s', (_n, b, name, mime) => expect(sniffMime(b, name)).toBe(mime));
+
+  it.each([
+    ['binary stl one byte long', new Uint8Array([...binaryStl(1), 0]), 'a.stl'],
+    ['obj without its name', bytes('v 0 0 0\n'), ''],
+    ['obj named .txt', bytes('v 0 0 0\n'), 'a.txt'],
+    ['html named .obj', bytes('<!doctype html><script>alert(1)</script>'), 'x.obj'],
+    ['html named .stl', bytes('<html><body>solid</body></html>'), 'x.stl'],
+    ['svg named .stl', bytes('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'x.stl'],
+    ['zip without its name', bytes([0x50, 0x4b, 0x03, 0x04, 0x14]), 'a.zip'],
+    ['step named .obj', bytes('ISO-10303-21;\n'), 'a.obj'],
+    ['binary named .obj', bytes('v 0', [0, 1, 2]), 'a.obj'],
+  ])('%s → null', (_n, b, name) => expect(sniffMime(b, name)).toBeNull());
+
+  it('a media file is its media type whatever it is named', () => {
+    expect(sniffMime(bytes([0xff, 0xd8, 0xff, 0xe0]), 'x.stl')).toBe('image/jpeg');
+  });
+
+  it('attachmentMimeFromName', () => {
+    expect(attachmentMimeFromName('Part.STEP')).toBe('model/step');
+    expect(attachmentMimeFromName('a.stp')).toBe('model/step');
+    expect(attachmentMimeFromName('a.png')).toBeNull();
+    expect(attachmentMimeFromName('stl')).toBeNull();
+  });
+
+  it('the picker accepts the model extensions', () => {
+    expect(ATTACHMENT_ACCEPT.split(',')).toEqual(
+      expect.arrayContaining(['image/png', '.stl', '.3mf']),
+    );
+  });
+});
+
 describe('sanitizeAttachmentName', () => {
   it.each([
     ['screen shot.png', 'image/png', 'screen shot.png'],
@@ -60,6 +115,8 @@ describe('sanitizeAttachmentName', () => {
     ['.hidden.png', 'image/png', 'hidden.png'],
     ['', 'video/mp4', 'attachment.mp4'],
     ['x.svg', 'image/png', 'x.png'],
+    ['part.STL', 'model/stl', 'part.stl'],
+    ['bracket.stp', 'model/step', 'bracket.step'],
   ] as const)('%s', (raw, mime, want) => {
     expect(sanitizeAttachmentName(raw, mime)).toBe(want);
     expect(ATTACHMENT_NAME_RE.test(want)).toBe(true);
@@ -76,11 +133,26 @@ describe('limits', () => {
   it('per type', () => {
     expect(attachmentMaxBytes('image/png')).toBe(ATTACHMENT_MAX_IMAGE_BYTES);
     expect(attachmentMaxBytes('video/mp4')).toBe(ATTACHMENT_MAX_VIDEO_BYTES);
+    expect(attachmentMaxBytes('model/stl')).toBe(ATTACHMENT_MAX_VIDEO_BYTES);
   });
 
   it('attachmentProblem (client-side)', () => {
     expect(attachmentProblem({ type: 'image/png', size: 10 })).toBeNull();
-    expect(attachmentProblem({ type: 'image/svg+xml', size: 10 })).toMatch(/only PNG/);
+    expect(attachmentProblem({ type: 'image/svg+xml', size: 10 })).toBe(ATTACHMENT_TYPES_MESSAGE);
+    // Browsers give 3D models no type or an odd one: the extension decides.
+    expect(attachmentProblem({ name: 'part.stl', type: '', size: 10 })).toBeNull();
+    expect(
+      attachmentProblem({ name: 'part.stl', type: 'application/vnd.ms-pki.stl', size: 10 }),
+    ).toBeNull();
+    expect(attachmentProblem({ name: 'notes.txt', type: '', size: 10 })).toBe(
+      ATTACHMENT_TYPES_MESSAGE,
+    );
+    expect(
+      attachmentProblem({ name: 'big.obj', type: '', size: ATTACHMENT_MAX_VIDEO_BYTES + 1 }),
+    ).toMatch(/too large/);
+    expect(
+      attachmentProblem({ name: 'big.obj', type: '', size: ATTACHMENT_MAX_IMAGE_BYTES + 1 }),
+    ).toBeNull();
     expect(attachmentProblem({ type: 'image/png', size: ATTACHMENT_MAX_IMAGE_BYTES + 1 })).toMatch(
       /too large/,
     );

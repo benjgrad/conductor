@@ -269,7 +269,7 @@ fn a_3d_model_is_not_called_an_image() {
     assert!(block.contains(
         "- `/x/part.stl` (3D model, model/stl, 2 KB). It's a 3D model file, not an image: inspect it with a script"
     ));
-    assert!(!block.contains("Read tool."));
+    assert!(!block.contains("Open it with the Read tool"));
     assert!(block.contains("- b.obj (3D model) could not be downloaded"));
 }
 

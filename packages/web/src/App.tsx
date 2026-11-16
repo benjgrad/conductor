@@ -250,7 +250,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const toggleFocus = useCallback(() => setFocus(!focus), [focus, setFocus]);
   const topbarRef = useRef<HTMLElement>(null);
   useElementHeightVar(topbarRef, '--topbar-h');
-  // 11-web-ui §Breakpoint: on a phone the document never scrolls; `.app.mobile` does.
+  // 11-web-ui §Breakpoint: on a phone the document never scrolls; `.app-body` does, under the bar.
   useDocumentClass('app-shell', mobile);
   const draft = useDraftGuard();
   const [route, navigate] = useHashRoute(draft.guard, draft.onBlocked);
@@ -474,120 +474,124 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           />
         )}
       </header>
-      {error && (
-        <p role="alert" className="error banner">
-          {error}
-        </p>
-      )}
-      <DiscardDraftConfirm draft={draft} navigate={navigate} />
-      {route.view === 'workflows' && (
-        <WorkflowsView
-          api={api}
-          onDirtyChange={draft.setDirty}
-          proposalId={route.proposalId ?? null}
-          canEditWorkflows={me !== null && (me.auth_mode === 'local' || me.user.is_admin)}
-        />
-      )}
-      {route.view === 'insights' && (
-        <InsightsPage api={api} onOpenTicket={openTicket} ticketTitle={ticketTitle} />
-      )}
-      {route.view === 'machines' && <MachinesPage api={api} ticketTitle={ticketTitle} />}
-      {route.view === 'schedules' && (
-        <SchedulesPage
-          api={api}
-          scheduleId={route.scheduleId}
-          onOpen={(scheduleId) => navigate({ view: 'schedules', scheduleId })}
-        />
-      )}
-      {route.view === 'repo-checks' && (
-        <RepoChecksPage
-          api={api}
-          repo={route.repo}
-          onSelect={(repo) => navigate({ view: 'repo-checks', repo })}
-          onDirtyChange={draft.setDirty}
-        />
-      )}
-      {route.view === 'admin' &&
-        (me ? <AdminPage api={api} me={me} /> : <p className="loading">Loading…</p>)}
-      {guide && (
-        <SetupGuide
-          api={api}
-          first={machineCount === 0}
-          onDismiss={() => {
-            if (userId !== null) dismiss(userId);
-            hideGuide();
-          }}
-          onCreateTicket={() => {
-            hideGuide();
-            setCreating(true);
-          }}
-          onFinish={() => setFirstRun(false)}
-        />
-      )}
-      {showForm && (
-        <CreateTicketForm
-          api={api}
-          onCreated={() => setCreating(false)}
-          onClose={() => setCreating(false)}
-        />
-      )}
-      <main hidden={(route.view !== 'board' && route.view !== 'archive') || guide}>
-        {route.view === 'archive' ? (
-          <ArchivePage api={api} onOpen={openResult} />
-        ) : (
-          <>
-            {focused && (
-              <TicketList
+      {/* 11-web-ui §Phone layout: on a phone this is the scroller, below the top bar, so nothing
+          scrolls under the status bar (iOS 26 blurs content there). `display: contents` on desktop. */}
+      <div className="app-body">
+        {error && (
+          <p role="alert" className="error banner">
+            {error}
+          </p>
+        )}
+        <DiscardDraftConfirm draft={draft} navigate={navigate} />
+        {route.view === 'workflows' && (
+          <WorkflowsView
+            api={api}
+            onDirtyChange={draft.setDirty}
+            proposalId={route.proposalId ?? null}
+            canEditWorkflows={me !== null && (me.auth_mode === 'local' || me.user.is_admin)}
+          />
+        )}
+        {route.view === 'insights' && (
+          <InsightsPage api={api} onOpenTicket={openTicket} ticketTitle={ticketTitle} />
+        )}
+        {route.view === 'machines' && <MachinesPage api={api} ticketTitle={ticketTitle} />}
+        {route.view === 'schedules' && (
+          <SchedulesPage
+            api={api}
+            scheduleId={route.scheduleId}
+            onOpen={(scheduleId) => navigate({ view: 'schedules', scheduleId })}
+          />
+        )}
+        {route.view === 'repo-checks' && (
+          <RepoChecksPage
+            api={api}
+            repo={route.repo}
+            onSelect={(repo) => navigate({ view: 'repo-checks', repo })}
+            onDirtyChange={draft.setDirty}
+          />
+        )}
+        {route.view === 'admin' &&
+          (me ? <AdminPage api={api} me={me} /> : <p className="loading">Loading…</p>)}
+        {guide && (
+          <SetupGuide
+            api={api}
+            first={machineCount === 0}
+            onDismiss={() => {
+              if (userId !== null) dismiss(userId);
+              hideGuide();
+            }}
+            onCreateTicket={() => {
+              hideGuide();
+              setCreating(true);
+            }}
+            onFinish={() => setFirstRun(false)}
+          />
+        )}
+        {showForm && (
+          <CreateTicketForm
+            api={api}
+            onCreated={() => setCreating(false)}
+            onClose={() => setCreating(false)}
+          />
+        )}
+        <main hidden={(route.view !== 'board' && route.view !== 'archive') || guide}>
+          {route.view === 'archive' ? (
+            <ArchivePage api={api} onOpen={openResult} />
+          ) : (
+            <>
+              {focused && (
+                <TicketList
+                  board={board}
+                  selectedSessionId={selected}
+                  selectedTicketId={selectedTicket}
+                  onSelect={setSelected}
+                  onSelectTicket={selectTicket}
+                  onShowBoard={() => setSelected(null)}
+                />
+              )}
+              {/* UXR-37: hidden, not unmounted, in focus mode: its collapsed columns stay as they were. */}
+              <Board
                 board={board}
                 selectedSessionId={selected}
-                selectedTicketId={selectedTicket}
                 onSelect={setSelected}
+                selectedTicketId={selectedTicket}
                 onSelectTicket={selectTicket}
-                onShowBoard={() => setSelected(null)}
+                api={api}
+                narrow={wide && panelOpen}
+                hidden={focused}
               />
-            )}
-            {/* UXR-37: hidden, not unmounted, in focus mode: its collapsed columns stay as they were. */}
-            <Board
-              board={board}
-              selectedSessionId={selected}
-              onSelect={setSelected}
-              selectedTicketId={selectedTicket}
-              onSelectTicket={selectTicket}
+            </>
+          )}
+          {selectedTicket && !selected && (
+            <TicketPanel
+              key={selectedTicket}
               api={api}
-              narrow={wide && panelOpen}
-              hidden={focused}
+              ticketId={selectedTicket}
+              version={ticketCard?.updated_at ?? ''}
+              onClose={() => setSelectedTicket(null)}
+              fullScreen={mobile}
+              routing={ticketCard?.routing}
+              {...focusToggle}
             />
-          </>
-        )}
-        {selectedTicket && !selected && (
-          <TicketPanel
-            key={selectedTicket}
-            api={api}
-            ticketId={selectedTicket}
-            version={ticketCard?.updated_at ?? ''}
-            onClose={() => setSelectedTicket(null)}
-            fullScreen={mobile}
-            routing={ticketCard?.routing}
-            {...focusToggle}
-          />
-        )}
-        {selected && (
-          <DetailPanel
-            key={selected}
-            api={api}
-            sessionId={selected}
-            {...(selectedCard ? { card: selectedCard } : {})}
-            // UX-5: a `card.badge` (e.g. the build-slot wait) doesn't touch updated_at; refetch on it too.
-            version={
-              selectedCard ? `${selectedCard.updated_at}|${selectedCard.badges.join(',')}` : ''
-            }
-            onClose={() => setSelected(null)}
-            fullScreen={mobile}
-            onSelectSession={setSelected}
-            {...panelLayout}
-          />
-        )}
-      </main>
+          )}
+          {selected && (
+            <DetailPanel
+              key={selected}
+              api={api}
+              sessionId={selected}
+              {...(selectedCard ? { card: selectedCard } : {})}
+              // UX-5: a `card.badge` (e.g. the build-slot wait) doesn't touch updated_at; refetch on it too.
+              version={
+                selectedCard ? `${selectedCard.updated_at}|${selectedCard.badges.join(',')}` : ''
+              }
+              onClose={() => setSelected(null)}
+              fullScreen={mobile}
+              onSelectSession={setSelected}
+              {...panelLayout}
+            />
+          )}
+        </main>
+      </div>
     </div>
   );
 }

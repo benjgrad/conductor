@@ -233,7 +233,8 @@ textarea {
 }
 
 .topbar {
-  /* Sticky at every width; App measures its height into --topbar-h for the sticky .detail. */
+  /* Sticky on desktop (on a phone it sits above the scroller); App measures its height into
+     --topbar-h for the sticky .detail. */
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
@@ -1743,10 +1744,11 @@ button.link {
     overflow: hidden;
   }
   /* The top bar and an error banner keep their height. */
-  .app.board-view > * {
+  .app.board-view > *,
+  .app.board-view > .app-body > * {
     flex: none;
   }
-  .app.board-view > main {
+  .app.board-view > .app-body > main {
     flex: 1;
     min-height: 0;
     align-items: stretch;
@@ -1962,6 +1964,12 @@ button.link {
   }
 }
 
+/* Everything under the top bar. On desktop it adds no box, so the layout is the same as without
+   it; on a phone it is the scroller (below). */
+.app-body {
+  display: contents;
+}
+
 /* 11-web-ui §Phone layout: iOS 26 (Safari and standalone PWAs) draws a progressive blur under the
    status bar and below it unless a position:fixed opaque element touches the top edge; it then
    extends that element's colour instead. This is that element (index.html). The inset is 0 on
@@ -2033,9 +2041,10 @@ button.link {
   .create-ticket {
     grid-template-columns: 1fr;
   }
-  /* The document never scrolls on a phone; the shell does. So the panel and the sheet can't be
-     scrolled away. (The status bar is made opaque by #status-bar-backdrop: iOS blurred the top bar
-     under `black-translucent`, and iOS 26 blurs it under `default` too.) */
+  /* The document never scrolls on a phone; `.app-body` does. So the panel and the sheet can't be
+     scrolled away. The top bar sits above that scroller rather than sticking inside it, so no
+     content ever passes under the status bar, where iOS 26 blurs it (as fantasyhockey's Layout
+     does). #status-bar-backdrop stays for the full-screen panel and sheet. */
   html.app-shell,
   html.app-shell body {
     height: 100%;
@@ -2052,13 +2061,26 @@ button.link {
     left: 0;
     right: 0;
     height: var(--vvh, 100dvh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  /* Opaque and still: it never scrolls, so it needs no sticky. */
+  .app.mobile > .topbar {
+    position: relative;
+    flex: none;
+  }
+  .app.mobile > .app-body {
+    display: block;
+    flex: 1;
+    min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    background: var(--bg);
   }
   /* Nothing scrolls under the open sheet. */
-  .app.mobile.creating {
+  .app.mobile.creating > .app-body {
     overflow: hidden;
   }
   /* The panel covers the board, so the board isn't laid out (or scrolled) behind it. */

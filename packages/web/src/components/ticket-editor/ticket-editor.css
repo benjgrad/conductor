@@ -79,6 +79,127 @@
   outline: none;
 }
 
+/* 11-web-ui §Phone layout (MOBILE_QUERY): the field is a preview; the editor opens full screen,
+   above the keyboard (--vvh/--vvt, useVisualViewportHeight). Its text is 16px: iOS zooms into any
+   editable under 16px and leaves the page off-centre (UXR-02). */
+@media (max-width: 899.98px) {
+  .ticket-body-preview {
+    display: block;
+    width: 100%;
+    min-height: 6em;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: var(--text-lg);
+    line-height: 1.4;
+    text-align: left;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  /* The clamp is on the text, so the button's padding never shows a cut-off seventh line. */
+  .ticket-body-preview-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 6;
+    line-clamp: 6;
+    overflow: hidden;
+  }
+  .ticket-body-preview.empty {
+    color: var(--muted);
+    font-style: italic;
+  }
+  .ticket-body-full {
+    position: fixed;
+    top: var(--vvt, 0);
+    left: 0;
+    right: 0;
+    height: var(--vvh, 100dvh);
+    z-index: calc(var(--z-sheet) + 2);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--panel);
+    color: var(--text);
+  }
+  .ticket-body-full-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: calc(var(--space-1) + env(safe-area-inset-top)) var(--space-2) var(--space-1)
+      var(--space-4);
+    border-bottom: 1px solid var(--border);
+  }
+  .ticket-body-full-head h2 {
+    flex: 1;
+    margin: 0;
+    font-size: var(--text-lg);
+    color: var(--text);
+  }
+  .ticket-body-done {
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .ticket-body-full .ticket-body-rich,
+  .ticket-body-full .ticket-body-plain {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    resize: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    font-size: var(--text-lg);
+  }
+  .ticket-body-full .ticket-body-plain {
+    padding: var(--space-3) var(--space-4);
+  }
+  /* BlockNote's box fills the screen: a tap below the last block still lands in the editor. */
+  .ticket-body-full .ticket-body-rich {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+  }
+  .ticket-body-full .ticket-body-rich > .bn-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .ticket-body-full .ticket-body-rich .bn-editor {
+    flex: 1;
+    border-radius: 0;
+    padding-block: var(--space-2);
+  }
+  .ticket-body-full .ticket-body-note {
+    flex: none;
+    padding: var(--space-2) var(--space-4);
+  }
+  /* The editor fills the screen, so its ring (UXR-56) is drawn inside its edge. */
+  .ticket-body-full .ticket-body-rich:focus-within,
+  .ticket-body-full .ticket-body-plain:focus-visible {
+    outline-offset: -2px;
+  }
+  .ticket-body-rich .bn-editor {
+    font-size: var(--text-lg);
+  }
+  /* UXR-15: BlockNote's drag-handle gutter is 13% of a phone; keep a narrow one. */
+  .ticket-body-full .ticket-body-rich .bn-editor {
+    padding-inline: var(--space-6) var(--space-3);
+  }
+  /* The formatting toolbar is wider than a phone: it scrolls sideways in its own box. */
+  .ticket-body-full .bn-mantine .bn-toolbar {
+    max-width: calc(100vw - 2 * var(--space-2));
+  }
+  .ticket-body-preview:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+}
+
 .ticket-hints ul {
   margin: var(--space-1) 0 0;
   padding-left: var(--space-4);

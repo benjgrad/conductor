@@ -2194,15 +2194,7 @@ button.link {
   .sheet .form-hint {
     text-align: center;
   }
-  .sheet .ticket-body-plain,
-  .sheet .ticket-body-rich {
-    min-height: 12em;
-    max-height: calc(var(--vvh, 100dvh) * 0.5);
-  }
-  /* UXR-15: BlockNote's drag-handle gutter is 13% of a phone; keep a narrow one. */
-  .sheet .ticket-body-rich .bn-editor {
-    padding-inline: var(--space-6) var(--space-2);
-  }
+  /* The description field on a phone: ticket-editor.css (a preview; the editor opens full screen). */
 
   /* UXR-21: a wide block scrolls in its own box, never the page. */
   .machines-table,

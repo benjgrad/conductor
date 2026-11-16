@@ -1,8 +1,14 @@
 // UX-4 (FR-4), UXR-36: an open review request (a `*ready_for_review` move) in the session panel:
 // a one-line summary of the agent's report, then Approve (the review state's approving
 // transition, `reviewApproveOption`), Request changes… (focuses the composer, which answers the
-// request), the PR link and the full report.
-import { handoffBrief, type InputRequestDto, type SessionDetail } from '@conductor/shared';
+// request), the PR link and the full report: the agent's own summary (its PR description: what
+// it did, why, and what is left), else its hand-off text.
+import {
+  agentSummary,
+  handoffBrief,
+  type InputRequestDto,
+  type SessionDetail,
+} from '@conductor/shared';
 import { useId, useRef, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { AttachmentGallery } from './AttachmentGallery.js';
@@ -119,7 +125,7 @@ export function ReviewRequest({
         aria-label="Full report"
         hidden={!report}
       >
-        <Markdown text={request.question} />
+        <Markdown text={agentSummary(detail) ?? request.question} />
       </div>
     </RequestCard>
   );

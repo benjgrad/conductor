@@ -40,7 +40,7 @@ Whenever a ticket waits on a human, the request card (and MCP `get_ticket`'s `st
 
 On a failure the engine's question and the failed check's output stay one click away, under a collapsed "Technical details". Everything is derived from stored data: no agent turn, no schema change.
 
-The prompt's "How to finish" tells the agent that its `reason` is the first thing the human reads: what it did, then why it stops there.
+The prompt's "How to finish" tells the agent that its `reason` is the first thing the human reads, and that they have none of its context: what it did and why, then what happens next. On a review card, *Full report* shows the agent's `result.summary` (the PR description, unclipped markdown), falling back to the `reason`.
 
 ## Conductor answers first (ADR-0040)
 

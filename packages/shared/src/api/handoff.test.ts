@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { WorkflowDefinitionSchema, type WorkflowDefinition } from '../workflow/schema.js';
 import {
   HANDOFF_SUMMARY_MAX,
+  agentSummary,
   handoffBrief,
   lastAssistantText,
   type HandoffBriefInput,
@@ -256,5 +257,21 @@ describe('handoffBrief', () => {
         4,
       ),
     ).toBe('…def');
+  });
+});
+
+describe('agentSummary (ticket "Poor handoff")', () => {
+  it("returns the asking state's summary as written: markdown, newlines and length kept", () => {
+    const md =
+      '- **Shell:** top bar outside the scroller\n- Desktop unchanged\n\n' + 'x'.repeat(800);
+    expect(agentSummary(input({ context: { implementing: { summary: md } } }))).toBe(md);
+  });
+
+  it('is null without a summary or an asking state', () => {
+    expect(agentSummary(input())).toBeNull();
+    expect(agentSummary(input({ context: { implementing: { summary: '  ' } } }))).toBeNull();
+    expect(
+      agentSummary(input({ return_to: null, context: { implementing: { summary: 'x' } } })),
+    ).toBeNull();
   });
 });

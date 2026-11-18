@@ -28,8 +28,35 @@
   overscroll-behavior: contain;
   padding: var(--space-1) var(--space-2) var(--space-3);
 }
+/* Each group has a bar and a heading in its column kind's colour (11-web-ui §Colour semantics):
+   a person needed violet, running blue, waiting amber, done green, queued neutral. */
+.ticket-group {
+  --group-tone: var(--border-strong);
+  border-left: 3px solid var(--group-tone);
+  padding-left: var(--space-1);
+}
+.ticket-group + .ticket-group {
+  margin-top: var(--space-2);
+}
+.ticket-group-kind-human {
+  --group-tone: var(--attention);
+}
+.ticket-group-kind-agent,
+.ticket-group-kind-command,
+.ticket-group-kind-connector {
+  --group-tone: var(--info);
+}
+.ticket-group-kind-event {
+  --group-tone: var(--warn);
+}
+.ticket-group-kind-terminal {
+  --group-tone: var(--ok);
+}
 .ticket-group h3 {
   margin: var(--space-2) 0 var(--space-1);
+}
+.ticket-group:first-child h3 {
+  margin-top: var(--space-1);
 }
 .ticket-group-toggle {
   display: flex;
@@ -47,8 +74,14 @@
   letter-spacing: 0.04em;
   text-align: left;
 }
-.ticket-group-needs_input .ticket-group-toggle {
-  color: var(--ask);
+.ticket-group-toggle .ticket-group-title,
+.ticket-group-chevron {
+  color: var(--group-tone);
+}
+/* --border-strong is only 3:1: a neutral heading stays --muted. */
+.ticket-group-kind-queued .ticket-group-title,
+.ticket-group-kind-queued .ticket-group-chevron {
+  color: var(--muted);
 }
 .ticket-group-chevron {
   width: 10px;
@@ -110,4 +143,12 @@
   gap: 2px var(--space-2);
   color: var(--muted);
   font-size: var(--text-sm);
+}
+.ticket-row-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ticket-row-agent svg {
+  flex: none;
 }

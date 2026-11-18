@@ -1,13 +1,15 @@
 // UXR-37 (11-web-ui §Desktop detail layout): focus mode's ticket list, in place of the board while
 // a ticket is open. One group per board column, each a disclosure remembered per workflow; Done and
 // the other terminal columns start collapsed. The open ticket's group always shows, so the ticket
-// being read is never hidden.
+// being read is never hidden. A row shows its agent's avatar, and each group has a bar and heading in
+// its column kind's colour (11-web-ui §Colour semantics), so it is clear which section a ticket is in.
 import type { BoardCard } from '@conductor/shared';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { boardColumns, type BoardColumnView, type BoardState } from '../board/board.js';
 import { waitingOnYou } from '../board/waiting.js';
-import { cardAgent } from './agent-identity.js';
+import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { badgeClass, requestLabel } from './Board.js';
+import { agentIdle } from './ConductorChecks.js';
 import { DEFAULT_BOARD_WORKFLOW, readListCollapsed, writeListCollapsed } from './board-layout.js';
 import { ago } from './format.js';
 import { classifyRequest } from './request-preview.js';
@@ -124,7 +126,7 @@ function TicketGroup({
 }) {
   const bodyId = useId();
   return (
-    <section className={`ticket-group ticket-group-${col.id}`}>
+    <section className={`ticket-group ticket-group-${col.id} ticket-group-kind-${col.kind}`}>
       <h3>
         <button
           type="button"
@@ -165,6 +167,8 @@ function TicketRow({
   const q = card.input_request;
   const cls = q ? classifyRequest(q) : null;
   const label = q && cls ? requestLabel(cls, q.kind) : null;
+  const agent = cardAgent(card);
+  const idle = agentIdle(card);
   return (
     <button
       type="button"
@@ -176,7 +180,23 @@ function TicketRow({
       <span className="ticket-row-title">{card.title}</span>
       <span className="ticket-row-meta">
         {q && cls && label && <span className={badgeClass(cls, q.kind)}>{label}</span>}
-        <span className="ticket-row-agent">{cardAgent(card).name}</span>
+        <span
+          className="ticket-row-agent"
+          title={
+            agent.seed === null
+              ? 'Not assigned yet'
+              : idle
+                ? `Agent ${agent.name} is idle: conductor is checking`
+                : `Agent ${agent.name}`
+          }
+        >
+          <AgentAvatar
+            seed={agent.seed}
+            size={20}
+            {...(idle ? { className: 'avatar-idle' } : {})}
+          />
+          {agent.name}
+        </span>
         <span className="ticket-row-age">{ago(card.updated_at)}</span>
       </span>
     </button>

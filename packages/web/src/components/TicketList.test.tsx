@@ -4,6 +4,7 @@
 import { BOARD_CARD_NEEDS_INPUT_FIXTURE, type BoardCard } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mockChecking } from '../api/mock-data.js';
 import type { BoardState } from '../board/board.js';
 import { ticketListKey } from './board-layout.js';
 import { TicketList, type TicketListProps } from './TicketList.js';
@@ -28,8 +29,8 @@ function card(n: number, column: string, over: Partial<BoardCard> = {}): BoardCa
 }
 
 const CARDS = [
-  card(1, 'queued', { session_id: null }),
-  card(2, 'implementing'),
+  card(1, 'queued', { session_id: null, agent_name: null }),
+  card(2, 'implementing', { agent_name: 'Reza', checking: null }),
   card(3, 'needs_input', {
     input_request: {
       ...BOARD_CARD_NEEDS_INPUT_FIXTURE.input_request!,
@@ -134,5 +135,38 @@ describe('TicketList (UXR-37)', () => {
     renderList();
     const needs = row('Card 3')!;
     expect(needs.querySelector('.badge')?.textContent).toBeTruthy();
+  });
+
+  it("shows each row's agent avatar, decoratively, and Unassigned for a queued ticket", () => {
+    renderList();
+    const working = row('Card 2')!.querySelector('.ticket-row-agent')!;
+    expect(working.textContent).toBe('Reza');
+    expect(working.getAttribute('title')).toBe('Agent Reza');
+    const avatar = working.querySelector('svg')!;
+    expect(avatar.getAttribute('aria-hidden')).toBe('true');
+    expect(avatar.classList.contains('avatar-idle')).toBe(false);
+
+    const queued = row('Card 1')!.querySelector('.ticket-row-agent')!;
+    expect(queued.textContent).toBe('Unassigned');
+    expect(queued.getAttribute('title')).toBe('Not assigned yet');
+    expect(queued.querySelector('svg.avatar-unassigned')).toBeTruthy();
+  });
+
+  it('shows an idle avatar while conductor checks the step', () => {
+    renderList({
+      board: board([card(2, 'implementing', { agent_name: 'Reza', checking: mockChecking(1) })]),
+    });
+    const agent = row('Card 2')!.querySelector('.ticket-row-agent')!;
+    expect(agent.querySelector('svg')!.classList.contains('avatar-idle')).toBe(true);
+    expect(agent.getAttribute('title')).toBe('Agent Reza is idle: conductor is checking');
+  });
+
+  it("marks each group with its column's kind, for its colour", () => {
+    renderList();
+    const kind = (title: string) => toggle(title).closest('section')!.className;
+    expect(kind('Queued')).toContain('ticket-group-kind-queued');
+    expect(kind('Implementing')).toContain('ticket-group-kind-agent');
+    expect(kind('Needs input')).toContain('ticket-group-kind-human');
+    expect(kind('Done')).toContain('ticket-group-kind-terminal');
   });
 });

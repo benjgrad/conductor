@@ -77,4 +77,9 @@ describe('colour tokens', () => {
   it('--ask is gone: a person needed is --attention, a failure is --danger', () => {
     expect(styles).not.toMatch(/--ask\b/);
   });
+
+  it('--ask is gone from the ticket list too', () => {
+    const list = readFileSync(new URL('./components/TicketList.css', import.meta.url), 'utf8');
+    expect(list).not.toMatch(/--ask\b/);
+  });
 });

@@ -241,9 +241,8 @@ describe('conductor v1: entering Waiting external', () => {
     expect(types(r.effects)).toContain('kill');
   });
 
-  it('while checking: live messages are refused; worker events are ignored', () => {
+  it('while checking: worker events are ignored', () => {
     const h = checking();
-    expect(h.run({ type: 'operator.message', text: 'hi' }).ignored).toBe('wrong_status');
     expect(h.complete({ verdict: 'approve' }).ignored).toBe('unexpected_event');
     expect(h.run({ type: 'agent.ask_user', question: 'q' }).ignored).toBe('unexpected_event');
     expect(
@@ -259,6 +258,19 @@ describe('conductor v1: entering Waiting external', () => {
       }).ignored,
     ).toBe('unexpected_event');
     expect(h.snap.workflow_state).toBe(LABEL);
+  });
+
+  it('ADR-0044: a message while checking stops the step and resumes implementing with it', () => {
+    const h = checking();
+    const r = h.run({ type: 'operator.message', text: 'hi' });
+    expect(r.ignored).toBeNull();
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      step: null,
+      pending_answer: { input_request_id: null, answer: 'hi' },
+    });
+    expect(types(r.effects)).toContain('kill');
+    expect(find(r.effects, 'start_session')).toMatchObject({ state: 'implementing' });
   });
 
   it('cancel while checking fails the session and drops the step', () => {

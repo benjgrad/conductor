@@ -2,7 +2,7 @@
 // 06 §Attachments (chat): the composer's paperclip uploads images and sends their ids with the
 // message, an image alone included; the chat bubble shows them as thumbnails; the Details tab
 // lists the ticket's files. Through DetailPanel on the mock API.
-import type { SendMessageRequest } from '@conductor/shared';
+import type { SendMessageRequest, SessionDetail } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SEED_IDS } from '../api/mock-data.js';
@@ -17,8 +17,12 @@ afterEach(() => {
 const png = (name = 'shot.png') =>
   new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], name, { type: 'image/png' });
 
-async function open(sessionId: string) {
+async function open(sessionId: string, patch?: (d: SessionDetail) => SessionDetail) {
   const api = createMockApi({ replyDelayMs: 60_000 });
+  if (patch) {
+    const get = api.getSession.bind(api);
+    api.getSession = async (id) => patch(await get(id));
+  }
   const sent: SendMessageRequest[] = [];
   const sendMessage = api.sendMessage.bind(api);
   api.sendMessage = (id, req) => {
@@ -80,7 +84,12 @@ describe('chat attachments', () => {
   });
 
   it('no paperclip while the composer is off', async () => {
-    await open(SEED_IDS.checking.session);
+    // Conductor opening the PR (the actions phase): the composer is off. (ADR-0044: the checks
+    // and review phases take messages.)
+    await open(SEED_IDS.checking.session, (d) => ({
+      ...d,
+      card: { ...d.card, checking: { ...d.card.checking!, phase: 'actions' } },
+    }));
     expect(screen.queryByRole('button', { name: 'Attach images, videos or 3D models' })).toBeNull();
   });
 

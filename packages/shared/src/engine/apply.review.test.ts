@@ -393,7 +393,6 @@ describe('while reviewing', () => {
         'unexpected_event',
       ],
       [{ type: 'external.event', name: 'ui.approve' }, 'unexpected_event'],
-      [{ type: 'operator.message', text: 'be lenient' }, 'wrong_status'],
       [
         {
           type: 'input.provided',
@@ -414,6 +413,47 @@ describe('while reviewing', () => {
       expect(r.snapshot).toBe(before);
       expect(r.effects).toEqual([]);
     }
+  });
+
+  it("ADR-0044: a human's message stops the reviewer and resumes the worker with it, uncounted", () => {
+    const h = reviewing();
+    const reviewerCmd = h.starts.at(-1)!;
+    const visits = h.snap.state_visits.implement!;
+    const r = h.run({ type: 'operator.message', text: 'Skip the TODO rule here.' });
+    expect(r.ignored).toBeNull();
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implement',
+      step: null,
+      retry_counters: {},
+      claude_session_id: WORKER,
+      pending_answer: { input_request_id: null, answer: 'Skip the TODO rule here.' },
+    });
+    expect(r.snapshot.state_visits.implement).toBe(visits + 1);
+    // The reviewer is killed (session kill), then the worker's own conversation resumes.
+    expect(types(r.effects).indexOf('kill')).toBeLessThan(
+      types(r.effects).indexOf('start_session'),
+    );
+    expect(find(r.effects, 'start_session')).toMatchObject({
+      state: 'implement',
+      prompt: 'Skip the TODO rule here.',
+      resume_claude_session_id: WORKER,
+    });
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      from: LABEL,
+      to: 'implement',
+      transition: 'message',
+      actor: 'human',
+    });
+    // The reviewer's late verdict is not taken.
+    h.started();
+    const late = h.run({
+      type: 'agent.exited',
+      command_id: reviewerCmd,
+      code: 0,
+      signal: null,
+    });
+    expect(late.ignored).toBe('command_id_mismatch');
+    expect(h.snap.workflow_state).toBe('implement');
   });
 
   it("counts the reviewer's spend toward the session budget", () => {

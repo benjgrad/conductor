@@ -25,6 +25,7 @@ const PR = 'https://github.com/benjgrad/fixture-app/pull/7';
 const LABEL = moveStateLabel('implementing', 'waiting_external', 'ready_for_testing');
 const KEY = moveCounterKey('implementing', 'ready_for_testing');
 const MIN = 60_000;
+const CLAUDE_ID = 'c1a0de00-0000-4000-8000-000000000002';
 
 type Status = 'met' | 'pending' | 'failed' | 'unsupported';
 interface Res {
@@ -604,14 +605,86 @@ describe('the conditions phase', () => {
     expect(h.snap.workflow_state).toBe('implementing');
   });
 
-  it('a message is refused before the conditions phase, while conductor checks', () => {
+  /** The worker finished ready_for_testing: the step's first check is running. */
+  function toChecks(): Harness {
     const h = implementing();
+    h.run({ type: 'agent.claude_session_id', claude_session_id: CLAUDE_ID });
     h.run({
       type: 'agent.complete_state',
       result: { summary: 'added /health' },
       transition: 'ready_for_testing',
       reason: 'Ready.',
     });
+    expect(h.snap.step?.phase).toBe('checks');
+    return h;
+  }
+
+  it('ADR-0044: a message while conductor checks kills the check and resumes the agent with it, uncounted', () => {
+    const TEXT = 'Stop: the build script changed, rebase first.';
+    const h = toChecks();
+    h.cmdExit(0); // the first check passed; the second runs
+    const visits = h.snap.state_visits.implementing!;
+    const r = h.run({ type: 'operator.message', text: TEXT });
+    expect(r.ignored).toBeNull();
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      status: 'running',
+      step: null,
+      retry_counters: {},
+      pending_answer: { input_request_id: null, answer: TEXT },
+    });
+    expect(r.snapshot.state_visits.implementing).toBe(visits + 1);
+    const kill = find(r.effects, 'kill')!;
+    // A session kill: it stops the running check and drops its fresh checkout.
+    expect(kill.target_command_id).toBeUndefined();
+    const types = r.effects.map((e) => e.type);
+    expect(types.indexOf('kill')).toBeLessThan(types.indexOf('start_session'));
+    expect(find(r.effects, 'start_session')).toMatchObject({
+      state: 'implementing',
+      prompt: TEXT,
+      resume_claude_session_id: CLAUDE_ID,
+    });
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      from: LABEL,
+      to: 'implementing',
+      transition: MESSAGE_MOVE,
+      reason: TEXT,
+      actor: 'human',
+    });
+    // The killed check's late exit is not taken as the step's outcome.
+    expect(h.cmdExit(0).ignored).not.toBeNull();
+    expect(h.snap.workflow_state).toBe('implementing');
+  });
+
+  it('ADR-0044: a requeued checks phase (no machine) takes a message without a kill', () => {
+    const h = toChecks();
+    h.snap = { ...h.snap, status: 'queued', machine_id: null };
+    const r = h.run({ type: 'operator.message', text: 'hold on' });
+    expect(r.ignored).toBeNull();
+    expect(find(r.effects, 'kill')).toBeUndefined();
+    expect(r.snapshot).toMatchObject({ workflow_state: 'implementing', step: null });
+  });
+
+  it('a message is refused while conductor opens the PR (the actions phase)', () => {
+    const h = toChecks();
+    h.cmdExit(0);
+    h.cmdExit(0);
+    expect(h.snap.step?.phase).toBe('actions');
+    expect(h.run({ type: 'operator.message', text: 'hi' }).ignored).toBe('wrong_status');
+  });
+
+  it('a message is refused in a checks phase out of an event state (no agent to resume)', () => {
+    const def = v2With((raw) => {
+      raw.states.waiting_external.on['ui.approve'] = {
+        goto: 'done',
+        requires: { checks: [{ name: 'Tests pass', cmd: 'npm test' }] },
+        on_unmet: { goto: 'waiting_external', retries: 1, else: 'needs_input' },
+      };
+    });
+    const h = implementing(def);
+    h.run({ type: 'agent.complete_state', result: {}, transition: 'ask_user', reason: 'q?' });
+    h.run({ type: 'human.transition', name: 'waiting_on_someone', text: null, actor: 'ui' });
+    h.run({ type: 'external.event', name: 'ui.approve' });
     expect(h.snap.step?.phase).toBe('checks');
     expect(h.run({ type: 'operator.message', text: 'hi' }).ignored).toBe('wrong_status');
   });

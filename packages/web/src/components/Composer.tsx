@@ -38,8 +38,12 @@ import {
 
 export type ComposerMode =
   | { mode: 'answer' }
-  /** `resumes`: no agent runs; the message ends the wait on the PR's checks and resumes it. */
-  | { mode: 'message'; resumes?: true }
+  /**
+   * `resumes`: no agent runs; the message ends the gate step and resumes it. `wait`: the step
+   * waits on the PR's checks (or behind other tickets); `checks`: conductor is running its checks
+   * or review, which the message stops (ADR-0044).
+   */
+  | { mode: 'message'; resumes?: 'wait' | 'checks' }
   | { mode: 'reopen' }
   | { mode: 'off'; reason: string };
 
@@ -47,14 +51,27 @@ export type ComposerMode =
 export function composerMode(detail: SessionDetail): ComposerMode {
   const { card } = detail;
   if (detail.pending_input) return { mode: 'answer' };
+  // The source state of a gate step comes from its label: a card waiting only on approvals shows
+  // in Waiting external, not its source column.
+  const source =
+    (card.workflow_state !== null ? gateStepSource(card.workflow_state) : null) ?? card.column;
+  const fromAgent = detail.workflow.states[source]?.type === 'agent';
+  const status = card.status;
   // UX-6 FR-5: conductor runs the step's checks, review or actions; the agent has exited.
   if (isConductorStep(card)) {
+    const phase = card.checking?.phase;
+    // ADR-0044: a message stops the checks or the review and the agent resumes with it.
+    if (fromAgent && (phase === 'checks' || phase === 'review')) {
+      return { mode: 'message', resumes: 'checks' };
+    }
     return {
       mode: 'off',
-      reason: 'Conductor is running checks; the agent resumes (or the PR opens) when they finish.',
+      reason:
+        phase === 'actions'
+          ? 'Conductor is opening the PR; the agent resumes (or the ticket moves on) in a moment.'
+          : 'Conductor is running checks; the agent resumes (or the PR opens) when they finish.',
     };
   }
-  const status = card.status;
   if (status === null || status === 'queued' || status === 'assigned') {
     return { mode: 'off', reason: 'Queued — the agent hasn’t started' };
   }
@@ -63,16 +80,13 @@ export function composerMode(detail: SessionDetail): ComposerMode {
   if (TERMINAL_STATUSES.has(status)) return { mode: 'off', reason: 'Session finished' };
   // A move step waiting on its conditions (the PR's checks or approvals), or held behind other
   // tickets (ADR-0037 P4), out of an agent state: a message ends the wait and the agent resumes
-  // with it. The source state comes from the step's
-  // label: a card waiting only on approvals shows in Waiting external, not its source column.
-  const source =
-    (card.workflow_state !== null ? gateStepSource(card.workflow_state) : null) ?? card.column;
+  // with it.
   if (
     status === 'waiting_external' &&
     (card.checking?.phase === 'conditions' || card.checking?.phase === 'held') &&
-    detail.workflow.states[source]?.type === 'agent'
+    fromAgent
   ) {
-    return { mode: 'message', resumes: true };
+    return { mode: 'message', resumes: 'wait' };
   }
   if (status === 'waiting_external') {
     return { mode: 'off', reason: 'Waiting on an external event — no agent running' };
@@ -507,10 +521,16 @@ export function Composer({
         </p>
       )}
       {hint && <p className="composer-hint muted">{COMPOSER_HINT}</p>}
-      {m.mode === 'message' && m.resumes && (
+      {m.mode === 'message' && m.resumes === 'wait' && (
         <p className="composer-reason muted">
           Conductor is waiting on the PR’s checks. A message stops the wait: {agentName} picks the
           ticket back up with it, then finishes the step again.
+        </p>
+      )}
+      {m.mode === 'message' && m.resumes === 'checks' && (
+        <p className="composer-reason muted">
+          Conductor is running checks. A message stops them: {agentName} picks the ticket back up
+          with it, then finishes the step again (the checks run again).
         </p>
       )}
       {error && (

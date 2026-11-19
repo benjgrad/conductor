@@ -224,6 +224,8 @@ export { PIN_CHECK } from './move-step.js';
 const TERMINAL_STATUSES: ReadonlySet<SessionStatus> = new Set(['done', 'failed', 'lost']);
 /** Statuses in which the agent of the current agent state may report. */
 const AGENT_ACTIVE: ReadonlySet<SessionStatus> = new Set(['assigned', 'running']);
+/** ADR-0044: a checks or review phase a human's message may stop (a requeued one included). */
+const STEP_INTERRUPTIBLE: ReadonlySet<SessionStatus> = new Set(['queued', 'assigned', 'running']);
 
 class Step {
   readonly s: SessionSnapshot;
@@ -2079,10 +2081,10 @@ function handleStep(
       failSession(st, 'cancelled', e.reason ?? 'operator_cancel');
       return null;
     case 'operator.message':
-      // While the conditions are pending (the worker has ended, the PR's checks run), a human's
-      // message hands the ticket back to the worker. Earlier phases judge independently: refused
-      // (ADR-0009, ADR-0010).
-      return messageDuringConditions(st, r, e.text);
+      // A human's message hands the ticket back to the worker (out of an agent state): while the
+      // conditions are pending or the move is held (ADR-0027), and while conductor runs the checks
+      // or the review, which it stops (ADR-0044). The actions phase refuses it.
+      return messageDuringStep(st, r, e.text);
     case 'input.provided':
     case 'human.transition':
     case 'human.fresh_conversation':
@@ -2436,19 +2438,31 @@ function conditionsTimedOut(st: Step, spec: GateSpec, r: GateStep): void {
 }
 
 /**
- * ADR-0007: a human's message while the conditions are pending, out of an agent state. The step
- * ends (nothing runs: the worker has exited and an evaluation in flight comes back stale) and the
- * source agent resumes its own conversation with the message as its prompt. Uncounted: each
- * pass back needs a human. The agent finishes the move again, which re-runs the step.
+ * ADR-0027 / ADR-0044: a human's message during a gate step out of an agent state. The step ends
+ * (in the checks or review phase the running check or reviewer is killed; a paused conditions or
+ * held phase has nothing running) and the source agent resumes its own conversation with the
+ * message as its prompt. Uncounted: each pass back needs a human. The agent finishes the move
+ * again, which re-runs the step.
  */
-function messageDuringConditions(st: Step, r: GateStep, text: string): ApplyIgnoreReason | null {
+function messageDuringStep(st: Step, r: GateStep, text: string): ApplyIgnoreReason | null {
   const source = st.def.states[r.from];
-  if ((r.phase !== 'conditions' && r.phase !== 'held') || source?.type !== 'agent') {
+  if (source?.type !== 'agent') return 'wrong_status';
+  let kill: boolean;
+  if (r.phase === 'conditions' || r.phase === 'held') {
+    // ADR-0027: paused, nothing runs (an evaluation in flight comes back stale).
+    if (st.s.status !== 'waiting_external') return 'wrong_status';
+    kill = false;
+  } else if (r.phase === 'checks' || r.phase === 'review') {
+    // ADR-0044: stop the running check (and its fresh checkout) or the reviewer. A requeued step
+    // has no machine: `leaveStep` kills nothing then.
+    if (!STEP_INTERRUPTIBLE.has(st.s.status)) return 'wrong_status';
+    kill = true;
+  } else {
+    // The actions phase (open_pr) is seconds long and pushes: not interrupted.
     return 'wrong_status';
   }
-  if (st.s.status !== 'waiting_external') return 'wrong_status';
   const label = st.s.workflow_state!;
-  leaveStep(st, false);
+  leaveStep(st, kill);
   enter(st, r.from, {
     ...NO_ROUTE,
     answer: { input_request_id: null, answer: text },

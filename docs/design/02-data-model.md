@@ -501,7 +501,7 @@ ADR-0033 P3 (MA-T05): a workflow advisor's proposed change. Migration `176260000
 | id | uuid pk | |
 | account_id | uuid fk account | `(account_id, created_at desc)` indexed; partial index on `(account_id) WHERE status = 'proposed'` |
 | kind | text | `workflow` · `repo_checks` (CHECK); machine settings come with MA-T06 |
-| status | text | `proposed` · `applied` · `rejected` · `conflict` · `failed` (CHECK); only `proposed` moves, once (applied with the row locked) |
+| status | text | `proposed` · `applied` · `rejected` · `conflict` · `failed` (CHECK); only `proposed` moves, once (applied with the row locked). Applying rebases it onto what is there now; `conflict` = a path it changes was changed differently since ([ADR-0033](../adr/0033-workflow-advisor.md#amendment-apply-rebases-2026-11-19)) |
 | title | text | ≤ 120 |
 | payload | jsonb | the `ProposalChange` (a workflow's whole validated definition, or a repo's checks / null to clear) |
 | base | jsonb | what it was made from: `{version}` (workflow) or `{config, updated_at}` of the repo's `repo_checks` row, both null when it had none |
@@ -514,7 +514,7 @@ ADR-0033 P3 (MA-T05): a workflow advisor's proposed change. Migration `176260000
 | created_at | timestamptz | |
 | decided_by, decided_at | text null, timestamptz null | who applied or rejected it (or hit the conflict) |
 | applied_at | timestamptz null | the start of the review's after-window |
-| applied_version | int null | workflow: the version applying it saved |
+| applied_version | int null | workflow: the version applying it saved (the latest one, when its change was already there and nothing was saved) |
 | error | text null | why it is `conflict` or `failed` |
 | review, reviewed_at | jsonb null, timestamptz null | the last `ProposalReview` |
 | ticket_id | uuid null fk ticket (ON DELETE SET NULL) | an agent's proposal (ask_user `proposed_checks`, [06](06-human-input.md#check-config-failures-and-agent-proposed-repo-checks)): the ticket it was proposed on; partial index `WHERE ticket_id IS NOT NULL`. Migration `1763900000001_change-proposal-ticket` |

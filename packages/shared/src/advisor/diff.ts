@@ -22,7 +22,7 @@ export const DIFF_MAX = 40;
  * `diffWorkflow` recurses this deep (`states.<s>.on.<t>.<field>`); below it, a value is compared
  * as a whole.
  */
-const WORKFLOW_DEPTH = 5;
+export const WORKFLOW_DEPTH = 5;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);

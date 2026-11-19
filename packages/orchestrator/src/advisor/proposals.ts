@@ -5,6 +5,8 @@ import {
   diffRepoChecks,
   diffWorkflow,
   ExpectedEffectSchema,
+  mergeRepoChecks,
+  mergeWorkflow,
   OPEN_PROPOSALS_MAX,
   ProposalChangeSchema,
   ProposeChangeInputSchema,
@@ -178,10 +180,12 @@ async function repoChecksNow(
   return r.rows[0] ?? null;
 }
 
-const parsedChecks = (row: RepoChecksNow): RepoChecks | null => {
-  const parsed = RepoChecksSchema.safeParse(row?.config);
+/** A stored config as checks; null when there is none (or it no longer parses). */
+const parseChecks = (config: unknown): RepoChecks | null => {
+  const parsed = RepoChecksSchema.safeParse(config);
   return parsed.success ? parsed.data : null;
 };
+const parsedChecks = (row: RepoChecksNow): RepoChecks | null => parseChecks(row?.config);
 
 /** The repo-checks base snapshot, as stored in `base` and compared on apply. */
 const repoBase = (row: RepoChecksNow) => ({
@@ -505,11 +509,61 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
           'apply a workflow change.',
       );
     }
-    const checked = validateWorkflow(change.data.definition);
-    if (!checked.ok) {
+    const stored = validateWorkflow(change.data.definition);
+    if (!stored.ok) {
       const err = 'The stored definition is no longer valid.';
       await decide(tx, row, 'failed', actor.by, { error: err });
-      return failure('invalid_workflow', err, { details: workflowDetails(checked.errors) });
+      return failure('invalid_workflow', err, { details: workflowDetails(stored.errors) });
+    }
+    const baseVersion = change.data.base_version;
+    const latest = await latestWorkflow(tx, change.data.workflow_id);
+    let checked = stored;
+    let saveFrom = baseVersion;
+    let note = `Applied proposal: ${row.title}`;
+    if (latest !== null && latest.version !== baseVersion) {
+      // ADR-0033 §Amendment "apply rebases": replay what the proposal changed onto the latest.
+      const id = change.data.workflow_id;
+      const baseRow = await tx.query<{ definition: unknown }>(
+        'SELECT definition FROM workflow_definition WHERE id = $1 AND version = $2',
+        [id, baseVersion],
+      );
+      if (baseRow.rows[0] === undefined || latest.def === null) {
+        return conflict(
+          `${id} v${baseVersion} or v${latest.version} can no longer be read: propose the change ` +
+            `again from v${latest.version}.`,
+          { latest: latest.version },
+        );
+      }
+      const merged = mergeWorkflow(baseRow.rows[0].definition, stored.def, latest.def);
+      if (!merged.ok) {
+        const paths = merged.conflicts.slice(0, 5).join(', ');
+        const more = merged.conflicts.length > 5 ? ` and ${merged.conflicts.length - 5} more` : '';
+        return conflict(
+          `${id} changed since v${baseVersion} at ${paths}${more}: propose the change again from ` +
+            `v${latest.version}.`,
+          { latest: latest.version },
+        );
+      }
+      if (merged.applied === 0) {
+        // Its changes are already in the latest version: nothing to save.
+        const done = await decide(tx, row, 'applied', actor.by, {
+          applied_version: latest.version,
+        });
+        return { ok: true, value: toDetail(done) };
+      }
+      const rebased = validateWorkflow({ ...merged.merged, id, version: latest.version });
+      if (!rebased.ok) {
+        const err =
+          `Rebased onto v${latest.version}, the workflow is invalid: ` +
+          rebased.errors
+            .slice(0, 5)
+            .map((e) => e.message)
+            .join('; ');
+        return conflict(err, { details: workflowDetails(rebased.errors) }, 'invalid_workflow');
+      }
+      checked = rebased;
+      saveFrom = latest.version;
+      note = `Applied proposal (rebased from v${baseVersion}): ${row.title}`;
     }
     const weakened = await weakenedApprovals(tx, checked.def);
     if (weakened.length > 0) {
@@ -521,15 +575,16 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
     }
     const res = await insertWorkflowVersion(tx, checked.def, {
       createdBy: actor.by,
-      baseVersion: change.data.base_version,
+      baseVersion: saveFrom,
       // UXR-70: the version history says where the version came from.
-      note: `Applied proposal: ${row.title}`.slice(0, WORKFLOW_NOTE_MAX),
+      note: note.slice(0, WORKFLOW_NOTE_MAX),
       accountId: actor.accountId,
     });
     if (!res.ok && res.code === 'conflict') {
+      // Only a save racing this one gets here (the latest was read in this transaction).
       return conflict(
-        `${checked.def.id} changed since version ${change.data.base_version} (now ` +
-          `${res.latest}): propose the change again from the latest version.`,
+        `${checked.def.id} changed since version ${saveFrom} (now ` +
+          `${res.latest}): apply it again, or propose it again from the latest version.`,
         { latest: res.latest },
       );
     }
@@ -544,13 +599,31 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
 
   const { repo, checks } = change.data;
   const now = await repoChecksNow(tx, actor.accountId, repo, true);
+  let next: RepoChecks | null = checks;
   if (stableJson(repoBase(now)) !== stableJson(row.base)) {
-    return conflict(`${repo}'s checks changed since the proposal: propose it again.`);
+    // ADR-0033 §Amendment "apply rebases": replay the proposal's edits onto the current checks.
+    const merged = mergeRepoChecks(
+      parseChecks((row.base as { config?: unknown }).config),
+      checks,
+      parsedChecks(now),
+    );
+    if (!merged.ok) {
+      return conflict(
+        `${repo}'s checks changed since the proposal at ${merged.conflicts.join(', ')}: ` +
+          'propose it again.',
+      );
+    }
+    if (merged.applied === 0) {
+      // Its change is already there: nothing to write.
+      const done = await decide(tx, row, 'applied', actor.by);
+      return { ok: true, value: toDetail(done) };
+    }
+    next = merged.merged;
   }
-  if (checks === null) {
+  if (next === null) {
     await clearRepoChecks(tx, actor.accountId, repo);
   } else {
-    const res = await setRepoChecks(tx, actor.accountId, { repo, ...checks }, actor.by);
+    const res = await setRepoChecks(tx, actor.accountId, { repo, ...next }, actor.by);
     if (!res.ok) {
       const err = `The checks are invalid: ${res.message}.`;
       await decide(tx, row, 'failed', actor.by, { error: err });
@@ -563,9 +636,14 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
 
 /**
  * Apply a `proposed` proposal through the existing guards (the workflow admin gate, the approvals
- * guard, `base_version`; the repo checks' snapshot), once: the row is locked, and a second apply
- * gets `already_applied`. A refusal that depends on what changed since (`conflict`,
- * `approval_weakened`) marks the proposal `conflict`; an error marks it `failed`. Never retried.
+ * guard, the validator), once: the row is locked, and a second apply gets `already_applied`. When
+ * the workflow moved past `base_version`, or the repo's checks changed since the snapshot, the
+ * proposal is rebased (ADR-0033 §Amendment "apply rebases"): what it changed is replayed onto what
+ * is there now (`mergeWorkflow` / `mergeRepoChecks`), so proposals made from the same base all
+ * apply unless they change the same path; one whose change is already there is marked applied
+ * without a write. A refusal that depends on what changed since (`conflict`, `approval_weakened`,
+ * a rebased definition that is `invalid_workflow`) marks the proposal `conflict`; an error marks it
+ * `failed`. Never retried.
  */
 export async function applyProposal(
   db: Db,

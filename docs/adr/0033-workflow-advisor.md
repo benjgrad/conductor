@@ -110,6 +110,15 @@ Ben approved finishing P3 without machine settings: MA-T06 waits on M2-T28c (the
 - **Web.** The Workflow page lists proposals under the editor (open / all), with the diff, evidence, effect, rollback, Apply behind a confirm, Reject, the stored conflict or failure, and the review. Applying a workflow change reloads the editor unless it has unsaved edits (it warns instead).
 - **E2E** (MA-T08a, `e2e/advisor.e2e.test.ts`): the real bins over `/mcp`, from a finding to an applied repo-checks change and its review; the history is written to the database and the token minted there, to keep it at a few seconds.
 
+## Amendment: apply rebases (2026-11-19)
+Ben had three open proposals and found that applying one made the others fail: apply saved the proposal's whole snapshot, so anything saved since its base made it a `conflict`, even when the two changed different things. Applying now **rebases** the proposal instead:
+
+- **Workflow.** When the workflow is still at `base_version`, apply saves the definition as before. Otherwise apply reads the base version and replays what the proposal changed (base → proposed) onto the latest (`mergeWorkflow`, pure, in `packages/shared/src/advisor/merge.ts`). The paths are the board diff's (`diffWorkflow`: down to `states.<s>.on.<t>.<field>`), as path arrays, so a transition named `ui.approve` is one segment. A path is written when the latest still has the base's value there, skipped when it already has the proposal's, and is a **conflict** otherwise (or when the latest removed its parent). The error names the paths. The rebased definition goes through the validator (an invalid combination is `invalid_workflow`, status `conflict`), the approvals guard and rule 18 as before, and is saved on top of the latest with the note `Applied proposal (rebased from v<base>): <title>`.
+- **Repo checks.** When the repo's row still matches the snapshot, apply writes as before. Otherwise `mergeRepoChecks` replays the proposal's `setup` and its `checks` list onto the current checks. Adding or clearing the override merges only when the other side left it as it was.
+- **Already there.** A proposal whose changes are all already in place (two agents proposing the same fix) is marked `applied` without a write. A workflow one records the latest version as `applied_version`.
+- **Unchanged.** Propose still requires the latest `base_version`. The admin gate, the approvals guard (which can no longer drop a gate added since, because the rebase keeps it), the row lock, at-most-once, and "nothing retries" are all as before. The board still shows the proposal's own diff (base → proposed).
+- **Limits.** Arrays (`columns`, a gate's `checks`) and values below the diff depth (a whole prompt) are compared whole, so two edits to the same array or prompt conflict. A repo's `checks` list is one value: two proposals editing different checks in one repo still conflict (a follow-up could match checks by name).
+
 ## Alternatives considered
 | Option | Why not |
 |---|---|

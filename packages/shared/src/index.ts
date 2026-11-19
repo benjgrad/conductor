@@ -81,6 +81,7 @@ export * from './advisor/metrics.js';
 export * from './advisor/check-history.js';
 export * from './advisor/insight.js';
 export * from './advisor/diff.js';
+export * from './advisor/merge.js';
 export * from './advisor/proposal.js';
 export * from './advisor/insights-api.js';
 

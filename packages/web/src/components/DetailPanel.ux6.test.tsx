@@ -19,18 +19,15 @@ async function open(title: string) {
 }
 
 describe('session panel in a conductor step (UX-6)', () => {
-  it('FR-5: header says "Conductor is checking", the composer says why, no "(move:" text', async () => {
+  it('FR-5: header says "Conductor is checking", the composer says a message stops it, no "(move:" text', async () => {
     const { panel, el } = await open('Conductor checks demo');
     const head = el.querySelector('.detail-head') as HTMLElement;
     expect(within(head).getByText('Conductor is checking')).toBeTruthy();
     expect(head.querySelectorAll('.chip.status')).toHaveLength(1);
 
-    expect(panel.getByLabelText<HTMLTextAreaElement>('Message').disabled).toBe(true);
-    expect(
-      panel.getByText(
-        'Conductor is running checks; the agent resumes (or the PR opens) when they finish.',
-      ),
-    ).toBeTruthy();
+    // ADR-0044: the checks run out of an agent state, so a message can stop them.
+    expect(panel.getByLabelText<HTMLTextAreaElement>('Message').disabled).toBe(false);
+    expect(panel.getByText(/Conductor is running checks\. A message stops them/)).toBeTruthy();
 
     // The whole panel, the (hidden) Details tab included: moves, workflow line, diagram label.
     expect(el.textContent).not.toContain('(move:');

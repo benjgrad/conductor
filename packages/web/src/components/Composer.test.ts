@@ -1,6 +1,7 @@
 import {
   BOARD_CARD_PENDING_FIXTURE,
   CONDUCTOR_V2_DRAFT_DEF,
+  moveStateLabel,
   type BoardCard,
   type SessionDetail,
 } from '@conductor/shared';
@@ -31,22 +32,47 @@ describe('composerMode while a move step waits on its conditions', () => {
   it("messages the agent (resuming it) while the PR's checks run, out of an agent state", () => {
     expect(composerMode(detail(BOARD_CARD_PENDING_FIXTURE))).toEqual({
       mode: 'message',
-      resumes: true,
+      resumes: 'wait',
     });
     // The fixture waits only on approvals, so it shows in Waiting external; the source state
     // comes from the step's label, and a card still in its source column resumes too.
     expect(BOARD_CARD_PENDING_FIXTURE.column).toBe('waiting_external');
     expect(composerMode(detail({ ...BOARD_CARD_PENDING_FIXTURE, column: 'implementing' }))).toEqual(
-      { mode: 'message', resumes: true },
+      { mode: 'message', resumes: 'wait' },
     );
   });
 
-  it('stays off while conductor runs the checks themselves', () => {
-    const card: BoardCard = {
-      ...BOARD_CARD_PENDING_FIXTURE,
-      status: 'running',
-      checking: { ...BOARD_CARD_PENDING_FIXTURE.checking!, phase: 'checks' },
-    };
+  const inPhase = (phase: 'checks' | 'review' | 'actions', over: Partial<BoardCard> = {}) => ({
+    ...BOARD_CARD_PENDING_FIXTURE,
+    status: 'running' as const,
+    checking: { ...BOARD_CARD_PENDING_FIXTURE.checking!, phase },
+    ...over,
+  });
+
+  it('ADR-0044: messages the agent (stopping the checks) while conductor runs checks or review', () => {
+    expect(composerMode(detail(inPhase('checks')))).toEqual({ mode: 'message', resumes: 'checks' });
+    expect(composerMode(detail(inPhase('review')))).toEqual({ mode: 'message', resumes: 'checks' });
+    // A requeued step (no machine yet) still takes the message.
+    expect(composerMode(detail(inPhase('checks', { status: 'queued' })))).toEqual({
+      mode: 'message',
+      resumes: 'checks',
+    });
+  });
+
+  it('stays off while conductor opens the PR (the actions phase)', () => {
+    const m = composerMode(detail(inPhase('actions')));
+    expect(m).toEqual({
+      mode: 'off',
+      reason:
+        'Conductor is opening the PR; the agent resumes (or the ticket moves on) in a moment.',
+    });
+  });
+
+  it('stays off while conductor checks a move out of an event state (no agent to resume)', () => {
+    const card = inPhase('checks', {
+      column: 'waiting_external',
+      workflow_state: moveStateLabel('waiting_external', 'done', 'ui.approve'),
+    });
     expect(composerMode(detail(card)).mode).toBe('off');
   });
 

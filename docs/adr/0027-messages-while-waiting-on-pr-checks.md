@@ -4,6 +4,7 @@
 - **Date**: 2026-10-29
 - **Deciders**: Ben (+ Claude session, background job "chat while PR checks run")
 - **Resolves**: —
+- **Amended by**: [ADR-0044](0044-messages-interrupt-conductor-checks.md) (a message also stops the checks and review phases)
 
 ## Context
 Ben, 2026-10-29: *"when the PR checks are running, we should still be able to chat with the AI session and provide feedback"*.

@@ -168,6 +168,56 @@ describe('change proposals (ADR-0033 P3)', () => {
     expect(await checksOf(a.accountId, repo)).toBeNull();
   });
 
+  it('repo checks: proposals from the same snapshot rebase; the same edit twice writes once', async () => {
+    const repo = 'github.com/acme/rebase';
+    await setRepoChecks(
+      db.pool,
+      a.accountId,
+      { repo, setup: 'i', checks: [{ name: 't', cmd: 't' }] },
+      'me',
+    );
+    const setup = (s: string) => ({
+      ...META,
+      change: {
+        kind: 'repo_checks',
+        repo,
+        checks: { setup: s, checks: [{ name: 't', cmd: 't' }] },
+      },
+    });
+    const one = await propose(a, setup('i || true'));
+    const dup = await propose(a, setup('i || true'));
+    const other = await propose(a, setup('i2'));
+    const list = await propose(a, {
+      ...META,
+      change: {
+        kind: 'repo_checks',
+        repo,
+        checks: {
+          setup: 'i',
+          checks: [
+            { name: 't', cmd: 't' },
+            { name: 'l', cmd: 'l' },
+          ],
+        },
+      },
+    });
+
+    for (const p of [one, dup, list]) {
+      const res = await applyProposal(db.pool, a, p.id);
+      expect(res.ok ? res.value.status : res.message).toBe('applied');
+    }
+    expect(await checksOf(a.accountId, repo)).toEqual({
+      setup: 'i || true',
+      checks: [
+        { name: 't', cmd: 't' },
+        { name: 'l', cmd: 'l' },
+      ],
+    });
+    const late = await applyProposal(db.pool, a, other.id);
+    expect(late.ok ? 'ok' : late.code).toBe('conflict');
+    expect((await getProposal(db.pool, a.accountId, other.id))!.error).toContain('at setup');
+  });
+
   it('refuses an empty change, an invalid one, and more than the open cap', async () => {
     const acc: ProposalActor = { ...a, accountId: await account('cap') };
     const repo = 'github.com/acme/cap';
@@ -253,12 +303,88 @@ describe('change proposals (ADR-0033 P3)', () => {
     expect(v.rows[0]!.created_by).toBe('admin@a');
     expect(v.rows[0]!.definition.states[FIRST_STATE]!.title).toBe('Plan it');
 
-    // The other proposal was made from version 1: applying it now is a conflict, never a save.
+    // The other proposal was made from version 1 and retitles the same state differently: a
+    // conflict naming the path, never a save.
     const late = await applyProposal(db.pool, a, second.id);
     expect(late.ok ? 'ok' : !late.ok && [late.code, late.latest]).toEqual(['conflict', 2]);
     expect(await statusOf(second.id)).toBe('conflict');
+    expect((await getProposal(db.pool, a.accountId, second.id))!.error).toContain(
+      `states.${FIRST_STATE}.title`,
+    );
     const versions = await db.pool.query("SELECT 1 FROM workflow_definition WHERE id = 'wf_p'");
     expect(versions.rowCount).toBe(2);
+  });
+
+  it('workflow: proposals from the same base that change different paths all apply', async () => {
+    await storeWorkflow('wf_m', 1, def('wf_m'));
+    const [s1, s2] = Object.keys(CONDUCTOR_V4_DEF.states);
+    const one = await propose(a, wfChange('wf_m', 1, def('wf_m', retitle('One'))));
+    const two = await propose(
+      a,
+      wfChange(
+        'wf_m',
+        1,
+        def('wf_m', (d) => {
+          d.states[s2!]!.title = 'Two';
+        }),
+      ),
+    );
+    const same = await propose(a, wfChange('wf_m', 1, def('wf_m', retitle('One'))));
+    const three = await propose(
+      a,
+      wfChange(
+        'wf_m',
+        1,
+        def('wf_m', (d) => {
+          d.states.needs_input!.on!.extra_done = { goto: 'done', actor: 'human', title: 'Done' };
+        }),
+      ),
+    );
+    expect(s1).toBe(FIRST_STATE);
+
+    for (const p of [one, two, three]) {
+      const res = await applyProposal(db.pool, a, p.id);
+      expect(res.ok ? res.value.status : res.message).toBe('applied');
+    }
+    // The same retitle again: already there, applied without a new version.
+    const dup = await applyProposal(db.pool, a, same.id);
+    expect(dup.ok && dup.value).toMatchObject({ status: 'applied', applied_version: 4 });
+
+    const v = await db.pool.query<{ version: number; note: string | null; definition: Def }>(
+      "SELECT version, note, definition FROM workflow_definition WHERE id = 'wf_m' ORDER BY version",
+    );
+    expect(v.rows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
+    expect(v.rows[2]!.note).toMatch(/^Applied proposal \(rebased from v1\): /);
+    const latest = v.rows[3]!.definition;
+    expect(latest.states[FIRST_STATE]!.title).toBe('One');
+    expect(latest.states[s2!]!.title).toBe('Two');
+    expect(latest.states.needs_input!.on!.extra_done).toMatchObject({ goto: 'done' });
+  });
+
+  it('workflow: a rebase whose combination is invalid is a conflict', async () => {
+    await storeWorkflow('wf_i', 1, def('wf_i'));
+    // A proposal adds a transition; a v2 stored behind the save path's back carries a transition
+    // to a state that doesn't exist. The edits don't overlap, but the rebased result is invalid.
+    const p = await propose(
+      a,
+      wfChange(
+        'wf_i',
+        1,
+        def('wf_i', (d) => {
+          d.states.needs_input!.on!.extra = { goto: 'done', actor: 'human', title: 'X' };
+        }),
+      ),
+    );
+    await storeWorkflow(
+      'wf_i',
+      2,
+      def('wf_i', (d) => {
+        d.states.needs_input!.on!.extra2 = { goto: 'nowhere', actor: 'human', title: 'Y' };
+      }),
+    );
+    const res = await applyProposal(db.pool, a, p.id);
+    expect(res.ok ? 'ok' : res.code).toBe('invalid_workflow');
+    expect(await statusOf(p.id)).toBe('conflict');
   });
 
   it('workflow: weakening an approval is refused when proposing and when applying', async () => {
@@ -269,13 +395,18 @@ describe('change proposals (ADR-0033 P3)', () => {
       [`needs_input.${HUMAN_T}`],
     ]);
 
-    // Proposed from an ungated v1; a human gates it on the board (v2) before it is applied.
+    // Proposed from an ungated v1; a gate lands in v2 before it is applied. The proposal no
+    // longer saves its whole v1-based snapshot (which would drop the gate): it rebases onto v2
+    // (ADR-0033 §Amendment "apply rebases"). This bare `gate` fixture doesn't pass the validator,
+    // so the rebased result is refused as invalid; either way no version without the gate is saved.
     await storeWorkflow('wf_h', 1, def('wf_h'));
     const p = await propose(a, wfChange('wf_h', 1, def('wf_h', retitle('Z'))));
     await storeWorkflow('wf_h', 2, def('wf_h', gate));
     const res = await applyProposal(db.pool, a, p.id);
-    expect(res.ok ? 'ok' : res.code).toBe('approval_weakened');
+    expect(res.ok ? 'ok' : res.code).toBe('invalid_workflow');
     expect(await statusOf(p.id)).toBe('conflict');
+    const versions = await db.pool.query("SELECT 1 FROM workflow_definition WHERE id = 'wf_h'");
+    expect(versions.rowCount).toBe(2);
   });
 
   it('review compares the expected metric before and after the change', async () => {

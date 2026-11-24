@@ -112,6 +112,7 @@ describe('the step in context (no migration)', () => {
     held: false,
     // R3: defaulted as well.
     skipped_checks: [],
+    requirements: [],
   };
 
   it('splitStep reads __entry and the legacy ADR-0009 __review; joinStep writes __entry only', () => {

@@ -1,6 +1,8 @@
-// UX-7: the Details tab in STAR order. Situation (why the ticket exists), Task (what was asked),
-// Action (what happened, oldest first), Steps (each state's recorded result, UXR-88), Result (how it stands and what's next), then the
-// technical details, collapsed. Which sections are open is remembered per session.
+// UX-7: the Details tab. The technical details first (collapsed), then `afterTechnical` (the
+// ticket's requirements, ADR-0045), then the STAR sections at the bottom: Situation (why the ticket
+// exists), Task (what was asked), Action (what happened, oldest first), Steps (each state's recorded
+// result, UXR-88), Result (how it stands and what's next). Which sections are open is remembered
+// per session.
 import { SESSION_MOVES_LIMIT, type SessionDetail } from '@conductor/shared';
 import { useCallback, useId, useMemo, useState, type ReactNode } from 'react';
 import type { ApiClient } from '../api/client.js';
@@ -34,6 +36,8 @@ interface StarDetailsProps {
   brief: Brief | null;
   body: string | null;
   onReload: () => void;
+  /** Rendered after Technical details and before the STAR sections (the Requirements section). */
+  afterTechnical?: ReactNode;
 }
 
 // ---------------------------------------------------------------- open state (FR-6)
@@ -446,6 +450,7 @@ export function StarDetails({
   brief,
   body,
   onReload,
+  afterTechnical,
 }: StarDetailsProps) {
   const [open, toggle] = useStarOpen(sessionId);
   // NFR-4: all derived from the latest detail; nothing here is keyed by it, so an SSE-driven
@@ -458,6 +463,26 @@ export function StarDetails({
 
   return (
     <>
+      <StarSection
+        title="Technical details"
+        summary="agent, machine, session, workflow, spend, raw context"
+        open={open.technical}
+        onToggle={() => toggle('technical')}
+      >
+        <AgentCard api={api} detail={detail} sessionId={sessionId} name={name} />
+        <WorkflowSection detail={detail} />
+        <section aria-label="Moves">
+          <h4>All moves</h4>
+          <MovesList moves={detail.moves ?? []} workflow={detail.workflow} />
+        </section>
+        <SpendSection detail={detail} />
+        <section aria-label="Context">
+          <h4>Context</h4>
+          <ContextView context={detail.context} />
+        </section>
+      </StarSection>
+      {/* ADR-0045: the ticket's requirements checklist sits between the two. */}
+      {afterTechnical}
       <StarSection
         title="Situation"
         summary={summaryLine(s.text) || s.title}
@@ -496,24 +521,6 @@ export function StarDetails({
       </StarSection>
       <StarSection title="Result" summary={r.status}>
         <ResultBody r={r} api={api} detail={detail} onReload={onReload} />
-      </StarSection>
-      <StarSection
-        title="Technical details"
-        summary="agent, machine, session, workflow, spend, raw context"
-        open={open.technical}
-        onToggle={() => toggle('technical')}
-      >
-        <AgentCard api={api} detail={detail} sessionId={sessionId} name={name} />
-        <WorkflowSection detail={detail} />
-        <section aria-label="Moves">
-          <h4>All moves</h4>
-          <MovesList moves={detail.moves ?? []} workflow={detail.workflow} />
-        </section>
-        <SpendSection detail={detail} />
-        <section aria-label="Context">
-          <h4>Context</h4>
-          <ContextView context={detail.context} />
-        </section>
       </StarSection>
     </>
   );

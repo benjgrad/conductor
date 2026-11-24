@@ -450,13 +450,15 @@ export function DetailPanel({
                 brief={brief}
                 body={body}
                 onReload={reload}
-              />
-              {/* ADR-0045: the ticket's requirements checklist, while it has one. */}
-              <RequirementsSection
-                key={`reqs-${sessionId}`}
-                api={api}
-                detail={detail}
-                onReload={reload}
+                // ADR-0045: the ticket's requirements checklist, after Technical details.
+                afterTechnical={
+                  <RequirementsSection
+                    key={`reqs-${sessionId}`}
+                    api={api}
+                    detail={detail}
+                    onReload={reload}
+                  />
+                }
               />
               {/* 06 §Attachments: the ticket's files, in every column. */}
               <TicketAttachments

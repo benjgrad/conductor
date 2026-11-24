@@ -265,7 +265,7 @@ A URL is listed once, under the first of agent, you, ticket, read that mentioned
 
 ## Requirements ([ADR-0045](../adr/0045-ticket-requirements-checklist.md))
 
-The Details tab's **Requirements** section (`RequirementsSection.tsx`) shows the ticket's checklist (`context.__requirements`) while it has one:
+The Details tab's **Requirements** section (`RequirementsSection.tsx`) shows the ticket's checklist (`context.__requirements`) while it has one. The tab's order is **Technical details** (collapsed) first, then **Requirements**, then the STAR sections at the bottom (Situation, Task, Action, Steps, Result), then the ticket's attachments and agent permissions. The section shows:
 - "n of m met", and who set the list (the planning state, or you, with the revision).
 - Each item with an icon **and** a word: Met, Not met, Not checked yet. Never colour alone. The reviewer's reason sits under a checked item.
 - **Edit requirements**: one requirement per line; unchanged lines keep their status. It is disabled, with a note, while conductor's review runs, and absent once the session is finished.

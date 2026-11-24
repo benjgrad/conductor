@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// UX-7: the Details tab in STAR order (Situation, Task, Action, Steps, Result, Technical details).
+// UX-7: the Details tab: Technical details, the ticket's requirements (ADR-0045), then the STAR
+// sections (Situation, Task, Action, Steps, Result).
 import type { MoveDto, SessionDetail } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -279,12 +280,12 @@ describe('accessibility (NFR-3)', () => {
     await screen.findByRole('heading', { level: 3, name: 'Agent permissions' });
     const h3 = screen.getAllByRole('heading', { level: 3 });
     expect(h3.map((h) => h.querySelector('.star-title')?.textContent ?? h.textContent)).toEqual([
+      'Technical details',
       'Situation',
       'Task',
       'Action',
       'Steps',
       'Result',
-      'Technical details',
       // ADR-0039: the ticket's skip-permissions setting, while the session isn't finished.
       'Agent permissions',
     ]);
@@ -293,6 +294,24 @@ describe('accessibility (NFR-3)', () => {
       expect(b.closest('h3')).not.toBeNull();
       expect(b.getAttribute('aria-controls')).toBeTruthy();
     }
+  });
+});
+
+describe('section order (ADR-0045)', () => {
+  it('Technical details, then Requirements, then the STAR sections', async () => {
+    await open(SEED_IDS.review.session);
+    const h3 = screen.getAllByRole('heading', { level: 3 });
+    expect(
+      h3.map((h) => h.querySelector('.star-title')?.textContent ?? h.textContent).slice(0, 7),
+    ).toEqual([
+      'Technical details',
+      'Requirements',
+      'Situation',
+      'Task',
+      'Action',
+      'Steps',
+      'Result',
+    ]);
   });
 });
 

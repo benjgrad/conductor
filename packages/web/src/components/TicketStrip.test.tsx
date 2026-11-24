@@ -49,13 +49,13 @@ async function open(
 const strip = () => within(screen.getByRole('group', { name: 'Ticket' }));
 
 describe('ticket buttons (phone)', () => {
-  it('sit in the tab row, beside the two tabs; Brief shows its short tally', async () => {
+  it('sit in the tab row, beside the three tabs; Brief shows its short tally', async () => {
     const { panel } = await open(SEED_IDS.running.session);
     expect(panel.queryByRole('region', { name: 'Brief' })).toBeNull();
     expect(document.querySelector('.edit-ticket')).toBeNull();
     // The tablist holds only the tabs; the buttons are its sibling in the same row.
     const tablist = panel.getByRole('tablist', { name: 'Session views' });
-    expect(within(tablist).getAllByRole('tab')).toHaveLength(2);
+    expect(within(tablist).getAllByRole('tab')).toHaveLength(3);
     expect(tablist.parentElement!.contains(screen.getByRole('group', { name: 'Ticket' }))).toBe(
       true,
     );

@@ -1,6 +1,6 @@
 // The session panel: a compact header (agent, title, status), then one row with two tabs and the
 // ticket buttons (Brief, Plan, Edit), whose sheets open over the tab bodies (TicketStrip.tsx,
-// 11-web-ui §Phone layout). Messages is a chat with the agent (the live log, the open question
+// 11-web-ui §Phone layout). Links (LinksTab.tsx) lists the PRs, links and files at a glance. Messages is a chat with the agent (the live log, the open question
 // inline, a composer pinned at the bottom); Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
 // where, the workflow, spend and the context under Technical details.
 import {
@@ -41,6 +41,7 @@ import { headStatus, KIND_LABELS, TERMINAL_STATUSES } from './format.js';
 import { FocusToggle } from './FocusToggle.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { TicketCheckProposal } from './TicketCheckProposal.js';
+import { LinksTab } from './LinksTab.js';
 import { Markdown } from './markdown.js';
 import { CheckRuns, latestRunText, OutputLog, runCount } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
@@ -101,10 +102,11 @@ export type PanelLayout = 'default' | 'wide';
 
 export { isOldVersion };
 
-export type PanelTab = 'messages' | 'details';
+export type PanelTab = 'messages' | 'details' | 'links';
 const TABS: readonly { id: PanelTab; label: string }[] = [
   { id: 'messages', label: 'Messages' },
   { id: 'details', label: 'Details' },
+  { id: 'links', label: 'Links' },
 ];
 
 export function DetailPanel({
@@ -467,6 +469,18 @@ export function DetailPanel({
                 finished={detail.card.status !== null && TERMINAL_STATUSES.has(detail.card.status)}
               />
             </>
+          )}
+        </div>
+        <div
+          role="tabpanel"
+          id={`${ids}-panel-links`}
+          aria-labelledby={`${ids}-tab-links`}
+          className="tab-body links-tab"
+          hidden={tab !== 'links'}
+        >
+          {/* Built only while it shows: it walks the whole conversation. */}
+          {detail && tab === 'links' && (
+            <LinksTab detail={detail} output={output} history={history} />
           )}
         </div>
         {detail && sheet !== null && (

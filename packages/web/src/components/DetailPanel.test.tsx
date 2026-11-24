@@ -283,6 +283,18 @@ describe('session panel tabs', () => {
     expect(details.getAttribute('aria-selected')).toBe('true');
   });
 
+  it('the Links tab is the third, reached by the keys too, and lists the session where it runs', async () => {
+    const { panel } = await setup('Add pagination to /orders');
+    const messages = panel.getByRole('tab', { name: 'Messages' });
+    const links = panel.getByRole('tab', { name: 'Links' });
+    fireEvent.keyDown(messages, { key: 'End' });
+    expect(links.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(links);
+    expect(panel.getByRole('region', { name: 'Where it runs' })).toBeTruthy();
+    fireEvent.keyDown(links, { key: 'ArrowRight' });
+    expect(messages.getAttribute('aria-selected')).toBe('true');
+  });
+
   it('header and Details show the stored agent_name (UX-13b)', async () => {
     const { panel } = await setup('Add pagination to /orders', (api) => {
       const getSession = api.getSession.bind(api);

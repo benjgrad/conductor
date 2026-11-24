@@ -43,7 +43,7 @@ function contrast(vars: Map<string, string>, fg: string, bg: string): number {
   return (a + 0.05) / (b + 0.05);
 }
 
-const SEMANTIC = ['--attention', '--danger', '--warn', '--info', '--ok'];
+const SEMANTIC = ['--attention', '--danger', '--warn', '--info', '--ok', '--system'];
 
 describe('type ramp', () => {
   it('is 11 / 12 / 13 / 14 / 16 / 20 px', () => {

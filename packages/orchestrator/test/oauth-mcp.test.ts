@@ -846,6 +846,11 @@ describe('/mcp tools (approved set)', () => {
       [newId],
     );
     expect(s.rows[0]).toEqual({ status: 'queued', ticket_id: done.ticketId });
+    expect(outputBus.snapshot(newId).at(-1)).toMatchObject({
+      stream: 'user',
+      text: 'Add docs',
+      via: 'mcp',
+    });
 
     // UXR-86: a queued ticket (no session) is cancelled and reopened as a ticket row.
     const created = await call(a.access, 'create_ticket', {
@@ -1190,6 +1195,7 @@ describe('/mcp for conversational clients', () => {
     expect(outputBus.snapshot(working.sessionId).at(-1)).toMatchObject({
       stream: 'user',
       text: 'Also add a test',
+      via: 'mcp', // the thread shows it as "You · via MCP"
     });
 
     const asked = await seedAgentSession(a.user.accountId, {
@@ -1219,6 +1225,7 @@ describe('/mcp for conversational clients', () => {
     expect(outputBus.snapshot(asked.sessionId).at(-1)).toMatchObject({
       stream: 'user',
       text: 'Yes',
+      via: 'mcp', // the thread shows it as "You · via MCP"
     });
 
     const again = await seedAgentSession(a.user.accountId, {
@@ -1236,6 +1243,7 @@ describe('/mcp for conversational clients', () => {
     expect(outputBus.snapshot(again.sessionId).at(-1)).toMatchObject({
       stream: 'user',
       text: 'The second',
+      via: 'mcp', // the thread shows it as "You · via MCP"
     });
 
     const done = await seedTicketSession(a.user.accountId, 'done');

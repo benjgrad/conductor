@@ -58,6 +58,10 @@
   /* Done or passed. */
   --ok: #1f7a45;
   --ok-bg: #e6f4ea;
+  /* Said by conductor or Claude Code, not the human: background-job notices, reminders, step
+     prompts in the Messages thread. */
+  --system: #0b6b6b;
+  --system-bg: #e3f4f3;
   --accent-bg: #eef2fb;
   /* UXR-35: the permission request kind is the attention colour. */
   --perm: var(--attention);
@@ -113,6 +117,8 @@ html {
     --info-bg: #222a3a;
     --ok: #5ccf8b;
     --ok-bg: #13301f;
+    --system: #5cc8c4;
+    --system-bg: #16302f;
     --accent-bg: #222a3a;
     --inline-code-bg: #262c38;
     --diff-add-bg: #12301f;
@@ -913,6 +919,12 @@ button.copy {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* " · via MCP" after You: the same person, another way in. */
+.user-via {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
 /* An answer to the agent's question: the question's accent (as the request it closes), with the
    question quoted above the answer. */
 .answer-msg {
@@ -928,6 +940,73 @@ button.copy {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* A message conductor or Claude Code put into the conversation (conductor-message.ts): not the
+   human's, so its own colour, and laid out as notices rather than raw tags. */
+.conductor-msg {
+  background: var(--system-bg);
+  border: 1px solid color-mix(in srgb, var(--system) 25%, transparent);
+  border-left: 4px solid var(--system);
+  border-radius: 10px;
+  padding: var(--space-2) var(--space-3);
+}
+.conductor-label {
+  color: var(--system);
+}
+.conductor-line {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: 2px 0 0;
+  min-width: 0;
+}
+.conductor-icon {
+  flex: none;
+  width: 1em;
+  text-align: center;
+  font-weight: 700;
+  color: var(--system);
+}
+.conductor-task-ok .conductor-icon {
+  color: var(--ok);
+}
+.conductor-task-failed .conductor-icon {
+  color: var(--danger);
+}
+.conductor-task-stopped .conductor-icon {
+  color: var(--warn);
+}
+.conductor-task-other .conductor-icon {
+  color: var(--muted);
+}
+.conductor-line-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.conductor-file {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conductor-details {
+  margin: 2px 0 0;
+}
+.conductor-details > summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.conductor-note {
+  margin: var(--space-1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+.conductor-rest {
+  color: var(--muted);
 }
 /* UXR-38: the opening prompt (the ticket) is markdown, laid out by .md, not pre-wrapped. */
 .ticket-msg .user-text {

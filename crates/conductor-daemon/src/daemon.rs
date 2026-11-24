@@ -105,6 +105,8 @@ pub const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// U-028 (ADR-0005 addendum): the one user message sent when a turn ends with neither
 /// complete_state nor ask_user. A second outcome-less turn in a row emits `no_outcome`.
+/// The web Messages thread recognises it by its text (packages/web/src/components/
+/// conductor-message.ts `NUDGE_TEXT`) to label it "Conductor": change both together.
 pub const NO_OUTCOME_NUDGE: &str =
     "You must finish by calling complete_state with your result, or ask_user if you need a human";
 

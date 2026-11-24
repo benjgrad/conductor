@@ -152,6 +152,116 @@ describe('answers to the agent’s question', () => {
   });
 });
 
+describe('messages the human didn’t write (conductor-message.ts)', () => {
+  const notice = (status: string, summary: string) =>
+    `<task-notification>\n<task-id>b1</task-id>\n<output-file>${WT}/tasks/b1.output</output-file>\n<status>${status}</status>\n<summary>${summary}</summary>\n</task-notification>`;
+  const nudge =
+    'You must finish by calling complete_state with your result, or ask_user if you need a human';
+
+  it('a background-job notice is conductor’s, and never the answer to an open question', () => {
+    const e = buildEntries([
+      chunk('assistant', 'Checking.'),
+      toolUse('mcp__conductor__ask_user', { question: 'Ship it?' }),
+      chunk('tool_result', 'Question sent.'),
+      chunk('user', notice('completed', 'Background command "tests" completed (exit code 0)')),
+      chunk('user', 'yes'),
+    ]);
+    expect(e.map((x) => x.kind)).toEqual(['text', 'tool', 'conductor', 'user']);
+    expect(e.at(-1)).toMatchObject({ kind: 'user', text: 'yes', answer: { question: 'Ship it?' } });
+  });
+
+  it('the first prompt is still the Ticket; a later one is a step prompt', () => {
+    const prompt = (step: string) => `# Ticket: Add /health\n\nBody\n\n## Your step: ${step}`;
+    const e = buildEntries([
+      chunk('user', prompt('planning')),
+      chunk('assistant', 'Planned.'),
+      chunk('user', prompt('implementing')),
+    ]);
+    expect(e[0]).toMatchObject({ kind: 'user', ticket: true });
+    expect(e[2]).toMatchObject({
+      kind: 'conductor',
+      notices: [{ kind: 'step-prompt', step: 'implementing' }],
+    });
+  });
+
+  it('shows them as Conductor, laid out, with no raw tags; the human is still You', () => {
+    const { container } = render(
+      <OutputLog
+        output={[
+          chunk('user', 'Start'),
+          chunk('assistant', 'Working.'),
+          chunk('user', notice('failed', 'Background command "lint" failed with exit code 1')),
+          chunk('user', nudge),
+          chunk('user', 'also add a test'),
+        ]}
+        worktree={WT}
+      />,
+    );
+    const msgs = screen.getAllByRole('group', { name: 'Conductor message' });
+    expect(msgs.map((m) => m.querySelector('.conductor-label')?.textContent)).toEqual([
+      'Conductor · background job',
+      'Conductor · reminder',
+    ]);
+    const job = msgs[0]!.querySelector('.conductor-line');
+    expect(job?.classList.contains('conductor-task-failed')).toBe(true);
+    expect(job?.textContent).toContain('Background command "lint" failed with exit code 1');
+    expect(job?.querySelector('.conductor-file')?.textContent).toBe('tasks/b1.output');
+    expect(msgs[1]?.textContent).toContain('Reminded the agent to finish');
+    expect(container.textContent).not.toMatch(/<task-id>|<status>|You must finish/);
+    const mine = screen.getByRole('group', { name: 'Your message' });
+    expect(mine.querySelector('.user-label')?.textContent).toBe('You');
+  });
+
+  it('a step prompt is collapsed, its markdown inside', () => {
+    render(
+      <OutputLog
+        output={[
+          chunk('user', 'Start'),
+          chunk('assistant', 'Done planning.'),
+          chunk('user', '# Ticket: X\n\n## Your step: implementing\n\nMake **it**.'),
+        ]}
+        worktree={WT}
+      />,
+    );
+    const msg = screen.getByRole('group', { name: 'Conductor message' });
+    const details = msg.querySelector('details');
+    expect(details?.open).toBe(false);
+    expect(details?.querySelector('summary')?.textContent).toBe('Prompt for implementing');
+    expect(details?.querySelector('strong')?.textContent).toBe('it');
+  });
+});
+
+describe('messages sent through MCP (OutputChunk.via)', () => {
+  it('labels them “You · via MCP”, a message and an answer alike; the board’s stay “You”', () => {
+    render(
+      <OutputLog
+        output={[
+          chunk('user', 'Start'),
+          toolUse('mcp__conductor__ask_user', { question: 'Which DB?' }),
+          chunk('tool_result', 'Question sent.'),
+          { ...chunk('user', 'Postgres'), via: 'mcp' },
+          { ...chunk('user', 'and add a test'), via: 'mcp' },
+          chunk('user', 'from the board'),
+        ]}
+        worktree={WT}
+      />,
+    );
+    const answer = screen.getByRole('group', { name: 'Your answer' });
+    expect(answer.querySelector('.user-label')?.textContent).toBe('You answered · via MCP');
+    expect(
+      screen
+        .getAllByRole('group', { name: 'Your message' })
+        .map((m) => [
+          m.querySelector('.user-label')?.textContent,
+          m.querySelector('.user-text')?.textContent,
+        ]),
+    ).toEqual([
+      ['You · via MCP', 'and add a test'],
+      ['You', 'from the board'],
+    ]);
+  });
+});
+
 describe('describeTool / resultSummary', () => {
   const short = shortener(WT);
   it('labels tools like Claude Code and strips the worktree (with or without /private)', () => {

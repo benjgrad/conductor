@@ -912,6 +912,8 @@ describe('engine routes', () => {
     expect(seen).toEqual(['user:/context']);
     expect(appliedFirst).toEqual([true]);
     expect(outputBus.snapshot(sessionId).map((c) => c.stream)).toEqual(['user']);
+    // From the board: no `via` (only MCP's message_agent marks its chunk).
+    expect(outputBus.snapshot(sessionId)[0]?.via).toBeUndefined();
   });
 
   it('POST /messages: 409 conflict when ignored (not running / needs_input), no chunk', async () => {

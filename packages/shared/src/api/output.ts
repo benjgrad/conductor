@@ -12,5 +12,13 @@ export const OutputChunkSchema = z.object({
   stream: OutputStreamSchema,
   text: z.string(),
   ts: IsoDateTimeSchema,
+  /**
+   * How a person's `user` chunk reached conductor, when not the board: `mcp`, a conductor MCP
+   * tool (message_agent, answer_input, reopen_ticket). Absent otherwise, and on transcript
+   * history, which can't tell.
+   */
+  via: z.enum(['mcp']).optional(),
 });
 export type OutputChunk = z.infer<typeof OutputChunkSchema>;
+/** `OutputChunk.via`. */
+export type ChunkVia = NonNullable<OutputChunk['via']>;

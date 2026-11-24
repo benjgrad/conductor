@@ -343,8 +343,12 @@ describe('composer', () => {
       ]),
     );
     // The orchestrator echoes it as a `user` chunk: rendered as the human's turn.
-    const mine = await panel.findByRole('group', { name: 'Your message' });
-    expect(mine.textContent).toBe('Youuse cursor pagination');
+    // (The card's seeded history already has one, sent via MCP: this one is the last.)
+    await waitFor(() =>
+      expect(panel.getAllByRole('group', { name: 'Your message' }).at(-1)?.textContent).toBe(
+        'Youuse cursor pagination',
+      ),
+    );
     await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(''));
     // The mock agent replies.
     expect(await panel.findByText(/take that into account/)).toBeTruthy();

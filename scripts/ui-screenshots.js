@@ -199,7 +199,7 @@ const VIEWPORTS = [
         'detail-checks',
         ...BASE_SHOTS,
       ],
-      dark: ['board', 'detail', 'insights', ...REQUEST_SHOTS],
+      dark: ['board', 'detail', 'insights', 'detail-done', ...REQUEST_SHOTS],
     },
   },
   {

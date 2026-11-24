@@ -51,6 +51,7 @@ export * from './engine/spend.js';
 export * from './engine/budget.js';
 export * from './engine/qa.types.js';
 export * from './engine/triage.js';
+export * from './engine/requirements.js';
 export * from './engine/fixtures.js';
 export * from './protocol/ws.js';
 export * from './protocol/question-options.js';

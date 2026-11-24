@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { recordVerdict, setRequirements, withRequirements } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import type { RequestAuth } from '../auth/middleware.js';
 import { lastTicketKind } from '../api/tickets.js';
@@ -13,6 +14,7 @@ import {
   buildMcpServer,
   FINDINGS_PAGE,
   frictionReport,
+  requirementsReport,
   REPORT_FRICTIONS_MAX,
   REPORT_IDS_MAX,
   MCP_INSTRUCTIONS,
@@ -486,5 +488,28 @@ describe('create_ticket kind default (WF-T03)', () => {
       arguments: { title: 't', repo: 'acme/app', body: 'b', base: { ref: 'a'.repeat(40) } },
     });
     expect(res.isError).toBe(true);
+  });
+});
+
+describe('get_ticket requirements (ADR-0045)', () => {
+  it('lists each item with its status and reason, the count and an open proposal', () => {
+    const set = setRequirements(null, ['a', 'b'], { set_by: 'agent', set_in: 'planning' });
+    const judged = recordVerdict(set, [{ item: 'a', met: true, reason: 'ok' }], 'step');
+    const ctx = withRequirements(
+      {},
+      { ...judged, proposed: { items: ['a'], from_state: 'implementing', revision_of: 1 } },
+    );
+    expect(requirementsReport(ctx)).toEqual({
+      requirements: {
+        items: [
+          { text: 'a', status: 'met', reason: 'ok' },
+          { text: 'b', status: 'pending' },
+        ],
+        met: 1,
+        total: 2,
+        proposed: ['a'],
+      },
+    });
+    expect(requirementsReport({})).toEqual({});
   });
 });

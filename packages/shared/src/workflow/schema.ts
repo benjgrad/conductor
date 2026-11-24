@@ -1004,7 +1004,8 @@ export type TerminalState = z.infer<typeof TerminalStateSchema>;
 
 /**
  * Session context keys conductor writes itself (`session.context.<key>`): never a state name
- * (validator rule 8), never an agent's result. ADR-0020 adds `__qa` (QA_CONTEXT_KEY). Literals here
+ * (validator rule 8), never an agent's result. ADR-0020 adds `__qa` (QA_CONTEXT_KEY), ADR-0045
+ * `__requirements` (REQUIREMENTS_CONTEXT_KEY). Literals here
  * (not imported from engine/) to keep workflow/ free of engine imports; `schema.m2r.test.ts` holds
  * them equal to the `*_CONTEXT_KEY` constants.
  */
@@ -1018,6 +1019,7 @@ export const RESERVED_CONTEXT_KEYS = [
   '__default',
   '__default_taken',
   '__triage',
+  '__requirements',
 ] as const;
 export type ReservedContextKey = (typeof RESERVED_CONTEXT_KEYS)[number];
 

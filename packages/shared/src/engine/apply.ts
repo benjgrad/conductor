@@ -87,7 +87,20 @@ import {
   PIN_CHECK,
   type GateSpec,
 } from './move-step.js';
-import { renderPrompt, type PromptAttachment } from './render.js';
+import { PLAN_TEMPLATE, renderPrompt, type PromptAttachment } from './render.js';
+import {
+  normRequirement,
+  parseRequirementList,
+  proposedOfResult,
+  recordVerdict,
+  renderRequirementsSection,
+  requirementTexts,
+  requirementsOfContext,
+  sameList,
+  setRequirements,
+  withRequirements,
+  REQUIREMENTS_RESULT_KEY,
+} from './requirements.js';
 import { heldVerdict, shortTicketId } from './concurrency.js';
 import { notifyDecision } from './notify.js';
 import { CHECK_CONFIG_KEY, setupFailureMessage, setupSource } from './setup-failure.js';
@@ -386,6 +399,8 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return onDefaultFired(st, e);
     case 'human.overrule':
       return onOverrule(st, e);
+    case 'human.requirements':
+      return onRequirements(st, e);
   }
 }
 
@@ -586,6 +601,13 @@ function onComplete(
   const result = e.result;
   const reason = e.reason ?? null;
   const plan = planAgentTransition(st.def, name, ticketKind(st.s), e.transition, reason);
+  noteRequirements(
+    st,
+    name,
+    state,
+    result,
+    plan.type === 'ask_user' || (plan.type === 'take' && plan.question),
+  );
   if (plan.type === 'ask_user') {
     takeOutcome(
       st,
@@ -1502,7 +1524,20 @@ function gateOf(def: WorkflowDefinition, from: string, outcome: string): Require
 /** The step's spec, with the repo's check override pinned on the step applied (ADR-0030). */
 function gateSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | null {
   const spec = definitionSpecOf(def, r);
-  return spec === null ? null : applyRepoChecks(spec, r.repo_checks);
+  return spec === null ? null : withTicketRequirements(applyRepoChecks(spec, r.repo_checks), r);
+}
+
+/**
+ * ADR-0045: a step with a review also checks the ticket's requirements the step pinned, after the
+ * gate's own items (one already among them, normalised, is not asked twice). No review → as is.
+ */
+function withTicketRequirements(spec: GateSpec, r: GateStep): GateSpec {
+  const pinned = r.requirements ?? [];
+  if (spec.review === null || pinned.length === 0) return spec;
+  const own = new Set(spec.review.items.map(normRequirement));
+  const extra = pinned.filter((t) => !own.has(normRequirement(t)));
+  if (extra.length === 0) return spec;
+  return { ...spec, review: { ...spec.review, items: [...spec.review.items, ...extra] } };
 }
 
 function definitionSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | null {
@@ -1624,6 +1659,8 @@ function enterStep(
     hold: null,
     held: false,
     skipped_checks: [],
+    // ADR-0045: the ticket's requirements as they are now; this step's review checks exactly these.
+    requirements: requirementTexts(requirementsOfContext(s.context)),
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit, ...moveFields(p.record) });
   // ADR-0037 P4: `requires.concurrency` first holds the move (no machine needed to wait).
@@ -2091,6 +2128,9 @@ function handleStep(
     case 'gate.retry':
     case 'human.overrule':
       return 'wrong_status';
+    case 'human.requirements':
+      // ADR-0045: the reviewer judges the list the step pinned; an edit waits until it is done.
+      return r.phase === 'review' ? 'wrong_status' : onRequirements(st, e);
     case 'default.fired':
       // ADR-0041: a gate step is never a human state with an open question.
       return 'stale_timer';
@@ -2839,6 +2879,11 @@ function onVerdict(st: Step, spec: GateSpec, r: GateStep, result: JsonObject): v
     ...st.s.context,
     [label]: { verdict: verdict.items.map((v) => ({ ...v })) },
   };
+  // ADR-0045: tick the ticket's requirements off (met or not) with this review's verdict.
+  const reqs = requirementsOfContext(st.s.context);
+  if (reqs !== null && r.requirements.length > 0) {
+    st.s.context = withRequirements(st.s.context, recordVerdict(reqs, verdict.items, label));
+  }
   const unmet = verdict.items
     .filter((v) => !v.met)
     .map((v) => ({ item: v.item, reason: v.reason }));
@@ -3599,6 +3644,77 @@ function onDefaultFired(
     answer: rt.recommended,
     after: rt.after,
   });
+  return null;
+}
+
+// ---------------------------------------------------------------- requirements (ADR-0045)
+
+/**
+ * An agent's result and the ticket's requirements checklist. A planning state (`plan_template`)
+ * sets or replaces the list with `requirements`. Any other agent may only propose a change: with a
+ * question (`asking`) a changed list becomes the open proposal a human applies; on any other
+ * transition it is ignored, and the attempt is kept so the board can say so.
+ */
+function noteRequirements(
+  st: Step,
+  name: string,
+  state: AgentState,
+  result: JsonObject,
+  asking: boolean,
+): void {
+  const prev = requirementsOfContext(st.s.context);
+  if (state.prompt === PLAN_TEMPLATE) {
+    const texts = parseRequirementList(result[REQUIREMENTS_RESULT_KEY]);
+    if (texts !== null) {
+      st.s.context = withRequirements(
+        st.s.context,
+        setRequirements(prev, texts, { set_by: 'agent', set_in: name }),
+      );
+    }
+    return;
+  }
+  const texts = proposedOfResult(result);
+  if (texts === null || sameList(texts, requirementTexts(prev))) return;
+  const base = prev ?? {
+    items: [],
+    set_by: 'agent' as const,
+    set_in: name,
+    revision: 0,
+    proposed: null,
+    ignored: null,
+  };
+  st.s.context = withRequirements(
+    st.s.context,
+    asking
+      ? { ...base, proposed: { items: texts, from_state: name, revision_of: base.revision } }
+      : { ...base, ignored: { items: texts, from_state: name, revision_of: base.revision } },
+  );
+}
+
+/** `human.requirements`: a human sets the checklist, or applies the agent's proposal (ADR-0045). */
+function onRequirements(
+  st: Step,
+  e: Extract<EngineEvent, { type: 'human.requirements' }>,
+): ApplyIgnoreReason | null {
+  const prev = requirementsOfContext(st.s.context);
+  const texts =
+    e.apply_proposal === true ? (prev?.proposed?.items ?? null) : parseRequirementList(e.items);
+  if (texts === null) return 'invalid_requirements';
+  const next = setRequirements(prev, texts, { set_by: 'human', set_in: e.actor });
+  st.s.context = withRequirements(st.s.context, next);
+  // A running worker hears about it now; anyone else reads the list in their next prompt.
+  if (
+    st.s.step === null &&
+    st.s.status === 'running' &&
+    st.state?.type === 'agent' &&
+    st.s.agent_process_live &&
+    !isQaState(st.state)
+  ) {
+    st.emit({
+      type: 'send_message',
+      text: `A human changed the ticket's requirements.\n\n${renderRequirementsSection(next)}`,
+    });
+  }
   return null;
 }
 

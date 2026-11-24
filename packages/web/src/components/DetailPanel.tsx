@@ -41,6 +41,7 @@ import { headStatus, KIND_LABELS, TERMINAL_STATUSES } from './format.js';
 import { FocusToggle } from './FocusToggle.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { TicketCheckProposal } from './TicketCheckProposal.js';
+import { PendingRequirementsProposal, RequirementsSection } from './RequirementsSection.js';
 import { LinksTab } from './LinksTab.js';
 import { Markdown } from './markdown.js';
 import { CheckRuns, latestRunText, OutputLog, runCount } from './OutputLog.js';
@@ -236,6 +237,10 @@ export function DetailPanel({
       {/* An agent's proposed repo checks wait on a human here, with their diff. */}
       {detail.pending_input && (
         <TicketCheckProposal api={api} ticketId={detail.card.ticket_id} onDone={reload} />
+      )}
+      {/* ADR-0045: an agent's proposed requirements change, decided where its question is. */}
+      {detail.pending_input && (
+        <PendingRequirementsProposal api={api} detail={detail} onReload={reload} />
       )}
       {detail.card.sub_status === 'needs_permission' &&
         detail.card.permission &&
@@ -444,6 +449,13 @@ export function DetailPanel({
                 name={name}
                 brief={brief}
                 body={body}
+                onReload={reload}
+              />
+              {/* ADR-0045: the ticket's requirements checklist, while it has one. */}
+              <RequirementsSection
+                key={`reqs-${sessionId}`}
+                api={api}
+                detail={detail}
                 onReload={reload}
               />
               {/* 06 §Attachments: the ticket's files, in every column. */}

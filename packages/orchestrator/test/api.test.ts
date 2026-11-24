@@ -883,6 +883,43 @@ describe('engine routes', () => {
     expect((ignored.body.error as { code: string }).code).toBe('conflict');
   });
 
+  it('PUT /requirements → human.requirements (ADR-0045); 400 for a bad list, 409 during a review', async () => {
+    const { sessionId } = await seedSession('running');
+    const put = async (body: unknown) => {
+      const res = await fetch(`${base}/api/sessions/${sessionId}/requirements`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+    expect((await put({ items: ['a', 'b'] })).status).toBe(202);
+    expect((await put({ apply_proposal: true })).status).toBe(202);
+    expect(engine.calls.map((c) => c.event)).toEqual([
+      { type: 'human.requirements', items: ['a', 'b'], actor: UI_ACTOR },
+      { type: 'human.requirements', apply_proposal: true, actor: UI_ACTOR },
+    ]);
+    expect((await put({ items: [] })).status).toBe(400);
+    let reason: 'invalid_requirements' | 'wrong_status' = 'invalid_requirements';
+    engine.respondWith(({ sessionId: sid, event }) =>
+      sid === sessionId && event.type === 'human.requirements'
+        ? {
+            status: 'ignored',
+            eventId: engine.nextEventId(),
+            reason,
+            snapshot: engine.snapshot(sid)!,
+          }
+        : undefined,
+    );
+    const invalid = await put({ apply_proposal: true });
+    expect(invalid.status).toBe(400);
+    expect((invalid.body.error as { message: string }).message).toContain('no proposed change');
+    reason = 'wrong_status';
+    const busy = await put({ items: ['a'] });
+    expect(busy.status).toBe(409);
+    expect((busy.body.error as { code: string }).code).toBe('conflict');
+  });
+
   it('POST /cancel → operator.cancel, with or without a reason', async () => {
     const { sessionId } = await seedSession('running');
     expect((await post(`/api/sessions/${sessionId}/cancel`)).status).toBe(202);

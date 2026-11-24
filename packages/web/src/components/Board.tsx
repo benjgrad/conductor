@@ -846,6 +846,16 @@ function Card({
             {meta.srStatusLabel && <span className="visually-hidden">{meta.srStatusLabel}</span>}
           </>
         )}
+        {card.requirements && card.requirements.total > 0 && (
+          // ADR-0045: how many of the ticket's requirements the reviews found met.
+          <span
+            className="tag tag-requirements"
+            title={`${card.requirements.met} of ${card.requirements.total} requirements met`}
+          >
+            ☑ {card.requirements.met}/{card.requirements.total}
+            <span className="visually-hidden"> requirements met</span>
+          </span>
+        )}
         {card.priority !== DEFAULT_TICKET_PRIORITY && (
           <span className="prio">P{card.priority}</span>
         )}
@@ -868,6 +878,14 @@ function Card({
           title="The agent proposed follow-up tickets: approve or dismiss them in the ticket"
         >
           {card.proposals_pending} proposed
+        </span>
+      )}
+      {card.requirements?.proposed === true && (
+        <span
+          className="badge badge-proposals"
+          title="The agent proposes changing the requirements: apply it or keep the list in the ticket"
+        >
+          requirements change proposed
         </span>
       )}
       {card.alerts && card.alerts.length > 0 && (

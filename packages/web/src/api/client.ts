@@ -25,6 +25,7 @@ import type {
   CreateTicketRequest,
   FreshConversationRequest,
   OverruleDefaultRequest,
+  SetRequirementsRequest,
   EnrollmentTokenCreated,
   InviteCreated,
   InvitePreview,
@@ -345,6 +346,11 @@ export interface ApiClient {
    * it is still starting).
    */
   overruleDefault(sessionId: string, req: OverruleDefaultRequest): Promise<OkResponse>;
+  /**
+   * PUT /api/sessions/:id/requirements (ADR-0045): replace the ticket's requirements checklist, or
+   * apply the agent's proposed change. 400 for a bad list or no proposal, 409 while a review runs.
+   */
+  setRequirements(sessionId: string, req: SetRequirementsRequest): Promise<OkResponse>;
   /**
    * GET /api/sessions/:id/permission-requests (ADR-0023): the session's permission prompts,
    * oldest first, every pending one included. 404 for an unknown or another account's session.

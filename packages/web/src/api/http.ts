@@ -77,6 +77,7 @@ import {
   type TransitionSessionRequest,
   type FreshConversationRequest,
   type OverruleDefaultRequest,
+  type SetRequirementsRequest,
   type WorkflowDefinition,
   PushTestResponseSchema,
   PushVapidPublicKeyResponseSchema,
@@ -605,6 +606,14 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         OkResponseSchema,
         'POST',
         API_PATHS.sessionOverrule(encodeURIComponent(sessionId)),
+        req,
+      ),
+
+    setRequirements: (sessionId: string, req: SetRequirementsRequest) =>
+      request(
+        OkResponseSchema,
+        'PUT',
+        API_PATHS.sessionRequirements(encodeURIComponent(sessionId)),
         req,
       ),
 

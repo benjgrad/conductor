@@ -28,6 +28,14 @@ import {
 import type { ApiClient } from '../api/client.js';
 import { ChatFiles } from './AttachmentGallery.js';
 import { splitChatFiles } from './attachment-groups.js';
+import {
+  classifyUserText,
+  conductorLabel,
+  NUDGE_TEXT,
+  taskTone,
+  type ConductorMessage,
+  type ConductorNotice,
+} from './conductor-message.js';
 import { Markdown } from './markdown.js';
 import { phaseStateName } from './state-name.js';
 import { moveTitle } from './transitions.js';
@@ -56,6 +64,11 @@ export type Entry =
       ticket?: boolean;
       answer?: { question: string };
     }
+  /**
+   * A `user` chunk the human didn't write: Claude Code's background-job notices and reminders,
+   * conductor's nudge, a later step's prompt (conductor-message.ts). Shown as "Conductor".
+   */
+  | ({ kind: 'conductor'; key: string; ts: string } & ConductorMessage)
   | { kind: 'tool'; key: string; ts: string; call: ToolCall; result: string | null }
   | { kind: 'stream'; key: string; ts: string; stream: 'stdout' | 'stderr'; text: string }
   | { kind: 'debug'; key: string; ts: string; text: string };
@@ -132,8 +145,15 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
       case 'user':
         // One chunk = one message. Tool pairing is untouched: the message lands mid-turn.
         if (c.text.trim() === '') break;
+        const first = !out.some((e) => e.kind !== 'debug');
+        // Not the human's: never the prompt, and never the answer to an open question.
+        const conductor = classifyUserText(c.text, { first });
+        if (conductor) {
+          out.push({ kind: 'conductor', key, ts, ...conductor });
+          break;
+        }
         // UXR-38: a user message before anything else is the prompt (the ticket), not a reply.
-        if (!out.some((e) => e.kind !== 'debug')) {
+        if (first) {
           out.push({ kind: 'user', key, ts, text: c.text, ticket: true });
         } else if (asked) {
           const q = asked.call.input?.question;
@@ -734,6 +754,70 @@ function PhaseDivider({
   );
 }
 
+/** One harness/conductor notice, laid out for the thread rather than as its raw tags. */
+function ConductorNoticeRow({
+  notice,
+  short,
+  workflow,
+}: {
+  notice: ConductorNotice;
+  short: (s: string) => string;
+  workflow?: WorkflowDefinition | undefined;
+}) {
+  switch (notice.kind) {
+    case 'task': {
+      const tone = taskTone(notice.status);
+      const icon = tone === 'ok' ? '✓' : tone === 'failed' ? '✗' : tone === 'stopped' ? '■' : '•';
+      return (
+        <p className={`conductor-line conductor-task-${tone}`}>
+          <span className="conductor-icon" aria-hidden="true">
+            {icon}
+          </span>
+          <span className="conductor-line-text">
+            {notice.summary || `Background job ${notice.status}`}
+            {notice.outputFile && (
+              <span className="conductor-file" title={notice.outputFile}>
+                {short(notice.outputFile)}
+              </span>
+            )}
+          </span>
+        </p>
+      );
+    }
+    case 'nudge':
+      return (
+        <p className="conductor-line" title={NUDGE_TEXT}>
+          <span className="conductor-icon" aria-hidden="true">
+            ↻
+          </span>
+          <span className="conductor-line-text">
+            Reminded the agent to finish with complete_state or ask_user
+          </span>
+        </p>
+      );
+    case 'step-prompt':
+      return (
+        <details className="conductor-details">
+          <summary>
+            {notice.step
+              ? `Prompt for ${phaseStateName(notice.step, workflow).toLowerCase()}`
+              : 'Step prompt'}
+          </summary>
+          <div className="conductor-prompt">
+            <Markdown text={short(notice.text)} />
+          </div>
+        </details>
+      );
+    case 'note':
+      return (
+        <details className="conductor-details">
+          <summary>{notice.tag === 'system-reminder' ? 'System note' : notice.tag}</summary>
+          <pre className="conductor-note">{short(notice.text)}</pre>
+        </details>
+      );
+  }
+}
+
 /** Scrolled up by more than this many viewports → offer "Jump to latest". */
 const JUMP_AFTER_SCREENS = 1;
 
@@ -889,6 +973,16 @@ export function OutputLog({
           </div>
         );
       }
+      case 'conductor':
+        return (
+          <div key={e.key} className="conductor-msg" role="group" aria-label="Conductor message">
+            <span className="user-label conductor-label">{conductorLabel(e)}</span>
+            {e.notices.map((n, j) => (
+              <ConductorNoticeRow key={j} notice={n} short={short} workflow={workflow} />
+            ))}
+            {e.rest !== '' && <p className="user-text conductor-rest">{short(e.rest)}</p>}
+          </div>
+        );
       case 'tool':
         return <ToolRow key={e.key} entry={e} short={short} />;
       case 'stream':

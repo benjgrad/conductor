@@ -1037,6 +1037,34 @@ export function mockSeeds(now: Date): MockSeed[] {
           'tool_result',
           'src/models/user.ts:12:  fullname: string;\nsrc/api/users.ts:40:  user.fullname',
         ],
+        // Messages Claude Code and conductor put into the conversation, not the human's (they
+        // show as Conductor bubbles, conductor-message.ts).
+        [
+          'tool_use',
+          'Bash {"command":"pnpm test","description":"Run the tests","run_in_background":true}',
+        ],
+        ['tool_result', 'Command running in background with ID: b1x2'],
+        [
+          'tool_use',
+          'Bash {"command":"pnpm lint","description":"Run the linter","run_in_background":true}',
+        ],
+        ['tool_result', 'Command running in background with ID: b3y4'],
+        ['assistant', 'Tests and lint are running in the background.'],
+        [
+          'user',
+          '<task-notification>\n<task-id>b1x2</task-id>\n<tool-use-id>toolu_01AbC</tool-use-id>\n<output-file>/tmp/claude-1000/-home-dev-wt/5f3a/tasks/b1x2.output</output-file>\n<status>completed</status>\n<summary>Background command "Run the tests" completed (exit code 0)</summary>\n</task-notification>',
+        ],
+        [
+          'user',
+          '<system-reminder>\n<task-notification>\n<task-id>b3y4</task-id>\n<tool-use-id>toolu_01DeF</tool-use-id>\n<output-file>/tmp/claude-1000/-home-dev-wt/5f3a/tasks/b3y4.output</output-file>\n<status>failed</status>\n<summary>Background command "Run the linter" failed with exit code 1</summary>\n</task-notification>\n</system-reminder>',
+        ],
+        ['assistant', 'Lint flagged an unused import; removed it.'],
+        ['user', 'Also rename it in the docs'],
+        ['assistant', 'Renamed it in docs/users.md too.'],
+        [
+          'user',
+          'You must finish by calling complete_state with your result, or ask_user if you need a human',
+        ],
         ['tool_use', 'mcp__conductor__complete_state {"result":{"summary":"Renamed in 2 files"}}'],
         ['tool_result', 'Recorded. Stop now: do not call any other tool and end your turn.'],
         ['assistant', 'Renamed the field in 2 files and committed.'],

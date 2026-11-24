@@ -49,6 +49,14 @@ describe('classifyUserText', () => {
     expect(m?.notices[0]).toMatchObject({ kind: 'task', summary: 'x gone', status: '' });
   });
 
+  it('decodes the escaped text Claude Code writes (`&&` as `&amp;&amp;`)', () => {
+    const m = classifyUserText(
+      '<task-notification><status>completed</status><summary>Background command "a &amp;&amp; b &gt; out" completed</summary></task-notification>',
+      later,
+    );
+    expect(m?.notices[0]).toMatchObject({ summary: 'Background command "a && b > out" completed' });
+  });
+
   it('a reminder of plain text is a note', () => {
     expect(classifyUserText('<system-reminder>\nBe brief.\n</system-reminder>', later)).toEqual({
       notices: [{ kind: 'note', tag: 'system-reminder', text: 'Be brief.' }],

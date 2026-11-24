@@ -55,10 +55,24 @@ const STEP_PROMPT_PREFIX = '# Ticket: ';
 
 const OPEN_TAG = /^<([a-z][a-z-]*)>/;
 
-/** The text of `<tag>…</tag>` inside `body`, or null. */
+const ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  '#39': "'",
+};
+
+/** The harness escapes `&`, `<` and `>` in a block's text (`&amp;&amp;` in a command). */
+function unescape(text: string): string {
+  return text.replace(/&(amp|lt|gt|quot|apos|#39);/g, (_, e: string) => ENTITIES[e]!);
+}
+
+/** The text of `<tag>…</tag>` inside `body`, unescaped, or null. */
 function child(body: string, tag: string): string | null {
   const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(body);
-  return m ? m[1]!.trim() : null;
+  return m ? unescape(m[1]!.trim()) : null;
 }
 
 function taskNotice(body: string): ConductorNotice {
@@ -68,10 +82,12 @@ function taskNotice(body: string): ConductorNotice {
     // A shape we don't know: show its text without the tags rather than nothing.
     summary:
       child(body, 'summary') ??
-      body
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim(),
+      unescape(
+        body
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      ),
     outputFile: child(body, 'output-file'),
     taskId: child(body, 'task-id'),
   };

@@ -142,7 +142,7 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
         if (prev?.kind === 'debug') prev.text += `\n${c.text}`;
         else out.push({ kind: 'debug', key, ts, text: c.text });
         break;
-      case 'user':
+      case 'user': {
         // One chunk = one message. Tool pairing is untouched: the message lands mid-turn.
         if (c.text.trim() === '') break;
         const first = !out.some((e) => e.kind !== 'debug');
@@ -167,6 +167,7 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
           asked = null;
         } else out.push({ kind: 'user', key, ts, text: c.text });
         break;
+      }
     }
   }
   return out;

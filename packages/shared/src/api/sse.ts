@@ -11,7 +11,7 @@ import {
 import { NotifyDecisionSchema } from '../workflow/schema.js';
 import { BoardCardSchema } from './rest.js';
 
-export { OutputChunkSchema, type OutputChunk } from './output.js';
+export { OutputChunkSchema, type ChunkVia, type OutputChunk } from './output.js';
 
 // Server-sent events (03 §SSE). Implemented by M1-T08, consumed by M1-T09.
 //

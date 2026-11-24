@@ -10,6 +10,7 @@
 import {
   transitionTitle,
   type AttachmentDto,
+  type ChunkVia,
   type BoardChecking,
   type MoveDto,
   type OutputChunk,
@@ -63,6 +64,8 @@ export type Entry =
       text: string;
       ticket?: boolean;
       answer?: { question: string };
+      /** Sent through conductor's MCP tools rather than the board (OutputChunk.via). */
+      via?: ChunkVia;
     }
   /**
    * A `user` chunk the human didn't write: Claude Code's background-job notices and reminders,
@@ -163,9 +166,10 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
             ts,
             text: c.text,
             answer: { question: typeof q === 'string' ? q : '' },
+            ...(c.via ? { via: c.via } : {}),
           });
           asked = null;
-        } else out.push({ kind: 'user', key, ts, text: c.text });
+        } else out.push({ kind: 'user', key, ts, text: c.text, ...(c.via ? { via: c.via } : {}) });
         break;
       }
     }
@@ -755,6 +759,15 @@ function PhaseDivider({
   );
 }
 
+/** " · via MCP": a person's message that came through conductor's MCP tools, not the board. */
+function ViaTag({ via }: { via: ChunkVia }) {
+  return (
+    <span className="user-via" title="Sent through conductor's MCP tools (e.g. from Claude)">
+      {via === 'mcp' ? ' · via MCP' : ` · via ${via}`}
+    </span>
+  );
+}
+
 /** One harness/conductor notice, laid out for the thread rather than as its raw tags. */
 function ConductorNoticeRow({
   notice,
@@ -955,7 +968,7 @@ export function OutputLog({
         if (e.answer) {
           return (
             <div key={e.key} className="user-msg answer-msg" role="group" aria-label="Your answer">
-              <span className="user-label">You answered</span>
+              <span className="user-label">You answered{e.via && <ViaTag via={e.via} />}</span>
               {e.answer.question !== '' && (
                 <p className="user-answer-to" title={e.answer.question}>
                   ↳ {firstLine(e.answer.question)}
@@ -968,7 +981,7 @@ export function OutputLog({
         }
         return (
           <div key={e.key} className="user-msg" role="group" aria-label="Your message">
-            <span className="user-label">You</span>
+            <span className="user-label">You{e.via && <ViaTag via={e.via} />}</span>
             {split.text !== '' && <p className="user-text">{split.text}</p>}
             {files}
           </div>

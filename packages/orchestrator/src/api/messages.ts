@@ -1,4 +1,4 @@
-import { ATTACHMENTS_ONLY_TEXT, type EngineEvent } from '@conductor/shared';
+import { ATTACHMENTS_ONLY_TEXT, type ChunkVia, type EngineEvent } from '@conductor/shared';
 import type {
   ApplyEventOptions,
   ApplyEventResult,
@@ -16,6 +16,8 @@ export interface MessageDeps {
   outputBus: OutputBus;
   db?: Db;
   boardBus?: BoardBus;
+  /** How the message arrived, marked on its `user` chunk (OutputChunk.via); absent: the board. */
+  via?: ChunkVia;
 }
 
 /** 06 §Attachments (chat): the uploads a message or answer carries, from the human's account. */
@@ -98,7 +100,7 @@ export async function sendOperatorMessage(
     {},
   );
   if (result.status === 'applied') {
-    deps.outputBus.append(sessionId, 'user', chatEchoText(text, names));
+    deps.outputBus.append(sessionId, 'user', chatEchoText(text, names), undefined, deps.via);
   }
   return result;
 }
@@ -128,7 +130,7 @@ export async function provideAnswer(
   );
   if (result.status === 'applied') {
     const echo = chatEchoText(event.answer, names);
-    if (echo.trim() !== '') deps.outputBus.append(sessionId, 'user', echo);
+    if (echo.trim() !== '') deps.outputBus.append(sessionId, 'user', echo, undefined, deps.via);
   }
   return result;
 }

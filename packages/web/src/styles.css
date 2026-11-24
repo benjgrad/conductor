@@ -919,6 +919,12 @@ button.copy {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* " · via MCP" after You: the same person, another way in. */
+.user-via {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
 /* An answer to the agent's question: the question's accent (as the request it closes), with the
    question quoted above the answer. */
 .answer-msg {

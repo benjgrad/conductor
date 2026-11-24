@@ -231,6 +231,37 @@ describe('messages the human didn’t write (conductor-message.ts)', () => {
   });
 });
 
+describe('messages sent through MCP (OutputChunk.via)', () => {
+  it('labels them “You · via MCP”, a message and an answer alike; the board’s stay “You”', () => {
+    render(
+      <OutputLog
+        output={[
+          chunk('user', 'Start'),
+          toolUse('mcp__conductor__ask_user', { question: 'Which DB?' }),
+          chunk('tool_result', 'Question sent.'),
+          { ...chunk('user', 'Postgres'), via: 'mcp' },
+          { ...chunk('user', 'and add a test'), via: 'mcp' },
+          chunk('user', 'from the board'),
+        ]}
+        worktree={WT}
+      />,
+    );
+    const answer = screen.getByRole('group', { name: 'Your answer' });
+    expect(answer.querySelector('.user-label')?.textContent).toBe('You answered · via MCP');
+    expect(
+      screen
+        .getAllByRole('group', { name: 'Your message' })
+        .map((m) => [
+          m.querySelector('.user-label')?.textContent,
+          m.querySelector('.user-text')?.textContent,
+        ]),
+    ).toEqual([
+      ['You · via MCP', 'and add a test'],
+      ['You', 'from the board'],
+    ]);
+  });
+});
+
 describe('describeTool / resultSummary', () => {
   const short = shortener(WT);
   it('labels tools like Claude Code and strips the worktree (with or without /private)', () => {

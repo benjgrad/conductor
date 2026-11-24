@@ -438,7 +438,8 @@ interface SeedSpec {
   returnTo?: string;
   slot?: boolean;
   context?: MockSession['context'];
-  output?: string[];
+  /** The ring: a string is the fixture's stream; an object sets its own (a `user` chunk, `via`). */
+  output?: (string | Pick<OutputChunk, 'stream' | 'text' | 'via'>)[];
   /** Claude-transcript history, as [stream, text] pairs (ADR-0008). */
   transcript?: [OutputChunk['stream'], string][];
   /** When the transcript's chunks were written, in minutes ago; default activeMinAgo + 1. */
@@ -474,11 +475,11 @@ function seed(now: Date, s: SeedSpec): MockSeed {
     updated_at: ago(now, s.activeMinAgo),
     ...(s.agent !== undefined ? { agent_name: s.agent } : {}),
   };
-  const output = (s.output ?? [OUTPUT_CHUNK_FIXTURE.text]).map((text, seq): OutputChunk => ({
+  const output = (s.output ?? [OUTPUT_CHUNK_FIXTURE.text]).map((c, seq): OutputChunk => ({
     ...OUTPUT_CHUNK_FIXTURE,
     session_id: s.session,
     seq,
-    text,
+    ...(typeof c === 'string' ? { text: c } : c),
     ts: ago(now, s.activeMinAgo),
   }));
   return {
@@ -917,7 +918,12 @@ export function mockSeeds(now: Date): MockSeed[] {
       ageMin: 25,
       activeMinAgo: 1,
       spend: 0.33,
-      output: ['Reading src/routes/orders.ts\n', 'Editing src/routes/orders.ts\n'],
+      output: [
+        'Reading src/routes/orders.ts\n',
+        // Sent from Claude through conductor's MCP tools (message_agent): "You · via MCP".
+        { stream: 'user', text: 'Use cursor pagination, not offsets', via: 'mcp' },
+        'Editing src/routes/orders.ts\n',
+      ],
       ticketBody: UX2_TICKET_BODY,
     }),
     seed(now, {

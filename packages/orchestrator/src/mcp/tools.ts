@@ -429,7 +429,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     // An answer also goes to the Messages thread as a `user` chunk (`provideAnswer`).
     const result =
       event.type === 'input.provided'
-        ? await provideAnswer({ engine, outputBus }, sessionId, event, { actor: UI_ACTOR })
+        ? await provideAnswer({ engine, outputBus, via: 'mcp' }, sessionId, event, {
+            actor: UI_ACTOR,
+          })
         : await engine.applyEvent(sessionId, event, { actor: UI_ACTOR });
     if (result.status === 'applied') return ok({ ok: true });
     const { code } = httpForApplyResult(route, result);
@@ -1051,7 +1053,11 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         });
         return res.isError ? res : ok({ ok: true, delivered: 'answer', waiting_on: 'agent' });
       }
-      const result = await sendOperatorMessage({ engine, outputBus }, s.sessionId, text);
+      const result = await sendOperatorMessage(
+        { engine, outputBus, via: 'mcp' },
+        s.sessionId,
+        text,
+      );
       if (result.status !== 'applied') {
         const { code } = httpForApplyResult('message', result);
         return fail(
@@ -1179,7 +1185,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       if (res.status === 'conflict') return fail('conflict', res.reason);
       for (const ev of res.events) deps.boardBus.publish(ev);
       if (res.sessionId !== null && res.text !== null) {
-        outputBus.append(res.sessionId, 'user', res.text);
+        outputBus.append(res.sessionId, 'user', res.text, undefined, 'mcp');
       }
       return ok({ ok: true, ...(res.sessionId !== null ? { session_id: res.sessionId } : {}) });
     },

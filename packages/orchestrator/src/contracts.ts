@@ -7,6 +7,7 @@ import {
   type ApplyRejectReason,
   type BoardSseEvent,
   type BoardSseEventDraft,
+  type ChunkVia,
   type Effect,
   type EngineEvent,
   type OrchestratorCommand,
@@ -364,7 +365,14 @@ export class InMemoryBoardBus implements BoardBus {
  * `output`; read by T08 for the session detail and the output SSE stream.
  */
 export interface OutputBus {
-  append(sessionId: string, stream: OutputStream, text: string, ts?: Date): OutputChunk;
+  /** `via`: how a person's message arrived (OutputChunk.via), for `user` chunks. */
+  append(
+    sessionId: string,
+    stream: OutputStream,
+    text: string,
+    ts?: Date,
+    via?: ChunkVia,
+  ): OutputChunk;
   /** Ring contents, oldest first. */
   snapshot(sessionId: string): OutputChunk[];
   /**
@@ -417,6 +425,7 @@ export class InMemoryOutputBus implements OutputBus {
     stream: OutputStream,
     text: string,
     ts: Date = new Date(),
+    via?: ChunkVia,
   ): OutputChunk {
     let ring = this.rings.get(sessionId);
     if (!ring) {
@@ -443,6 +452,7 @@ export class InMemoryOutputBus implements OutputBus {
       stream,
       text: body,
       ts: ts.toISOString(),
+      ...(via ? { via } : {}),
     };
     const queue = COMMAND_STREAMS.has(stream) ? ring.command : ring.conversation;
     queue.chunks.push({ chunk, bytes });

@@ -1,0 +1,76 @@
+/* The session panel's Links tab (LinksTab.tsx). */
+.links-tab {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.links-view {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.links-section h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-md);
+}
+.links-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.links-section-count {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.85em;
+}
+.links-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.links-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.links-link,
+.links-url,
+.links-list code {
+  overflow-wrap: anywhere;
+}
+.links-url,
+.links-when,
+.links-count,
+.links-ops {
+  font-size: 0.85em;
+}
+.links-where {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+.links-where dt {
+  color: var(--muted);
+}
+.links-where dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pr-state-merged {
+  color: var(--accent);
+}

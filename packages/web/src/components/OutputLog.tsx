@@ -759,11 +759,13 @@ function PhaseDivider({
   );
 }
 
+const VIA_LABEL: Record<ChunkVia, string> = { mcp: ' · via MCP' };
+
 /** " · via MCP": a person's message that came through conductor's MCP tools, not the board. */
 function ViaTag({ via }: { via: ChunkVia }) {
   return (
     <span className="user-via" title="Sent through conductor's MCP tools (e.g. from Claude)">
-      {via === 'mcp' ? ' · via MCP' : ` · via ${via}`}
+      {VIA_LABEL[via]}
     </span>
   );
 }

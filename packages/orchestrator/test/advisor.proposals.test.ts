@@ -16,7 +16,7 @@ import {
   type ProposalActor,
 } from '../src/advisor/proposals.js';
 import { setRepoChecks } from '../src/api/repo-checks.js';
-import { useTestDatabase } from './db.js';
+import { copyLocalWorkflows, useTestDatabase } from './db.js';
 
 // ADR-0033 P3 (MA-T05): the proposal store against a real migrated database: the account scope,
 // the row lock that makes apply run once, and the guards it re-runs (the workflow admin gate,
@@ -30,6 +30,7 @@ async function account(name: string): Promise<string> {
     'INSERT INTO account (name) VALUES ($1) RETURNING id',
     [name],
   );
+  await copyLocalWorkflows(db.pool, r.rows[0]!.id); // M2-T12
   return r.rows[0]!.id;
 }
 
@@ -55,10 +56,12 @@ const gate = (d: Def) => {
     requires: { approvals: [{ id: 'migration', label: 'Approve', paths: ['**/migrations/**'] }] },
   };
 };
+/** M2-T12: account A's workflow (A is where every workflow test proposes and applies). */
+let storeIn = '00000000-0000-4000-8000-000000000001';
 async function storeWorkflow(id: string, version: number, definition: Record<string, unknown>) {
   await db.pool.query(
-    'INSERT INTO workflow_definition (id, version, definition) VALUES ($1, $2, $3)',
-    [id, version, JSON.stringify({ ...definition, version })],
+    'INSERT INTO workflow_definition (account_id, id, version, definition) VALUES ($4, $1, $2, $3)',
+    [id, version, JSON.stringify({ ...definition, version }), storeIn],
   );
 }
 
@@ -114,6 +117,7 @@ describe('change proposals (ADR-0033 P3)', () => {
   beforeAll(async () => {
     await storeWorkflow('conductor', 1, def('conductor')).catch(() => undefined);
     const idA = await account('A');
+    storeIn = idA;
     a = { accountId: idA, by: 'admin@a', mayEditWorkflows: true };
     member = { accountId: idA, by: 'member@a', mayEditWorkflows: false };
     b = { accountId: await account('B'), by: 'b@b', mayEditWorkflows: true };
@@ -269,7 +273,7 @@ describe('change proposals (ADR-0033 P3)', () => {
     expect(apply.ok ? 'ok' : apply.code).toBe('wrong_state');
   });
 
-  it('workflow: propose checks base and approvals; apply needs an admin and the same base', async () => {
+  it('workflow: propose checks base and approvals; apply needs a person (not an agent) and the same base', async () => {
     await storeWorkflow('wf_p', 1, def('wf_p'));
     const invalid = await createProposal(db.pool, a, wfChange('wf_p', 1, { id: 'wf_p' }));
     expect(invalid.ok ? 'ok' : invalid.code).toBe('invalid_workflow');
@@ -279,8 +283,9 @@ describe('change proposals (ADR-0033 P3)', () => {
     expect(wrongId.ok ? 'ok' : wrongId.code).toBe('invalid_input');
 
     const p = await propose(member, wfChange('wf_p', 1, def('wf_p', retitle('Plan it'))));
-    expect(p).toMatchObject({ requires_admin: true, base_version: 1 });
-    expect(p.warning).toMatch(/every account/);
+    // M2-T12: a workflow is the account's own, so applying it needs no instance admin.
+    expect(p).toMatchObject({ requires_admin: false, base_version: 1 });
+    expect(p.warning).toMatch(/your account/);
     expect(p.diff.changes).toEqual([
       {
         op: 'change',

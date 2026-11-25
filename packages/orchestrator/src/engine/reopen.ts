@@ -85,7 +85,12 @@ export async function reopenSession(
     }
 
     const sessionId = randomUUID();
-    const version = await reopenVersion(tx, ticket.account_id, old.workflow_id, old.workflow_version);
+    const version = await reopenVersion(
+      tx,
+      ticket.account_id,
+      old.workflow_id,
+      old.workflow_version,
+    );
     const pending: PendingAnswer = { input_request_id: null, answer: text };
     // Carried: the branch (same worktree contents on the same machine), the context (earlier
     // state results), the Claude session id (resume the same conversation) and the per-Claude-
@@ -156,7 +161,12 @@ export async function reopenSession(
     );
     const after = await withMachineFields(
       tx,
-      toBoardCard(t2.rows[0]!, fresh, null, await cardView(tx, ticket.account_id, old.workflow_id, version)),
+      toBoardCard(
+        t2.rows[0]!,
+        fresh,
+        null,
+        await cardView(tx, ticket.account_id, old.workflow_id, version),
+      ),
       t2.rows[0]!,
     );
     const boardEvents = await insertBoardEvents(tx, [

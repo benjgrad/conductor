@@ -64,10 +64,11 @@ describe('admin page', () => {
     expect(document.body.innerHTML).not.toContain(url);
   });
 
-  it('notes beside New invite that invite links cannot create accounts yet', async () => {
+  it('notes beside New invite that each invite link creates a new account', async () => {
     await renderAdmin();
     const invites = within(screen.getByRole('region', { name: 'Invites' }));
     expect(invites.getByText(NEW_ACCOUNTS_NOTE)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/can.t create new accounts/);
   });
 
   it('revokes an open invite', async () => {

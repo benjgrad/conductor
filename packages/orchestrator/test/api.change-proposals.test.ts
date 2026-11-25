@@ -114,7 +114,7 @@ describe('/api/change-proposals', () => {
     expect((await post(a, API_PATHS.changeProposalReview(two))).status).toBe(409);
   });
 
-  it('a version note and who saved it show only to the saving account (UXR-70)', async () => {
+  it('a version note and who saved it show to the saving account; another has no such workflow (UXR-70, M2-T12)', async () => {
     api = await startApi({ db: db.pool, auth: passwordAuth(HTTPS_URL) });
     const a = await signIn(api);
     const b = await signIn(api);
@@ -135,22 +135,23 @@ describe('/api/change-proposals', () => {
       note: 'Fewer questions',
       history: [{ version: 1, created_by: a.email, note: 'Fewer questions' }],
     });
-    expect(await read(b)).toMatchObject({
-      created_by: null,
-      note: null,
-      history: [{ version: 1, created_by: null, note: null }],
+    // M2-T12: the workflow is A's own; B has no `noted_rest_wf` at all.
+    const other = await api.send('GET', API_PATHS.workflow('noted_rest_wf'), {
+      headers: { cookie: b.cookie },
     });
+    expect(other.status).toBe(404);
   });
 
-  it('a workflow change needs an instance admin', async () => {
+  it('a workflow change applies to the member’s own account, no instance admin needed (M2-T12)', async () => {
     api = await startApi({ db: db.pool, auth: passwordAuth(HTTPS_URL) });
     const member = await signIn(api);
     const def = { ...structuredClone(CONDUCTOR_V4_DEF), id: 'rest_wf' } as unknown as {
       states: Record<string, { title?: string }>;
     };
     await db.pool.query(
-      "INSERT INTO workflow_definition (id, version, definition) VALUES ('rest_wf', 1, $1)",
-      [JSON.stringify({ ...def, version: 1 })],
+      'INSERT INTO workflow_definition (account_id, id, version, definition) ' +
+        "VALUES ($2, 'rest_wf', 1, $1)",
+      [JSON.stringify({ ...def, version: 1 }), member.accountId],
     );
     const first = Object.keys(def.states)[0]!;
     def.states[first]!.title = 'Renamed';
@@ -163,7 +164,7 @@ describe('/api/change-proposals', () => {
       },
     );
     if (!res.ok) throw new Error(res.message);
-    expect(res.value.warning).toMatch(/every account/);
+    expect(res.value.warning).toMatch(/your account/);
     // MCP results leave the bodies out; the board's detail has them (UXR-73).
     expect(res.value).not.toHaveProperty('proposed_definition');
     const shown = await api.send('GET', API_PATHS.changeProposal(res.value.id), {
@@ -175,13 +176,15 @@ describe('/api/change-proposals', () => {
     };
     expect(bodies.proposed_definition.states[first]!.title).toBe('Renamed');
     expect(bodies.base_definition.states[first]!.title).not.toBe('Renamed');
-    const denied = await api.send('POST', API_PATHS.changeProposalApply(res.value.id), {
+    const applied = await api.send('POST', API_PATHS.changeProposalApply(res.value.id), {
       headers: { cookie: member.cookie },
       body: {},
     });
-    expect([denied.status, (denied.json.error as { code: string }).code]).toEqual([
-      403,
-      'forbidden',
-    ]);
+    expect(applied.status).toBe(200);
+    expect(applied.json).toMatchObject({ status: 'applied', applied_version: 2 });
+    const versions = await db.pool.query<{ account_id: string }>(
+      "SELECT account_id FROM workflow_definition WHERE id = 'rest_wf' AND version = 2",
+    );
+    expect(versions.rows).toEqual([{ account_id: member.accountId }]);
   });
 });

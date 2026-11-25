@@ -760,7 +760,11 @@ export const createApi = (({
 
   // ADR-0010: the one workflow; `?all=1` also lists the older ones (kept for their tickets).
   app.get<{ Querystring: { all?: string } }>(API_PATHS.workflows, (req) =>
-    listWorkflows(db, req.auth!.scope.account_id, req.query.all === '1' || req.query.all === 'true'),
+    listWorkflows(
+      db,
+      req.auth!.scope.account_id,
+      req.query.all === '1' || req.query.all === 'true',
+    ),
   );
 
   // ADR-0009: one workflow's definition, the latest version or `?version=N`.

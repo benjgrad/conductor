@@ -20,6 +20,7 @@ import type { MachineSockets } from '../src/gateway/revoke.js';
 import {
   HTTPS_URL,
   cookieOf,
+  copyLocalWorkflows,
   createUser,
   passwordAuth,
   startApi,
@@ -255,6 +256,7 @@ describe('list, detail, rename, revoke', () => {
        ON CONFLICT DO NOTHING`,
       [readFileSync(M1_BASIC, 'utf8')],
     );
+    await copyLocalWorkflows(db.pool, a.accountId); // M2-T12
     const id = await enrollFor(a);
     await ingestInventory(
       db.pool,
@@ -429,6 +431,7 @@ describe('list, detail, rename, revoke', () => {
        ON CONFLICT DO NOTHING`,
       [readFileSync(M1_BASIC, 'utf8')],
     );
+    await copyLocalWorkflows(db.pool, a.accountId); // M2-T12
     const laptop = await enrollFor(a);
     const mac = await enrollFor(a);
     await ingestInventory(

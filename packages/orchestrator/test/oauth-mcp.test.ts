@@ -565,9 +565,9 @@ const GATED_WORKFLOW = {
 /** A ticket of `accountId` with one session in `status` (in `review` unless done). */
 async function seedTicketSession(accountId: string, status: 'needs_input' | 'done') {
   await db.pool.query(
-    'INSERT INTO workflow_definition (id, version, definition) VALUES ($1, 1, $2) ' +
+    'INSERT INTO workflow_definition (account_id, id, version, definition) VALUES ($3, $1, 1, $2) ' +
       'ON CONFLICT DO NOTHING',
-    [GATED_WORKFLOW.id, JSON.stringify(GATED_WORKFLOW)],
+    [GATED_WORKFLOW.id, JSON.stringify(GATED_WORKFLOW), accountId],
   );
   const t = await db.pool.query<{ id: string }>(
     'INSERT INTO ticket (account_id, repo, title, body, workflow_id, workflow_version, status, kind) ' +
@@ -1531,12 +1531,15 @@ describe('/mcp workflow tools', () => {
       )
     ).rows;
 
-  it('save_workflow refuses a non-admin, a truncated read and an invalid definition', async () => {
+  it('save_workflow saves for a non-admin (its own account), refuses a truncated read and an invalid definition', async () => {
+    // M2-T12: the save goes into the caller's account only, so no instance admin is needed.
     const user = await connect();
-    const denied = await call(user.access, 'save_workflow', { definition: def({ id: 'mcp_a' }) });
-    expect([denied.isError, errorOf(denied).code]).toEqual([true, 'forbidden']);
-    const denyAdopt = await call(user.access, 'adopt_default_workflow', {});
-    expect([denyAdopt.isError, errorOf(denyAdopt).code]).toEqual([true, 'forbidden']);
+    const own = await call(user.access, 'save_workflow', { definition: def({ id: 'mcp_u' }) });
+    expect(own.isError).toBe(false);
+    const stored = await db.pool.query<{ account_id: string }>(
+      "SELECT account_id FROM workflow_definition WHERE id = 'mcp_u'",
+    );
+    expect(stored.rows).toEqual([{ account_id: user.user.accountId }]);
 
     const admin = await connect(await signedInUser({ admin: true }));
     const cut = def({ id: 'mcp_a' }) as { states: Record<string, { prompt?: string }> };
@@ -1594,8 +1597,9 @@ describe('/mcp workflow tools', () => {
     };
     gated.id = 'mcp_c';
     await db.pool.query(
-      "INSERT INTO workflow_definition (id, version, definition) VALUES ('mcp_c', 1, $1)",
-      [JSON.stringify(gated)],
+      'INSERT INTO workflow_definition (account_id, id, version, definition) ' +
+        "VALUES ($2, 'mcp_c', 1, $1)",
+      [JSON.stringify(gated), admin.user.accountId],
     );
     const weakened = await call(admin.access, 'save_workflow', {
       definition: def({ id: 'mcp_c' }),

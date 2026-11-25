@@ -21,7 +21,7 @@ import {
   startApi,
   type TestApi,
 } from './auth/helpers.js';
-import { useTestDatabase } from './db.js';
+import { copyLocalWorkflows, useTestDatabase } from './db.js';
 
 const db = useTestDatabase();
 const PASSWORD = 'correct horse battery staple';
@@ -174,6 +174,7 @@ async function ticketWithRuns(accountId: string, repo: string, title: string) {
       'ON CONFLICT DO NOTHING',
     [JSON.stringify(CONDUCTOR_V4_DEF)],
   );
+  await copyLocalWorkflows(db.pool, accountId); // M2-T12
   const machineId = await machine(accountId);
   const t = await db.pool.query<{ id: string }>(
     'INSERT INTO ticket (account_id, repo, title, body, workflow_id, status, kind) ' +

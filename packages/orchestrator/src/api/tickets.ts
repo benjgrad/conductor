@@ -257,9 +257,7 @@ async function baseProblem(
   );
   const version = r.rows[0]?.v ?? null;
   const def =
-    version === null
-      ? null
-      : await defs.get(q, accountId, workflowId, version).catch(() => null);
+    version === null ? null : await defs.get(q, accountId, workflowId, version).catch(() => null);
   const problems = ticketBaseProblems(def, base);
   if (problems.length === 0) return null;
   return {

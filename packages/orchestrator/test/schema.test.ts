@@ -1670,8 +1670,8 @@ describe('schema (migrated test database)', () => {
     const id = '7d3f0d3c-8f4e-4b0b-9a6e-0d2b3c4d5e6f';
     const insert = () =>
       db.pool.query(
-        `INSERT INTO outbox (command_id, target, kind, payload)
-         VALUES ($1, 'connector:github', 'connector_call', '{}')`,
+        `INSERT INTO outbox (command_id, target, kind, payload, account_id)
+         VALUES ($1, 'connector:github', 'connector_call', '{}', '00000000-0000-4000-8000-000000000001')`,
         [id],
       );
     await insert();

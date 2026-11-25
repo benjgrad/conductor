@@ -1,15 +1,13 @@
-// M2-T15a: POST /auth/signup (ADR-0017 §Invites; bootstrap claims `local`). Needs `pnpm db:up`.
-import { LOCAL_ACCOUNT_ID } from '@conductor/shared';
+// M2-T15a / M2-T15b: POST /auth/signup (ADR-0017 §Invites; bootstrap claims `local`, a general
+// invite makes a new personal account). Needs `pnpm db:up`.
+import { API_PATHS, CONDUCTOR_WORKFLOW_ID, LOCAL_ACCOUNT_ID } from '@conductor/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runAdminCli } from '../../src/auth/admin-commands.js';
 import { createInvite } from '../../src/auth/invites.js';
 import type { PasswordHasher } from '../../src/auth/password.js';
 import { newSessionToken } from '../../src/auth/sessions.js';
-import {
-  INVALID_INVITE_MESSAGE,
-  NOT_SUPPORTED_YET_MESSAGE,
-  WRONG_EMAIL_MESSAGE,
-} from '../../src/auth/signup.js';
+import { INVALID_INVITE_MESSAGE, WRONG_EMAIL_MESSAGE } from '../../src/auth/signup.js';
+import { newestShippedConductor } from '../../src/engine/seed.js';
 import { useTestDatabase } from '../db.js';
 import { LOOPBACK_URL, cookieOf, passwordAuth, startApi, type TestApi } from './helpers.js';
 
@@ -209,19 +207,6 @@ describe('POST /auth/signup refusals create no user', () => {
     expect((await signup(inv.token, 'BEN@example.com')).status).toBe(201);
   });
 
-  it('an invite without claims_account → 400 not_supported_yet (M2-T15b)', async () => {
-    const inv = await createInvite(db.pool, { publicUrl, now: new Date() });
-    const res = await signup(inv.token);
-    expect(res.status).toBe(400);
-    expect(res.json.error).toMatchObject({
-      code: 'bad_request',
-      message: NOT_SUPPORTED_YET_MESSAGE,
-      details: [{ path: 'invite', message: 'not_supported_yet' }],
-    });
-    expect(await userCount()).toBe(0);
-    expect(await usedAt(inv.id)).toBeNull();
-  });
-
   it('a weak password → 400 at path `password`, the invite unused', async () => {
     const inv = await bootstrapInvite();
     const res = await api.send('POST', '/auth/signup', {
@@ -237,5 +222,73 @@ describe('POST /auth/signup refusals create no user', () => {
     const statuses: number[] = [];
     for (let i = 0; i < 6; i++) statuses.push((await signup(newSessionToken())).status);
     expect(statuses).toEqual([400, 400, 400, 400, 400, 429]);
+  });
+});
+
+describe('POST /auth/signup with a general invite (M2-T15b)', () => {
+  const generalInvite = (email?: string) =>
+    createInvite(db.pool, { publicUrl, now: new Date(), ...(email ? { email } : {}) });
+
+  it('creates a personal account the user owns, seeded with the workflows, and signs them in', async () => {
+    const inv = await generalInvite('dana@example.com');
+    const res = await signup(inv.token, 'dana@example.com', 'Dana');
+    expect(res.status).toBe(201);
+    const me = res.json as unknown as {
+      user: { id: string; is_admin: boolean };
+      account: { id: string; name: string };
+    };
+    expect(me.user.is_admin).toBe(false);
+    expect(me.account.name).toBe('Dana');
+    expect(me.account.id).not.toBe(LOCAL_ACCOUNT_ID);
+
+    const member = await db.pool.query<{ account_id: string; role: string }>(
+      'SELECT account_id, role FROM account_member WHERE user_id = $1',
+      [me.user.id],
+    );
+    expect(member.rows).toEqual([{ account_id: me.account.id, role: 'owner' }]);
+    const wf = await db.pool.query<{ id: string; v: number }>(
+      'SELECT id, max(version) AS v FROM workflow_definition WHERE account_id = $1 ' +
+        'GROUP BY id ORDER BY id',
+      [me.account.id],
+    );
+    expect(wf.rows.map((r) => r.id)).toEqual([CONDUCTOR_WORKFLOW_ID, 'routine']);
+    expect(wf.rows[0]!.v).toBe(newestShippedConductor().version);
+    expect(await usedAt(inv.id)).not.toBeNull();
+    expect(await ownersOfLocal()).toBe(0);
+
+    // Signed in, into an empty board of their own, with their own copy of the default workflow.
+    const cookie = { headers: { cookie: cookieOf(res) } };
+    const board = await api.send('GET', API_PATHS.board, cookie);
+    expect(board.status).toBe(200);
+    const cards = (board.json as unknown as { columns: { cards: unknown[] }[] }).columns.flatMap(
+      (c) => c.cards,
+    );
+    expect(cards).toEqual([]);
+    const workflow = await api.send('GET', API_PATHS.workflow(CONDUCTOR_WORKFLOW_ID), cookie);
+    expect(workflow.status).toBe(200);
+    expect(workflow.json.version).toBe(newestShippedConductor().version);
+  });
+
+  it('two concurrent sign-ups with one invite make exactly one user and one account', async () => {
+    const inv = await generalInvite();
+    const accounts = async () =>
+      Number((await db.pool.query<{ n: string }>('SELECT count(*) AS n FROM account')).rows[0]!.n);
+    const before = await accounts();
+    const results = await Promise.all([
+      signup(inv.token, 'one@example.com', 'One'),
+      signup(inv.token, 'two@example.com', 'Two'),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 400]);
+    expect(await userCount()).toBe(1);
+    expect(await accounts()).toBe(before + 1);
+  });
+
+  it('a used general invite is refused, with nothing created', async () => {
+    const inv = await generalInvite();
+    expect((await signup(inv.token, 'first@example.com', 'First')).status).toBe(201);
+    const again = await signup(inv.token, 'second@example.com', 'Second');
+    expect(again.status).toBe(400);
+    expect(again.json.error?.message).toBe(INVALID_INVITE_MESSAGE);
+    expect(await userCount()).toBe(1);
   });
 });

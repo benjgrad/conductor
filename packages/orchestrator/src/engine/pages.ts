@@ -209,7 +209,9 @@ export async function sessionPages(
   now: Date = new Date(),
 ): Promise<TicketPage[]> {
   if (session === null) return [];
-  const def = await defs.get(q, session.account_id, session.workflow_id, session.workflow_version).catch(() => null);
+  const def = await defs
+    .get(q, session.account_id, session.workflow_id, session.workflow_version)
+    .catch(() => null);
   if (def === null) return [];
   const refs = pagesOfContext(session.context, pageLimitsOf(def));
   if (refs.length === 0) return [];

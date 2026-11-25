@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SessionInsight } from '@conductor/shared';
 import type { Pool } from 'pg';
+import { copyLocalWorkflows } from './db.js';
 
 // ADR-0033 / UXR-84: the advisor's DB fixtures, shared by advisor.queries.test.ts (the SQL) and
 // api.insights.test.ts (the REST routes over the same reads).
@@ -25,6 +26,7 @@ export async function advisorAccount(db: Pool, name: string): Promise<string> {
   const r = await db.query<{ id: string }>('INSERT INTO account (name) VALUES ($1) RETURNING id', [
     name,
   ]);
+  await copyLocalWorkflows(db, r.rows[0]!.id); // M2-T12
   return r.rows[0]!.id;
 }
 

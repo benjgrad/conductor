@@ -117,8 +117,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AuthRouteDeps): 
     if (!requireAdmin(req, reply)) return reply;
     const body = parseBody(CreateInviteRequestSchema, req.body, reply);
     if (!body) return reply;
-    // A general invite: `claims_account` is never settable from the API (the schema strips it).
-    // TD-173: sign-up with it is `not_supported_yet` until M2-T15b.
+    // A general invite: `claims_account` is never settable from the API (the schema strips it);
+    // signing up with it makes a new personal account (M2-T15b).
     const invite = await createInvite(db, {
       publicUrl: auth.publicUrl,
       now: now(),

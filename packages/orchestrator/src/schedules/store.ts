@@ -327,7 +327,10 @@ export async function updateSchedule(
     if (!r.ok) return r;
     repo = r.repo;
   }
-  if (patch.workflow_id !== undefined && !(await workflowExists(deps.db, scope.account_id, patch.workflow_id))) {
+  if (
+    patch.workflow_id !== undefined &&
+    !(await workflowExists(deps.db, scope.account_id, patch.workflow_id))
+  ) {
     return badRequest('workflow_id', `unknown workflow ${patch.workflow_id}`);
   }
   let machineIds: string[] | null | undefined;

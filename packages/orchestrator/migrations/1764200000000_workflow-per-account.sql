@@ -18,6 +18,17 @@ ALTER TABLE ticket DROP CONSTRAINT ticket_workflow_id_workflow_version_fkey;
 ALTER TABLE session DROP CONSTRAINT session_workflow_id_workflow_version_fkey;
 ALTER TABLE workflow_definition DROP CONSTRAINT workflow_definition_pkey;
 
+-- Child rows written under the `local` default for a non-local ticket (only possible on test or
+-- dev data): repair them from their parents first, so the copies below follow the right account.
+UPDATE session s SET account_id = t.account_id
+  FROM ticket t WHERE t.id = s.ticket_id AND s.account_id <> t.account_id;
+UPDATE input_request i SET account_id = s.account_id
+  FROM session s WHERE s.id = i.session_id AND i.account_id <> s.account_id;
+UPDATE event e SET account_id = s.account_id
+  FROM session s WHERE s.id = e.session_id AND e.account_id <> s.account_id;
+UPDATE outbox o SET account_id = s.account_id
+  FROM session s WHERE s.id = o.session_id AND o.account_id <> s.account_id;
+
 INSERT INTO workflow_definition (account_id, id, version, definition, created_at, created_by, note)
 SELECT DISTINCT ON (x.account_id, w.id, w.version)
   x.account_id, w.id, w.version, w.definition, w.created_at, w.created_by, w.note

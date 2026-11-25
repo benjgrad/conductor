@@ -185,3 +185,21 @@ export function useTestDatabase(options: CreateTestDatabaseOptions = {}): TestDa
     drop: () => current().drop(),
   };
 }
+
+/**
+ * M2-T12: workflows belong to an account. A test account gets its own copy of every workflow the
+ * test stored in `local` (its fixtures), the way sign-up seeds a new account with the shipped
+ * ones. Idempotent; call it again after storing more fixtures.
+ */
+export async function copyLocalWorkflows(
+  db: { query: (text: string, values?: unknown[]) => Promise<unknown> },
+  accountId: string,
+): Promise<void> {
+  await db.query(
+    'INSERT INTO workflow_definition (account_id, id, version, definition, created_by) ' +
+      'SELECT $1, id, version, definition, created_by FROM workflow_definition ' +
+      "WHERE account_id = '00000000-0000-4000-8000-000000000001' " +
+      'ON CONFLICT (account_id, id, version) DO NOTHING',
+    [accountId],
+  );
+}

@@ -120,18 +120,24 @@ export async function seedConductorWorkflow(
   opts: SeedOptions = {},
 ): Promise<boolean> {
   const accountId = opts.accountId ?? LOCAL_ACCOUNT_ID;
-  return seedShippedWorkflow(db, CONDUCTOR_WORKFLOW_ID, shipped(), async (latestVersion) => {
-    if (opts.log === null) return;
-    const available = await conductorDefaultAvailable(db, CONDUCTOR_WORKFLOW_ID, accountId);
-    if (available === null) return;
-    const log =
-      opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
-    log(
-      `${NEWER_DEFAULT_MESSAGE} (v${available}); ` +
-        `your edited version ${latestVersion} was kept as the latest` +
-        (accountId === LOCAL_ACCOUNT_ID ? '.' : ` (account ${accountId}).`),
-    );
-  }, accountId);
+  return seedShippedWorkflow(
+    db,
+    CONDUCTOR_WORKFLOW_ID,
+    shipped(),
+    async (latestVersion) => {
+      if (opts.log === null) return;
+      const available = await conductorDefaultAvailable(db, CONDUCTOR_WORKFLOW_ID, accountId);
+      if (available === null) return;
+      const log =
+        opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
+      log(
+        `${NEWER_DEFAULT_MESSAGE} (v${available}); ` +
+          `your edited version ${latestVersion} was kept as the latest` +
+          (accountId === LOCAL_ACCOUNT_ID ? '.' : ` (account ${accountId}).`),
+      );
+    },
+    accountId,
+  );
 }
 
 /** ADR-0032: the shipped `routine` versions, oldest first, each validated. */

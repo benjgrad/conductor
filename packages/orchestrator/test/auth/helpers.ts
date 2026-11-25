@@ -16,6 +16,7 @@ import {
   type TranscriptSource,
 } from '../../src/contracts.js';
 import type { ApiHandle } from '../../src/main.js';
+import { copyLocalWorkflows } from '../db.js';
 
 export const HTTPS_URL = 'https://conductor.test';
 export const LOOPBACK_URL = 'http://127.0.0.1:7400';
@@ -131,6 +132,8 @@ export const setCookieHeader = (res: Res): string => {
   return (Array.isArray(raw) ? raw[0] : raw) ?? '';
 };
 
+export { copyLocalWorkflows };
+
 let userSeq = 0;
 
 /** A user with a personal account it owns. Returns ids. */
@@ -152,6 +155,7 @@ export async function createUser(
     [`acct ${email}`],
   );
   const accountId = acct.rows[0]!.id;
+  await copyLocalWorkflows(db, accountId);
   const user = await db.query<{ id: string }>(
     'INSERT INTO app_user (email, display_name, password_hash, is_admin, disabled_at) ' +
       'VALUES ($1, $2, $3, $4, $5) RETURNING id',

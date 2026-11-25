@@ -133,7 +133,12 @@ async function upsertCards(tx: Queryable, ticketIds: readonly string[]): Promise
         ? await currentCard(tx, sessionId)
         : await withMachineFields(
             tx,
-            toBoardCard(ticket, null, null, await cardView(tx, ticket.account_id, ticket.workflow_id, null)),
+            toBoardCard(
+              ticket,
+              null,
+              null,
+              await cardView(tx, ticket.account_id, ticket.workflow_id, null),
+            ),
             ticket,
           );
     drafts.push({ type: 'card.upserted', session_id: sessionId, ticket_id: row.id, card });

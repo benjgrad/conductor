@@ -3,6 +3,7 @@ import { CONDUCTOR_V4_DEF, moveStateLabel, processMetrics, rankFindings } from '
 import { beforeAll, describe, expect, it } from 'vitest';
 import { loadAdvisorRows } from '../src/advisor/queries.js';
 import { advisorAccount, advisorHistory, advisorMachine } from './advisor-fixtures.js';
+import { copyLocalWorkflows } from './db.js';
 import { useTestDatabase } from './db.js';
 
 // ADR-0033: the advisor's SQL is what's under test (the account scope through `session`, the
@@ -246,6 +247,7 @@ describe('loadAdvisorRows (ADR-0033)', () => {
         'ON CONFLICT DO NOTHING',
       [JSON.stringify(v2)],
     );
+    await copyLocalWorkflows(db.pool, d); // M2-T12: account d's own copy of v2
     const gate = moveStateLabel('implementing', 'needs_input', 'personal_pr_ready_for_review');
     const handoff = async (text: string, ago: number) => {
       const { sessionId } = await advisorHistory(db.pool, {

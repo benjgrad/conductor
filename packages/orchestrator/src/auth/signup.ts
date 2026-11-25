@@ -2,6 +2,7 @@ import { API_PATHS, SignupRequestSchema, type MeResponse } from '@conductor/shar
 import type { FastifyInstance } from 'fastify';
 import { parseBody, sendError, type ErrorDetail } from '../api/errors.js';
 import { withTransaction } from '../db/index.js';
+import { seedAccount } from '../engine/seed.js';
 import type { InviteRow } from '../db/types.js';
 import { inviteIsOpen } from './invites.js';
 import { sessionCookie } from './middleware.js';
@@ -9,18 +10,18 @@ import type { AuthRouteDeps } from './routes.js';
 import { createSession, sessionIdHash } from './sessions.js';
 import { rateLimitRouteConfig } from './throttle.js';
 
-// M2-T15a: POST /auth/signup (ADR-0017 §Invites; 10-contracts §Accounts and web auth). One
-// transaction: lock the invite (FOR UPDATE, so two sign-ups with one invite make exactly one
-// user), check it, lock the claimed account (FOR UPDATE, so two invites for one account make
-// exactly one owner), create the user, claim the account, mark the invite used, open a session.
-// Only `claims_account` invites (bootstrap) are accepted until M2-T15b brings general sign-up
-// into a new personal account (it needs M2-T12's seedAccount).
+// M2-T15a / M2-T15b: POST /auth/signup (ADR-0017 §Invites; 10-contracts §Accounts and web auth).
+// One transaction: lock the invite (FOR UPDATE, so two sign-ups with one invite make exactly one
+// user), check it, then either
+// - a general invite: create the user's own personal account and seed its workflows
+//   (`seedAccount`, M2-T12), or
+// - a bootstrap `claims_account` invite: lock the claimed account (FOR UPDATE, so two invites for
+//   one account make exactly one owner) and claim it, renaming it to the user;
+// then create the user, make them the owner, mark the invite used and open a session.
 
 export const INVALID_INVITE_MESSAGE =
   'This invite link is not valid. Ask the person who sent it for a new one.';
 export const WRONG_EMAIL_MESSAGE = 'This invite is for another email address.';
-export const NOT_SUPPORTED_YET_MESSAGE =
-  "This invite link can't create a new account yet. Ask the person who sent it.";
 
 const USER_AGENT_MAX = 512;
 const PG_UNIQUE_VIOLATION = '23505';
@@ -75,27 +76,40 @@ export function registerSignupRoutes(app: FastifyInstance, deps: AuthRouteDeps):
             { path: 'email', message: WRONG_EMAIL_MESSAGE },
           ]);
         }
-        const accountId = invite.claims_account;
-        if (accountId === null) {
-          // TD-173: M2-T15b replaces this with sign-up into a new personal account. The code is
-          // `bad_request` because ApiErrorCode (shared) has no `not_supported_yet`.
-          throw new SignupRefusal(NOT_SUPPORTED_YET_MESSAGE, [
-            { path: 'invite', message: 'not_supported_yet' },
-          ]);
+        const claimed = invite.claims_account;
+        if (claimed !== null) {
+          // A claimed account is never claimed again (a second bootstrap invite, say). The row
+          // lock serialises claims of one account through different invites: the owner check
+          // below runs after the wait, so it sees the first claimer's committed owner.
+          await tx.query('SELECT 1 FROM account WHERE id = $1 FOR UPDATE', [claimed]);
+          const owned = await tx.query(
+            "SELECT 1 FROM account_member WHERE account_id = $1 AND role = 'owner'",
+            [claimed],
+          );
+          if ((owned.rowCount ?? 0) > 0) throw new SignupRefusal(INVALID_INVITE_MESSAGE);
         }
-        // A claimed account is never claimed again (a second bootstrap invite, say). The row
-        // lock serialises claims of one account through different invites: the owner check
-        // below runs after the wait, so it sees the first claimer's committed owner.
-        await tx.query('SELECT 1 FROM account WHERE id = $1 FOR UPDATE', [accountId]);
-        const owned = await tx.query(
-          "SELECT 1 FROM account_member WHERE account_id = $1 AND role = 'owner'",
-          [accountId],
-        );
-        if ((owned.rowCount ?? 0) > 0) throw new SignupRefusal(INVALID_INVITE_MESSAGE);
         const taken = await tx.query('SELECT 1 FROM app_user WHERE lower(email) = $1', [
           body.email,
         ]);
         if ((taken.rowCount ?? 0) > 0) throw new SignupRefusal(INVALID_INVITE_MESSAGE);
+
+        let accountId: string;
+        if (claimed !== null) {
+          accountId = claimed;
+          await tx.query('UPDATE account SET name = $2 WHERE id = $1', [
+            accountId,
+            body.display_name,
+          ]);
+        } else {
+          // M2-T15b: a general invite makes a personal account, seeded with the shipped
+          // workflows so the new user's board works at once (rolled back with the rest).
+          const acct = await tx.query<{ id: string }>(
+            'INSERT INTO account (name, created_at) VALUES ($1, $2) RETURNING id',
+            [body.display_name, t],
+          );
+          accountId = acct.rows[0]!.id;
+          await seedAccount(tx, accountId);
+        }
 
         const user = await tx.query<{ id: string }>(
           'INSERT INTO app_user (email, display_name, password_hash, is_admin, ' +
@@ -107,10 +121,6 @@ export function registerSignupRoutes(app: FastifyInstance, deps: AuthRouteDeps):
           "INSERT INTO account_member (account_id, user_id, role, created_at) VALUES ($1, $2, 'owner', $3)",
           [accountId, userId, t],
         );
-        await tx.query('UPDATE account SET name = $2 WHERE id = $1', [
-          accountId,
-          body.display_name,
-        ]);
         await tx.query('UPDATE invite SET used_at = $2, used_by = $3 WHERE id = $1', [
           invite.id,
           t,

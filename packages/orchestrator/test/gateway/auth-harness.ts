@@ -15,6 +15,7 @@ import { createGateway, type DaemonGateway } from '../../src/gateway/index.js';
 import type { Db } from '../../src/main.js';
 import { FakeDaemon } from './fake-daemon.js';
 import { RecordingEngine } from './recording-engine.js';
+import { copyLocalWorkflows } from '../db.js';
 
 export interface Harness {
   gateway: DaemonGateway;
@@ -65,6 +66,7 @@ export async function newAccount(db: Db): Promise<AccountScope> {
   const r = await db.query<{ id: string }>(`INSERT INTO account (name) VALUES ($1) RETURNING id`, [
     `acct-${randomUUID().slice(0, 8)}`,
   ]);
+  await copyLocalWorkflows(db, r.rows[0]!.id); // M2-T12
   return { account_id: r.rows[0]!.id, actor: { kind: 'user', user_id: randomUUID() } };
 }
 

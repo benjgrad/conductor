@@ -36,7 +36,7 @@ import {
   SKIP_PERMISSIONS_MESSAGE,
   sweepPermissionTimeouts,
 } from '../../src/permissions/store.js';
-import { useTestDatabase } from '../db.js';
+import { useTestDatabase, copyLocalWorkflows } from '../db.js';
 import { FakeDaemon } from './fake-daemon.js';
 import { RecordingEngine } from './recording-engine.js';
 
@@ -559,6 +559,7 @@ describe('POST /api/permission-requests/:id/decision', () => {
       "INSERT INTO account (name) VALUES ('other') RETURNING id",
       [],
     );
+    await copyLocalWorkflows(db.pool, other.id); // M2-T12: the ticket's pinned version exists there
     const original = (await one<TicketRow>('SELECT * FROM ticket WHERE id = $1', [ticketId]))
       .account_id;
     await db.pool.query('UPDATE ticket SET account_id = $2 WHERE id = $1', [ticketId, other.id]);

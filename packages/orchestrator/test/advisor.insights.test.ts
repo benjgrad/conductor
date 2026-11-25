@@ -24,7 +24,7 @@ import {
   sweepInsights,
 } from '../src/advisor/insights.js';
 import type { AssistantJobRow, OutboxRow } from '../src/db/types.js';
-import { useTestDatabase } from './db.js';
+import { copyLocalWorkflows, useTestDatabase } from './db.js';
 
 // ADR-0033 P2 (MA-T04): the scheduler's SQL (the account scope, the machine feature gate, the
 // idempotency key, the pacing, the retry and the sampling cap), the result handling and the sweep run against a real migrated
@@ -55,6 +55,7 @@ async function account(): Promise<string> {
     'INSERT INTO account (name) VALUES ($1) RETURNING id',
     [`A-${randomUUID().slice(0, 8)}`],
   );
+  await copyLocalWorkflows(db.pool, r.rows[0]!.id); // M2-T12
   return r.rows[0]!.id;
 }
 

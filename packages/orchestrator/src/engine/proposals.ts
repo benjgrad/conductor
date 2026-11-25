@@ -35,7 +35,9 @@ export async function sessionProposals(
   q: Queryable,
   session: ProposalSession,
 ): Promise<ParsedProposal[]> {
-  const def = await defs.get(q, session.account_id, session.workflow_id, session.workflow_version).catch(() => null);
+  const def = await defs
+    .get(q, session.account_id, session.workflow_id, session.workflow_version)
+    .catch(() => null);
   return proposalsOfContext(session.context, def ? proposalLimitsOf(def) : undefined);
 }
 

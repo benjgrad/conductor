@@ -72,6 +72,39 @@ fn startup_line_says_enrolled_or_local_mode() {
     assert!(!startup_line(&c).contains("secret"));
 }
 
+#[test]
+fn local_mode_warning_only_when_not_enrolled_and_no_url() {
+    let t = tempfile::tempdir().unwrap();
+    let mut env = Env::new();
+    env.insert(
+        "CONDUCTOR_ROOT".into(),
+        t.path().to_string_lossy().into_owned(),
+    );
+    let mut c = load_config(&env, &machine_facts()).unwrap();
+    let w = local_mode_warning(&c, &env).expect("unenrolled, no URL: a warning");
+    let machine_json = crate::credential::credential_path(&c.root_dir);
+    assert!(w.contains(&machine_json.display().to_string()), "{w}");
+    assert!(w.contains(&c.orchestrator_url), "{w}");
+    assert!(c.orchestrator_url.starts_with("ws://127.0.0.1:"));
+    assert!(w.contains("Machines → Add a machine"), "{w}");
+
+    // An orchestrator named on purpose (dev, tests, e2e): no warning.
+    let mut with_url = env.clone();
+    with_url.insert(
+        "CONDUCTOR_ORCHESTRATOR_URL".into(),
+        "ws://127.0.0.1:1/ws/daemon".into(),
+    );
+    assert_eq!(local_mode_warning(&c, &with_url), None);
+    // An empty one names nothing (the config ignores it too).
+    let mut blank = env.clone();
+    blank.insert("CONDUCTOR_ORCHESTRATOR_URL".into(), String::new());
+    assert!(local_mode_warning(&c, &blank).is_some());
+
+    // Enrolled: no warning, and never the credential.
+    c.credential = Some("secret".into());
+    assert_eq!(local_mode_warning(&c, &env), None);
+}
+
 /// The tools `start_detached` was asked to start.
 type Started = Arc<Mutex<Vec<(String, Vec<String>)>>>;
 

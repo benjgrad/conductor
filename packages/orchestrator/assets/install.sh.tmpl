@@ -182,7 +182,12 @@ else
   if [ -f "$root/machine.json" ]; then
     say "upgraded in place; enrollment kept ($root/machine.json)"
   else
-    say "not enrolled: re-run with --token from Add a machine"
+    # Installed but not enrolled: the daemon would only look for conductor on this computer.
+    say ""
+    say "This machine is NOT enrolled: conductor can't see it or send it tickets yet. To enroll it:"
+    say "  1. Open $PUBLIC_URL, go to Machines and press Add a machine."
+    say "  2. Run the command it shows here (it includes a one-time token), or enroll directly:"
+    say "     CONDUCTOR_ENROLL_TOKEN=<token> $daemon enroll --url $PUBLIC_URL"
   fi
   if [ "$service" = 0 ] && { [ -f "${HOME:-}/Library/LaunchAgents/com.conductor.daemon.plist" ] ||
     [ -f "${HOME:-}/.config/systemd/user/conductor-daemon.service" ]; }; then

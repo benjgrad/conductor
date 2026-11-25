@@ -29,6 +29,9 @@ import {
   type WorkflowValidationError,
   ticketBaseOf,
   RETRY_CHECKS,
+  REQUIREMENT_TEXT_MAX,
+  requirementsOfContext,
+  requirementsProgress,
 } from '@conductor/shared';
 import { afterRepoChecksChangedSafe } from '../api/check-config.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -198,6 +201,23 @@ const SIMULATE_TICKETS_MAX = 10;
 
 /** list_schedules: each schedule's body, clipped. */
 const SCHEDULE_BODY_CLIP = 300;
+
+/** ADR-0045: get_ticket's `requirements`: each item with its status, and an open proposal. */
+export function requirementsReport(context: Record<string, unknown>): Record<string, unknown> {
+  const r = requirementsOfContext(context);
+  if (r === null) return {};
+  return {
+    requirements: {
+      items: r.items.map((i) => ({
+        text: clip(i.text, REQUIREMENT_TEXT_MAX),
+        status: i.status,
+        ...(i.reason !== null ? { reason: clip(i.reason, 300) } : {}),
+      })),
+      ...requirementsProgress(r),
+      ...(r.proposed !== null ? { proposed: r.proposed.items } : {}),
+    },
+  };
+}
 
 /** A preset's text in get_ticket, so a ticket with several stays under the result cap. */
 const PRESET_MAX = 500;
@@ -694,6 +714,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           ...(gated.has(h.name) ? { requires_approval: true } : {}),
         })),
         pr_url: d.card.pr_url,
+        // ADR-0045: the ticket's requirements checklist (read only; the board edits it).
+        ...requirementsReport(d.context),
         // An agent's proposed repo checks waiting on a human (apply_change applies one).
         ...(await checkProposalsOf(t.id)),
         spend_usd: d.spend_usd,

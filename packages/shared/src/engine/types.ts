@@ -229,6 +229,12 @@ export const GateStepSchema = z.object({
   skipped_checks: z
     .array(z.object({ index: z.number().int().nonnegative(), reason: z.string() }))
     .default([]),
+  /**
+   * ADR-0045: the ticket's requirements (`context.__requirements` texts) when the step started.
+   * A review checks them after the gate's own items; pinned so an edit while the step runs can't
+   * shift the verdict against another list. Defaults to [], so older rows parse.
+   */
+  requirements: z.array(z.string()).default([]),
 });
 export type GateStep = z.infer<typeof GateStepSchema>;
 /** ADR-0037 P4: `GateStep.hold` while held. */
@@ -680,6 +686,19 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     type: z.literal('human.overrule'),
     input_request_id: UuidSchema,
     text: z.string().trim().min(1),
+    actor: z.string().min(1),
+  }),
+  /**
+   * U (ADR-0045): a human sets the ticket's requirements checklist (`context.__requirements`):
+   * `items`, or the agent's open proposal with `apply_proposal`. Accepted in every non-terminal
+   * status except while a review runs (`wrong_status`: the reviewer judges the list it was given).
+   * A list that doesn't parse (or no proposal to apply) → `invalid_requirements`. No state change,
+   * no transition; a live agent is told the new list (`send_message`).
+   */
+  z.object({
+    type: z.literal('human.requirements'),
+    items: z.array(z.string()).max(100).optional(),
+    apply_proposal: z.boolean().optional(),
     actor: z.string().min(1),
   }),
 ]);
@@ -1336,6 +1355,11 @@ export const APPLY_IGNORE_REASONS = [
    * apply's own snapshot: a stale trip (the budget was raised, or the session parked meanwhile).
    */
   'within_budget',
+  /**
+   * ADR-0045: `human.requirements` with a list that doesn't parse (empty, too long, an item over
+   * the limit) or `apply_proposal` with no proposal open (→ 400).
+   */
+  'invalid_requirements',
 ] as const;
 export const ApplyIgnoreReasonSchema = z.enum(APPLY_IGNORE_REASONS);
 export type ApplyIgnoreReason = z.infer<typeof ApplyIgnoreReasonSchema>;

@@ -12,6 +12,7 @@ import {
   DismissProposalRequestSchema,
   FreshConversationRequestSchema,
   OverruleDefaultRequestSchema,
+  SetRequirementsRequestSchema,
   ReopenSessionRequestSchema,
   ReorderQueueRequestSchema,
   ReopenTicketRequestSchema,
@@ -405,6 +406,33 @@ export const createApi = (({
         ? 'the agent has moved on since conductor answered for you (or is still starting); ' +
           'answer its new question or send it a message'
         : `human.overrule: ${result.reason}`;
+    return sendError(reply, status, code, message);
+  });
+
+  /**
+   * ADR-0045: set the ticket's requirements checklist, or apply the agent's proposed change →
+   * `human.requirements {items | apply_proposal, actor: 'ui'}`. Nothing moves.
+   */
+  app.put<IdParams>(API_PATHS.sessionRequirements(':id'), async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(SetRequirementsRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const event: EngineEvent =
+      'items' in body
+        ? { type: 'human.requirements', items: body.items, actor: UI_ACTOR }
+        : { type: 'human.requirements', apply_proposal: true, actor: UI_ACTOR };
+    const result = await engine.applyEvent(id, event);
+    if (result.status === 'applied') return reply.code(202).send(OK);
+    const { status, code } = httpForApplyResult('requirements', result);
+    const message =
+      result.status === 'ignored' && result.reason === 'invalid_requirements'
+        ? 'apply_proposal' in body
+          ? 'there is no proposed change to apply'
+          : `give 1 to 30 requirements of at most 500 characters each (${result.reason})`
+        : result.status === 'ignored' && result.reason === 'wrong_status'
+          ? 'conductor is reviewing the requirements right now; edit them when the review is done'
+          : `${event.type}: ${result.reason}`;
     return sendError(reply, status, code, message);
   });
 

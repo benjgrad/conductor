@@ -600,6 +600,52 @@ function transitionSeeds(now: Date): MockSeed[] {
   ];
 }
 
+/**
+ * ADR-0045: the review card's checklist: met, not met, not checked yet, and the implementer's
+ * proposal to drop one (it asked).
+ */
+const REVIEW_REQUIREMENTS = {
+  items: [
+    {
+      text: 'A review request card looks different from a question card',
+      status: 'met' as const,
+      reason: 'Board.tsx renders a "Review" chip and a different border for handoff requests.',
+      checked_in: 'implementing → needs_input (personal_pr_ready_for_review)',
+    },
+    {
+      text: 'Each card says in words which kind it is, not only by colour',
+      status: 'met' as const,
+      reason: 'The chip text reads "Review" or "Question".',
+      checked_in: 'implementing → needs_input (personal_pr_ready_for_review)',
+    },
+    {
+      text: 'The board legend explains both kinds',
+      status: 'unmet' as const,
+      reason: 'No legend change in the diff.',
+      checked_in: 'implementing → needs_input (personal_pr_ready_for_review)',
+    },
+    {
+      text: 'Keyboard users can tell the kinds apart',
+      status: 'pending' as const,
+      reason: null,
+      checked_in: null,
+    },
+  ],
+  set_by: 'agent' as const,
+  set_in: 'planning',
+  revision: 1,
+  proposed: {
+    items: [
+      'A review request card looks different from a question card',
+      'Each card says in words which kind it is, not only by colour',
+      'Keyboard users can tell the kinds apart',
+    ],
+    from_state: 'implementing',
+    revision_of: 1,
+  },
+  ignored: null,
+};
+
 /** UX-4: a finished agent's report, opened by `personal_pr_ready_for_review`, with its PR. */
 function reviewSeed(now: Date): MockSeed {
   const id = SEED_IDS.review;
@@ -627,6 +673,7 @@ function reviewSeed(now: Date): MockSeed {
       ...base.card,
       kind: 'personal',
       pr_url: 'https://github.com/benjgrad/conductor/pull/42',
+      requirements: { met: 2, total: 4, proposed: true },
       // UXR-36: the workflow's buttons, so the review shows Approve (its `done`).
       human_transitions: humanTransitionOptions(
         CONDUCTOR_V2_DRAFT_DEF,
@@ -639,6 +686,7 @@ function reviewSeed(now: Date): MockSeed {
       ...base.session!,
       context: {
         __pr: { pr_url: 'https://github.com/benjgrad/conductor/pull/42' },
+        __requirements: REVIEW_REQUIREMENTS,
         // 06 §Proposed tickets: follow-ups the implementer noticed (and one malformed, dropped).
         implementing: {
           summary: 'Review requests and questions now look different on the board.',
@@ -704,7 +752,22 @@ function planApprovalSeed(now: Date): MockSeed {
     activeMinAgo: 3,
     spend: 0.58,
     returnTo: 'planning',
-    context: { planning: { plan: MOCK_PLAN } },
+    context: {
+      planning: { plan: MOCK_PLAN },
+      // ADR-0045: the plan's checklist, none checked yet.
+      __requirements: {
+        items: [
+          'POST /login answers 429 after 5 failed attempts a minute per IP',
+          'A successful login resets the counter',
+          'Redis down: logins still work and an error is logged',
+        ].map((text) => ({ text, status: 'pending', reason: null, checked_in: null })),
+        set_by: 'agent',
+        set_in: 'planning',
+        revision: 1,
+        proposed: null,
+        ignored: null,
+      },
+    },
     ticketBody: UX2_TICKET_BODY,
     input: {
       id: id.input,
@@ -721,7 +784,11 @@ function planApprovalSeed(now: Date): MockSeed {
     ],
   });
   // The seeds keep the fixture's buttons; this one needs the workflow's, for the $return_to answer.
-  const card = { ...base.card, kind: 'personal' as const };
+  const card = {
+    ...base.card,
+    kind: 'personal' as const,
+    requirements: { met: 0, total: 3, proposed: false },
+  };
   return {
     ...base,
     card: {

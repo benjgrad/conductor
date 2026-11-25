@@ -4,6 +4,7 @@ import type { SentBack } from './qa.js';
 import type { AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
 import type { SessionSnapshot } from './types.js';
+import { renderRequirementsSection, requirementsOfContext } from './requirements.js';
 
 // Prompt rendering for agent states (05 §State types, 10-contracts §Engine). Pure: apply()
 // calls it to build `start_session.prompt`. An agent state's `prompt` is either the name of a
@@ -100,6 +101,10 @@ export function renderPrompt(input: RenderPromptInput): string {
 
   const inputs = renderInputs(state, snapshot.context);
   if (inputs) parts.push(inputs);
+
+  // ADR-0045: every agent after planning sees the ticket's checklist and that it is fixed.
+  const reqs = state.prompt === PLAN_TEMPLATE ? null : requirementsOfContext(snapshot.context);
+  if (reqs !== null && reqs.items.length > 0) parts.push(renderRequirementsSection(reqs));
 
   if (input.attachment) {
     const a = input.attachment;
@@ -231,6 +236,13 @@ export const PLAN_FILES_INSTRUCTION =
   'End the plan with a `## Files` heading: the repo-relative paths or path globs (e.g. `packages/web/src/**`) you expect to create or edit, one per line. Put the same list in the result as `"files": ["…"]`, or `[]` if the ticket changes no files.';
 
 /**
+ * ADR-0045: the planning template asks for the ticket's requirements checklist, the optional
+ * `requirements` result key (engine/requirements.ts). Conductor's reviewer checks each one.
+ */
+export const PLAN_REQUIREMENTS_INSTRUCTION =
+  'Put the criteria that decide whether this ticket is fully implemented in the result as `"requirements": ["…"]`: 3 to 12 short statements, each one checkable against the diff, taken from the ticket\'s Goal and Functional requirements. Conductor\'s reviewer checks off each one before the ticket moves on, the human sees the list, and once implementing starts only a human can change it.';
+
+/**
  * ADR-0037 §4 (C2): the planning line an `L` ticket gets (`ticket.size`), after the instructions.
  * The `_NO_PROPOSALS_` variant is for a state whose `follow_ups` are off (no `proposed_tickets`).
  */
@@ -283,8 +295,9 @@ const PLAN_INSTRUCTIONS = [
   PLAN_ASK_INSTRUCTION,
   PLAN_HEADINGS_INSTRUCTION,
   PLAN_FILES_INSTRUCTION,
+  PLAN_REQUIREMENTS_INSTRUCTION,
   PROPOSALS_HINT,
-  'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>", "files": ["<path or glob>", …]}`.',
+  'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>", "files": ["<path or glob>", …], "requirements": ["<criterion>", …]}`.',
 ].join('\n');
 
 /**

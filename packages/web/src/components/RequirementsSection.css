@@ -1,0 +1,83 @@
+/* ADR-0045: the Requirements section (RequirementsSection.tsx). Status is an icon plus words. */
+.requirements .req-summary {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.requirements .req-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.requirements .req-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.requirements .req-item:last-child {
+  border-bottom: none;
+}
+
+.requirements .req-icon {
+  flex: none;
+  margin-top: 0.15rem;
+}
+
+.requirements .req-icon.req-met,
+.requirements .req-met .req-status {
+  color: var(--ok);
+}
+
+.requirements .req-icon.req-unmet,
+.requirements .req-unmet .req-status {
+  color: var(--danger);
+}
+
+.requirements .req-icon.req-pending,
+.requirements .req-pending .req-status {
+  color: var(--muted);
+}
+
+.requirements .req-status {
+  font-size: 0.85em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.requirements .req-reason {
+  margin: 0.15rem 0 0;
+  font-size: 0.9em;
+}
+
+.requirements .req-proposal {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--warn-bg);
+}
+
+.requirements .req-proposal h4 {
+  margin: 0 0 0.25rem;
+}
+
+.requirements .req-diff {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.requirements .req-diff-mark {
+  font-weight: 700;
+  display: inline-block;
+  width: 1ch;
+}
+
+.requirements .req-edit textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}

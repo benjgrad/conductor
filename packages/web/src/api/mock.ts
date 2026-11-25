@@ -65,6 +65,12 @@ import {
   TransitionSessionRequestSchema,
   FreshConversationRequestSchema,
   OverruleDefaultRequestSchema,
+  SetRequirementsRequestSchema,
+  parseRequirementList,
+  requirementsOfContext,
+  requirementsProgress,
+  setRequirements as nextRequirements,
+  withRequirements,
   defaultTakenOf,
   PermissionDecisionRequestSchema,
   permissionSummary,
@@ -1937,6 +1943,28 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           );
         }
         api.pushOutput(sessionId, parsed.data.text, 'user');
+        return { ok: true };
+      }),
+
+    setRequirements: (sessionId, raw) =>
+      reply((): OkResponse => {
+        const parsed = SetRequirementsRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const card = cardForSession(sessionId);
+        const s = sessionOf(sessionId);
+        // Like apply(): refused while conductor's review runs.
+        if (card.checking?.phase === 'review') {
+          throw new ApiRequestError(409, 'conflict', 'conductor is reviewing the requirements');
+        }
+        const prev = requirementsOfContext(s.context);
+        const texts =
+          'items' in parsed.data
+            ? parseRequirementList(parsed.data.items)
+            : (prev?.proposed?.items ?? null);
+        if (texts === null) throw new ApiRequestError(400, 'bad_request', 'invalid requirements');
+        const next = nextRequirements(prev, texts, { set_by: 'human', set_in: 'ui' });
+        s.context = withRequirements(s.context, next);
+        update(card, { requirements: { ...requirementsProgress(next), proposed: false } });
         return { ok: true };
       }),
 

@@ -1,3 +1,9 @@
+import {
+  recordVerdict,
+  REQUIREMENTS_FIXED_INSTRUCTION,
+  setRequirements,
+  withRequirements,
+} from './requirements.js';
 import { describe, expect, it } from 'vitest';
 import type { AgentState } from '../workflow/schema.js';
 import {
@@ -17,6 +23,7 @@ import {
   PLAN_ASK_INSTRUCTION,
   PLAN_ASSUMPTIONS_HEADING,
   PLAN_FILES_INSTRUCTION,
+  PLAN_REQUIREMENTS_INSTRUCTION,
   PLAN_HEADINGS_INSTRUCTION,
   PLAN_MECHANISMS_HEADING,
   PLAN_SIZE_INSTRUCTION,
@@ -239,6 +246,42 @@ describe('planned files (ADR-0037 P4)', () => {
     const state: AgentState = { type: 'agent', prompt: IMPLEMENT_TEMPLATE, tools: ['edit'] };
     const p = renderPrompt({ stateName: 'implementing', state, snapshot: SNAPSHOT_FIXTURE });
     expect(p).not.toContain(PLAN_FILES_INSTRUCTION);
+  });
+});
+
+describe('the requirements checklist (ADR-0045)', () => {
+  const reqs = setRequirements(null, ['GET /health returns 200', 'README documents it'], {
+    set_by: 'agent',
+    set_in: 'planning',
+  });
+  const checked = recordVerdict(
+    reqs,
+    [{ item: 'README documents it', met: false, reason: 'no' }],
+    'x',
+  );
+  const snapshot = { ...SNAPSHOT_FIXTURE, context: withRequirements({}, checked) };
+
+  it('the plan template asks for requirements and does not show the fixed rule', () => {
+    const state: AgentState = { type: 'agent', prompt: PLAN_TEMPLATE, tools: ['read'] };
+    const p = renderPrompt({ stateName: 'planning', state, snapshot });
+    expect(p).toContain(PLAN_REQUIREMENTS_INSTRUCTION);
+    expect(p).toContain('"requirements": ["<criterion>", …]');
+    expect(p).not.toContain(REQUIREMENTS_FIXED_INSTRUCTION);
+  });
+
+  it('the implement template lists each requirement with its status and the fixed rule', () => {
+    const state: AgentState = { type: 'agent', prompt: IMPLEMENT_TEMPLATE, tools: ['edit'] };
+    const p = renderPrompt({ stateName: 'implementing', state, snapshot });
+    expect(p).not.toContain(PLAN_REQUIREMENTS_INSTRUCTION);
+    expect(p).toContain('1. [ ] not checked yet: GET /health returns 200');
+    expect(p).toContain('2. [!] not met: README documents it (no)');
+    expect(p).toContain(REQUIREMENTS_FIXED_INSTRUCTION);
+  });
+
+  it('no list, no section', () => {
+    const state: AgentState = { type: 'agent', prompt: IMPLEMENT_TEMPLATE, tools: ['edit'] };
+    const p = renderPrompt({ stateName: 'implementing', state, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).not.toContain(REQUIREMENTS_FIXED_INSTRUCTION);
   });
 });
 

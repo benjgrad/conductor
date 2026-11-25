@@ -107,6 +107,7 @@ export const MOVE_STEP_FIXTURE: GateStep = {
   hold: null,
   held: false,
   skipped_checks: [],
+  requirements: [],
 };
 
 /** A work ticket's session on `conductor` v2 (draft) in `implementing`, running. */

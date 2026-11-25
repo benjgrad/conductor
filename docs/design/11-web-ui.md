@@ -263,6 +263,17 @@ The session panel's third tab, **Links** (`LinksTab.tsx`, collected by the pure 
 
 A URL is listed once, under the first of agent, you, ticket, read that mentioned it, with the time it first appeared and how many times. Only http(s) URLs without credentials are links, opened in a new tab with `rel="noopener noreferrer"`. It covers only the session shown (an earlier session of a reopened ticket isn't included), and says so when the start of the conversation couldn't be loaded.
 
+## Requirements ([ADR-0045](../adr/0045-ticket-requirements-checklist.md))
+
+The Details tab's **Requirements** section (`RequirementsSection.tsx`) shows the ticket's checklist (`context.__requirements`) while it has one. The tab's order is **Technical details** (collapsed) first, then **Requirements**, then the STAR sections at the bottom (Situation, Task, Action, Steps, Result), then the ticket's attachments and agent permissions. The section shows:
+- "n of m met", and who set the list (the planning state, or you, with the revision).
+- Each item with an icon **and** a word: Met, Not met, Not checked yet. Never colour alone. The reviewer's reason sits under a checked item.
+- **Edit requirements**: one requirement per line; unchanged lines keep their status. It is disabled, with a note, while conductor's review runs, and absent once the session is finished.
+- An agent's proposed change, with what it adds and removes and **Apply proposed requirements** / **Keep current**. The same proposal shows in the Messages tab under the open question.
+- A note when an agent tried to change the list without asking and conductor ignored it.
+
+The board card shows `☑ n/m` (`BoardCard.requirements`) and a "requirements change proposed" badge while a proposal waits.
+
 ## Insights (UXR-84)
 
 `#/insights` (`insights/InsightsPage.tsx`), a top-bar tab after Machines. It shows the workflow advisor's data over the routes in [10 §Insights](10-contracts.md#insights-adr-0033-uxr-84): the same numbers the MCP tools `get_process_metrics`, `list_findings` and `get_process_report` return.

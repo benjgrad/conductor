@@ -175,6 +175,16 @@ A transition object may carry `requirements: {items[1..30], on_unmet: {goto, ins
 - Only outcomes go through gates: a human's "skip to <state>" and `answered` routes do not.
 - **One step representation with ADR-0010.** The review step is a gate step `{kind: 'transition', phase: 'review'}` (below); old versions keep working unchanged. Entering, leaving or switching a gate step bumps the session's fencing token in the wrapper ([10](10-contracts.md#engineservice-wrapper)), so a still-alive worker can never report into the step (e.g. supply the verdict), and a finished reviewer can never report into the next visit.
 
+### Ticket requirements ([ADR-0045](../adr/0045-ticket-requirements-checklist.md))
+The ticket's own checklist, `context.__requirements` (`REQUIREMENTS_CONTEXT_KEY`, `engine/requirements.ts`): `{items: [{text, status: pending|met|unmet, reason, checked_in}], set_by, set_in, revision, proposed, ignored}`.
+- **Set in planning.** A `plan_template` state's `complete_state` result may carry `requirements: string[]` (1–30 items of ≤ 500 characters, trimmed and de-duplicated). This works on any of its transitions, questions included, and it sets or replaces the list (`setRequirements`): an unchanged text keeps its status, a new one is pending. The plan template asks for 3–12 checkable statements (`PLAN_REQUIREMENTS_INSTRUCTION`).
+- **Fixed afterwards.** Every other agent's prompt lists the items with their status and `REQUIREMENTS_FIXED_INSTRUCTION`.
+  - A result whose `proposed_requirements` (else `requirements`) differs from the list becomes `proposed` when the transition is a question (`ask_user`, `question: true`).
+  - Otherwise it is ignored and kept as `ignored`.
+  - The list itself never changes.
+- **Checked by the reviewer.** `enterStep` pins the list's texts on the gate step (`GateStep.requirements`, default `[]`). `gateSpecOf` appends them, minus any already among the gate's own items (normalised), to `review.items` of a step that has a review, so the prompt, the verdict parse, the nudge and the unmet feedback all see them. `onVerdict` records each verdict on the list (`recordVerdict`: status, reason, `checked_in` = the step label).
+- **`human.requirements {items | apply_proposal, actor}`** replaces the list, or applies the open proposal. It is `wrong_status` while a review phase runs, `invalid_requirements` for a bad list or no proposal. It takes no transition and changes no state; a live agent gets a `send_message` with the new list.
+
 ### Requirements to enter a column ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md))
 Every state may have `title` (its board column title) and `entry`: `{checks?: [{name, cmd, timeout?}], review?: {items, model?}, actions?: ['open_pr'], on_unmet: {goto, instruction?, retries 0..10 = 2, else = "needs_input"}}` (at least one check, review or action). The definition's `columns` lists the board's columns (state names, left to right).
 

@@ -17,6 +17,7 @@ import {
   WorkflowDefinitionSchema,
 } from './schema.js';
 import { TRIAGE_CONTEXT_KEY } from '../engine/triage.js';
+import { REQUIREMENTS_CONTEXT_KEY } from '../engine/requirements.js';
 
 // M2r-T01 (ADR-0020): the definition fields. Validator rules are M2r-T02's.
 
@@ -138,6 +139,7 @@ describe('actions and reserved keys', () => {
         DEFAULT_CONTEXT_KEY,
         DEFAULT_TAKEN_CONTEXT_KEY,
         TRIAGE_CONTEXT_KEY,
+        REQUIREMENTS_CONTEXT_KEY,
       ].sort(),
     );
     expect(RESERVED_CONTEXT_KEYS).toContain('__qa');

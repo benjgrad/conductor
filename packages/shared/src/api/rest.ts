@@ -78,6 +78,7 @@ import { ATTACHMENTS_PER_TICKET_MAX, AttachmentDtoSchema } from './attachments.j
 import { OutputChunkSchema } from './output.js';
 import { TicketProposalSchema } from './proposals.js';
 import { TicketPageSchema } from './pages.js';
+import { requirementsOfContext, requirementsProgress } from '../engine/requirements.js';
 import {
   PERMISSION_MESSAGE_MAX,
   PERMISSION_RULE_MAX,
@@ -103,6 +104,8 @@ export const API_PATHS = {
   sessionFreshConversation: (id: string) => `/api/sessions/${id}/fresh-conversation`,
   /** ADR-0041: overrule the answer conductor gave on a human's behalf. */
   sessionOverrule: (id: string) => `/api/sessions/${id}/overrule`,
+  /** ADR-0045: PUT → set the ticket's requirements checklist, or apply the agent's proposal. */
+  sessionRequirements: (id: string) => `/api/sessions/${id}/requirements`,
   /** ADR-0008: the session's history from Claude's own transcript on its machine. */
   sessionTranscript: (id: string) => `/api/sessions/${id}/transcript`,
   /** ADR-0008: reopen a finished ticket by resuming the same Claude conversation. */
@@ -804,6 +807,18 @@ export const BoardCardSchema = z.object({
   /** ADR-0020: conductor's PR, merged / closed; absent ≡ no PR (`pr_url` stays for older UIs). */
   pr: BoardCardPrSchema.optional(),
   /**
+   * ADR-0045: how many of the ticket's requirements the latest reviews found met, while the
+   * session has a checklist (`context.__requirements`); `proposed` while an agent's change waits
+   * for a human. Absent ≡ no checklist.
+   */
+  requirements: z
+    .object({
+      met: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+      proposed: z.boolean(),
+    })
+    .optional(),
+  /**
    * ADR-0023: the session's sub-status; absent / null ≡ none. `status` and `column` don't change
    * while it is set.
    */
@@ -1044,6 +1059,19 @@ export const OverruleDefaultRequestSchema = z.object({
   text: z.string().trim().min(1).max(20_000),
 });
 export type OverruleDefaultRequest = z.infer<typeof OverruleDefaultRequestSchema>;
+
+/**
+ * PUT /api/sessions/:id/requirements → 202 OkResponse (ADR-0045). Becomes `human.requirements
+ * {items | apply_proposal, actor: 'ui'}`: the ticket's checklist is replaced (items whose text is
+ * unchanged keep their status) or the agent's open proposal is applied. 400 `bad_request` for a
+ * list that doesn't parse or no open proposal; 409 `conflict` while a review runs or the session
+ * is finished; 404 unknown session.
+ */
+export const SetRequirementsRequestSchema = z.union([
+  z.object({ items: z.array(z.string().max(2_000)).min(1).max(100) }),
+  z.object({ apply_proposal: z.literal(true) }),
+]);
+export type SetRequirementsRequest = z.infer<typeof SetRequirementsRequestSchema>;
 
 /** POST /api/sessions/:id/input → 202 `{ok: true}`; 409 if already answered / not pending. */
 /** 06 §Attachments (chat): the uploads a message, answer or reopen carries. */
@@ -1391,7 +1419,14 @@ export type ApiErrorCode = ApiError['error']['code'];
 
 /** The REST routes that call EngineService.applyEvent (T08). */
 export type EngineRoute =
-  'input' | 'approve' | 'cancel' | 'message' | 'transition' | 'fresh_conversation' | 'overrule';
+  | 'input'
+  | 'approve'
+  | 'cancel'
+  | 'message'
+  | 'transition'
+  | 'fresh_conversation'
+  | 'overrule'
+  | 'requirements';
 
 /** Rejected (nothing written) → HTTP. Same for every route. */
 export const APPLY_REJECT_HTTP = {
@@ -1421,6 +1456,8 @@ export function httpForApplyResult(
   // ADR-0020: these two say why, on any route (the transition route adds `approvals`).
   if (result.reason === 'approval_required') return { status: 409, code: 'approval_required' };
   if (result.reason === 'pr_open') return { status: 409, code: 'pr_open' };
+  // ADR-0045: the list itself is wrong, not the moment.
+  if (result.reason === 'invalid_requirements') return { status: 400, code: 'bad_request' };
   return { status: 409, code: route === 'input' ? 'input_not_pending' : 'conflict' };
 }
 
@@ -2232,7 +2269,15 @@ export function toBoardCard(
     ...(ticket.schedule_id != null
       ? { schedule: { id: ticket.schedule_id, name: ticket.schedule_name ?? '' } }
       : {}),
+    ...requirementsOfCard(session),
   };
+}
+
+/** ADR-0045: the card's checklist count (`BoardCard.requirements`), or nothing. */
+function requirementsOfCard(session: CardSessionLike | null): Pick<BoardCard, 'requirements'> {
+  const reqs = session ? requirementsOfContext(session.context) : null;
+  if (reqs === null || (reqs.items.length === 0 && reqs.proposed === null)) return {};
+  return { requirements: { ...requirementsProgress(reqs), proposed: reqs.proposed !== null } };
 }
 
 // ---------------------------------------------------------------- ADR-0011 card fields

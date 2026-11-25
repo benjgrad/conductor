@@ -54,10 +54,11 @@ export async function listRepoChecks(
 }
 
 /** The latest `conductor` definition; the newest shipped one when none is stored (a bare DB). */
-async function latestConductor(q: Queryable): Promise<WorkflowDefinition> {
+async function latestConductor(q: Queryable, accountId: string): Promise<WorkflowDefinition> {
   const r = await q.query<{ definition: unknown }>(
-    'SELECT definition FROM workflow_definition WHERE id = $1 ORDER BY version DESC LIMIT 1',
-    [CONDUCTOR_WORKFLOW_ID],
+    'SELECT definition FROM workflow_definition WHERE account_id = $1 AND id = $2 ' +
+      'ORDER BY version DESC LIMIT 1',
+    [accountId, CONDUCTOR_WORKFLOW_ID],
   );
   const parsed = WorkflowDefinitionSchema.safeParse(r.rows[0]?.definition);
   return parsed.success ? parsed.data : CONDUCTOR_V4_DEF;
@@ -75,7 +76,7 @@ export async function getRepoChecks(
     [accountId, key],
   );
   const override = r.rows[0] ? toDto(r.rows[0]) : null;
-  const gates = checksGatesOf(await latestConductor(q));
+  const gates = checksGatesOf(await latestConductor(q, accountId));
   return {
     repo: key,
     override,

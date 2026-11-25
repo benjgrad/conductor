@@ -17,12 +17,13 @@ import type { SessionRow } from '../db/types.js';
 
 async function latestDefinition(
   tx: Queryable,
+  accountId: string,
   workflowId: string,
 ): Promise<{ version: number; def: WorkflowDefinition } | null> {
   const r = await tx.query<{ version: number; definition: unknown }>(
-    'SELECT version, definition FROM workflow_definition WHERE id = $1 ' +
+    'SELECT version, definition FROM workflow_definition WHERE account_id = $1 AND id = $2 ' +
       'ORDER BY version DESC LIMIT 1',
-    [workflowId],
+    [accountId, workflowId],
   );
   const row = r.rows[0];
   if (row === undefined) return null;
@@ -36,10 +37,11 @@ async function latestDefinition(
  */
 export async function reopenVersion(
   tx: Queryable,
+  accountId: string,
   workflowId: string,
   oldVersion: number,
 ): Promise<number> {
-  const latest = await latestDefinition(tx, workflowId);
+  const latest = await latestDefinition(tx, accountId, workflowId);
   if (latest === null || latest.version <= oldVersion) return oldVersion;
   return latest.def.states[latest.def.start] !== undefined ? latest.version : oldVersion;
 }
@@ -68,7 +70,7 @@ export async function repinParked(
   const at = session.workflow_state;
   const state = at === null ? undefined : current.states[at];
   if (at === null || (state?.type !== 'human' && state?.type !== 'event')) return null;
-  const latest = await latestDefinition(tx, session.workflow_id);
+  const latest = await latestDefinition(tx, session.account_id, session.workflow_id);
   if (latest === null || latest.version <= session.workflow_version) return null;
   const next = latest.def.states[at];
   if (next?.type !== state.type) return null;

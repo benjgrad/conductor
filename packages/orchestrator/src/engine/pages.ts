@@ -189,6 +189,7 @@ const defs = new DefinitionCache();
 
 /** What reading a session's attached pages needs. */
 export interface PageSession {
+  account_id: string;
   ticket_id: string;
   context: Record<string, JsonObject>;
   workflow_id: string;
@@ -208,7 +209,7 @@ export async function sessionPages(
   now: Date = new Date(),
 ): Promise<TicketPage[]> {
   if (session === null) return [];
-  const def = await defs.get(q, session.workflow_id, session.workflow_version).catch(() => null);
+  const def = await defs.get(q, session.account_id, session.workflow_id, session.workflow_version).catch(() => null);
   if (def === null) return [];
   const refs = pagesOfContext(session.context, pageLimitsOf(def));
   if (refs.length === 0) return [];

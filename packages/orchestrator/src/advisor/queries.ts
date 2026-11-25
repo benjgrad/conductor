@@ -328,7 +328,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     }
   }
   const [defs, repoChecks] = await Promise.all([
-    loadDefinitions(db, [...pairs.values()]),
+    loadDefinitions(db, f.accountId, [...pairs.values()]),
     loadRepoChecks(db, f.accountId),
   ]);
   const defOf = (id: string, version: number | null) =>
@@ -498,6 +498,7 @@ function waitsOf(
 /** The workflow definitions of these (id, version) pairs; one that no longer parses is left out. */
 export async function loadDefinitions(
   db: Queryable,
+  accountId: string,
   pairs: readonly { id: string; version: number }[],
 ): Promise<AdvisorDefs> {
   const out = new Map<string, WorkflowDefinition>();
@@ -505,8 +506,8 @@ export async function loadDefinitions(
   const r = await db.query<{ id: string; version: number; definition: unknown }>(
     'SELECT d.id, d.version, d.definition FROM workflow_definition d ' +
       'JOIN unnest($1::text[], $2::int[]) AS p(id, version) ' +
-      'ON p.id = d.id AND p.version = d.version',
-    [pairs.map((p) => p.id), pairs.map((p) => p.version)],
+      'ON p.id = d.id AND p.version = d.version WHERE d.account_id = $3',
+    [pairs.map((p) => p.id), pairs.map((p) => p.version), accountId],
   );
   for (const row of r.rows) {
     const parsed = WorkflowDefinitionSchema.safeParse(row.definition);

@@ -64,12 +64,12 @@ import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
 import { registerRepoChecksRoutes } from './repo-checks.js';
-import { mayEditWorkflows, registerChangeProposalRoutes } from './change-proposals.js';
+import { registerChangeProposalRoutes } from './change-proposals.js';
 import { registerInsightsRoutes } from './insights.js';
 import { registerScheduleRoutes } from './schedules.js';
 import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
-import { loadSessionDetail, sessionExists } from './sessions.js';
+import { loadSessionDetail, sessionInAccount } from './sessions.js';
 import { approveProposal, dismissProposal } from './proposals.js';
 import { reorderQueue, resetQueueOrder } from './queue-order.js';
 import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
@@ -256,21 +256,33 @@ export const createApi = (({
     return sendError(reply, 500, 'internal', 'internal error');
   });
 
-  /** A valid uuid or a 404 sent (ids are uuid columns; anything else can't exist). */
-  const sessionId = (id: string, reply: FastifyReply): string | undefined => {
-    if (UuidSchema.safeParse(id).success) return id;
+  /**
+   * A session of the caller's account, or a 404 sent (M2-T21, ADR-0012 §Tenancy: another
+   * account's session is "not found", like an unknown or malformed id).
+   */
+  const sessionId = async (
+    id: string,
+    req: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<string | undefined> => {
+    if (
+      UuidSchema.safeParse(id).success &&
+      (await sessionInAccount(db, id, req.auth!.scope.account_id))
+    ) {
+      return id;
+    }
     void sendError(reply, 404, 'not_found', `session ${id} not found`);
     return undefined;
   };
 
   // ---------------------------------------------------------------- board
 
-  app.get(API_PATHS.board, () => loadBoard(db));
+  app.get(API_PATHS.board, (req) => loadBoard(db, req.auth!.scope.account_id));
 
   // ---------------------------------------------------------------- sessions
 
   app.get<IdParams>('/api/sessions/:id', async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const detail = await loadSessionDetail(db, outputBus, id);
     if (!detail) return sendError(reply, 404, 'not_found', `session ${id} not found`);
@@ -292,7 +304,7 @@ export const createApi = (({
   };
 
   app.post<IdParams>('/api/sessions/:id/input', async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(AnswerInputRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -329,7 +341,7 @@ export const createApi = (({
    * `send_input` (10-contracts §Pending answer); the wrapper closes it either way.
    */
   app.post<IdParams>(API_PATHS.sessionTransition(':id'), async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(TransitionSessionRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -358,7 +370,7 @@ export const createApi = (({
    * closes it (answered_by = 'ui').
    */
   app.post<IdParams>(API_PATHS.sessionFreshConversation(':id'), async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(FreshConversationRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -389,7 +401,7 @@ export const createApi = (({
    * text, actor: 'ui'}`; the text reaches the agent as a correction.
    */
   app.post<IdParams>(API_PATHS.sessionOverrule(':id'), async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(OverruleDefaultRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -414,7 +426,7 @@ export const createApi = (({
    * `human.requirements {items | apply_proposal, actor: 'ui'}`. Nothing moves.
    */
   app.put<IdParams>(API_PATHS.sessionRequirements(':id'), async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(SetRequirementsRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -437,7 +449,7 @@ export const createApi = (({
   });
 
   app.post<IdParams>('/api/sessions/:id/approve', async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(ApproveSessionRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -450,7 +462,7 @@ export const createApi = (({
   });
 
   app.post<IdParams>('/api/sessions/:id/cancel', async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(CancelSessionRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -463,7 +475,7 @@ export const createApi = (({
 
   /** ADR-0007: a message to the running agent (`sendOperatorMessage`, shared with MCP). */
   app.post<IdParams>('/api/sessions/:id/messages', async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(SendMessageRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -494,7 +506,7 @@ export const createApi = (({
    * session's machine.
    */
   app.get<IdParams>('/api/sessions/:id/transcript', async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const r = await db.query<{ machine_id: string | null }>(
       'SELECT machine_id FROM session WHERE id = $1',
@@ -534,7 +546,7 @@ export const createApi = (({
    * session that resumes the same Claude conversation on the same branch and machine.
    */
   app.post<IdParams>('/api/sessions/:id/reopen', async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
     const body = parseBody(ReopenSessionRequestSchema, req.body, reply);
     if (!body) return reply;
@@ -748,7 +760,7 @@ export const createApi = (({
 
   // ADR-0010: the one workflow; `?all=1` also lists the older ones (kept for their tickets).
   app.get<{ Querystring: { all?: string } }>(API_PATHS.workflows, (req) =>
-    listWorkflows(db, req.query.all === '1' || req.query.all === 'true'),
+    listWorkflows(db, req.auth!.scope.account_id, req.query.all === '1' || req.query.all === 'true'),
   );
 
   // ADR-0009: one workflow's definition, the latest version or `?version=N`.
@@ -765,24 +777,23 @@ export const createApi = (({
           ]);
         }
       }
-      const detail = await loadWorkflowDetail(
-        db,
-        req.params.id,
-        version,
-        req.auth?.scope.account_id ?? null,
-      );
+      const accountId = req.auth!.scope.account_id;
+      const detail = await loadWorkflowDetail(db, req.params.id, version, accountId);
       if (!detail) {
         const what = version === null ? '' : ` version ${version}`;
         return sendError(reply, 404, 'not_found', `no workflow ${req.params.id}${what}`);
       }
       // ADR-0011 (M1b-T09): the shipped default the user's edits kept the seed from inserting.
-      return { ...detail, default_available: await conductorDefaultAvailable(db, detail.id) };
+      return {
+        ...detail,
+        default_available: await conductorDefaultAvailable(db, detail.id, accountId),
+      };
     },
   );
 
   // UXR-87: the newer shipped default, compared with the latest version (the editor's Compare).
   app.get<IdParams>(API_PATHS.workflowDefault(':id'), async (req, reply) => {
-    const cmp = await defaultComparison(db, req.params.id);
+    const cmp = await defaultComparison(db, req.auth!.scope.account_id, req.params.id);
     if (cmp === null) {
       return sendError(reply, 404, 'not_found', `no newer default for ${req.params.id}`);
     }
@@ -790,11 +801,9 @@ export const createApi = (({
   });
 
   // UXR-87 / ADR-0030 amendment: adopt the default, as MCP `adopt_default_workflow` does
-  // (instance admins or local mode; the approval guard; only while `base_version` is the latest).
+  // (M2-T12: into the caller's own account; the approval guard; only while `base_version` is the
+  // latest).
   app.post<IdParams>(API_PATHS.workflowDefault(':id'), async (req, reply) => {
-    if (!mayEditWorkflows(req)) {
-      return sendError(reply, 403, 'forbidden', 'only an instance admin can change the workflow');
-    }
     const body = parseBody(AdoptDefaultWorkflowRequestSchema, req.body, reply);
     if (!body) return reply;
     if (req.params.id !== CONDUCTOR_WORKFLOW_ID) {
@@ -803,6 +812,7 @@ export const createApi = (({
     const res = await adoptDefaultWorkflow(db, {
       createdBy: `web:${req.auth!.user.email}`,
       baseVersion: body.base_version,
+      accountId: req.auth!.scope.account_id,
     });
     if (!res.ok && res.code === 'conflict') {
       return sendError(
@@ -845,7 +855,7 @@ export const createApi = (({
     const result = await saveWorkflowDefinition(db, body.definition, {
       createdBy: req.auth?.user.email ?? null,
       note: body.note ?? null,
-      ...(req.auth ? { accountId: req.auth.scope.account_id } : {}),
+      accountId: req.auth!.scope.account_id,
     });
     if (!result.ok && result.code === 'invalid_workflow') {
       return sendError(
@@ -883,15 +893,16 @@ export const createApi = (({
     const lastEventId =
       parseLastEventId(req.headers['last-event-id']) ?? parseLastEventId(query.last_event_id);
     const conn = hub.start(req, reply);
-    await serveBoardStream(conn, { db, boardBus, onError: logError }, lastEventId);
+    await serveBoardStream(
+      conn,
+      { db, boardBus, accountId: req.auth!.scope.account_id, onError: logError },
+      lastEventId,
+    );
   });
 
   app.get<IdParams>('/api/stream/sessions/:id/output', async (req, reply) => {
-    const id = sessionId(req.params.id, reply);
+    const id = await sessionId(req.params.id, req, reply);
     if (id === undefined) return reply;
-    if (!(await sessionExists(db, id))) {
-      return sendError(reply, 404, 'not_found', `session ${id} not found`);
-    }
     const conn = hub.start(req, reply);
     serveOutputStream(conn, outputBus, id);
   });

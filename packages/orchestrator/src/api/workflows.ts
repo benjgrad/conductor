@@ -33,8 +33,8 @@ export interface SaveWorkflowOptions {
   /** UXR-70: `workflow_definition.note` ('' or null = none). */
   note?: string | null;
   /**
-   * The saver's account (`workflow_definition.account_id`, default the local account). Workflows
-   * are shared by every account, so `created_by` and `note` are shown only to this account.
+   * The account whose workflow this is (`workflow_definition.account_id`, default the local
+   * account). M2-T12: each account has its own workflows and version numbers.
    */
   accountId?: string;
 }
@@ -43,11 +43,12 @@ export interface SaveWorkflowOptions {
 export async function latestWorkflow(
   q: Queryable,
   id: string,
+  accountId: string = LOCAL_ACCOUNT_ID,
 ): Promise<{ version: number; def: WorkflowDefinition | null } | null> {
   const r = await q.query<{ version: number; definition: unknown }>(
-    'SELECT version, definition FROM workflow_definition WHERE id = $1 ' +
+    'SELECT version, definition FROM workflow_definition WHERE account_id = $1 AND id = $2 ' +
       'ORDER BY version DESC LIMIT 1',
-    [id],
+    [accountId, id],
   );
   const row = r.rows[0];
   if (row === undefined) return null;
@@ -59,8 +60,12 @@ export async function latestWorkflow(
  * The `state.transition` names whose approvals `def` would lose against the latest stored version
  * of the same id (`approvalsWeakened`); empty when there is none, or it no longer parses.
  */
-export async function weakenedApprovals(q: Queryable, def: WorkflowDefinition): Promise<string[]> {
-  const prev = await latestWorkflow(q, def.id);
+export async function weakenedApprovals(
+  q: Queryable,
+  def: WorkflowDefinition,
+  accountId: string = LOCAL_ACCOUNT_ID,
+): Promise<string[]> {
+  const prev = await latestWorkflow(q, def.id, accountId);
   return prev?.def ? approvalsWeakened(prev.def, def) : [];
 }
 
@@ -75,8 +80,9 @@ const OPEN_SESSION = "status NOT IN ('done', 'failed', 'lost')";
 export async function removedStatesInUse(
   q: Queryable,
   def: WorkflowDefinition,
+  accountId: string = LOCAL_ACCOUNT_ID,
 ): Promise<WorkflowValidationError[]> {
-  const prev = await latestWorkflow(q, def.id);
+  const prev = await latestWorkflow(q, def.id, accountId);
   if (prev === null) return [];
   const prevStates = prev.def?.states ?? {};
   const dropped = Object.keys(prevStates).filter(
@@ -85,9 +91,9 @@ export async function removedStatesInUse(
   if (dropped.length === 0) return [];
   const r = await q.query<{ workflow_state: string; n: string }>(
     'SELECT workflow_state, count(*)::text AS n FROM session ' +
-      `WHERE workflow_id = $1 AND workflow_state = ANY($2::text[]) AND ${OPEN_SESSION} ` +
-      'GROUP BY workflow_state ORDER BY workflow_state',
-    [def.id, dropped],
+      `WHERE account_id = $3 AND workflow_id = $1 AND workflow_state = ANY($2::text[]) ` +
+      `AND ${OPEN_SESSION} GROUP BY workflow_state ORDER BY workflow_state`,
+    [def.id, dropped, accountId],
   );
   return r.rows.map((row) => {
     const n = Number(row.n);
@@ -110,8 +116,9 @@ export async function removedStatesInUse(
 export async function removedBasesInUse(
   q: Queryable,
   def: WorkflowDefinition,
+  accountId: string = LOCAL_ACCOUNT_ID,
 ): Promise<WorkflowValidationError[]> {
-  const prev = await latestWorkflow(q, def.id);
+  const prev = await latestWorkflow(q, def.id, accountId);
   if (prev === null) return [];
   const prevBases = prev.def?.bases ?? {};
   const dropped = Object.keys(prevBases).filter(
@@ -120,12 +127,12 @@ export async function removedBasesInUse(
   if (dropped.length === 0) return [];
   const r = await q.query<{ name: string; n: string }>(
     "SELECT t.base #>> '{}' AS name, count(*)::text AS n FROM ticket t " +
-      "WHERE t.workflow_id = $1 AND t.status NOT IN ('done', 'cancelled') " +
+      "WHERE t.account_id = $3 AND t.workflow_id = $1 AND t.status NOT IN ('done', 'cancelled') " +
       "AND jsonb_typeof(t.base) = 'string' AND t.base #>> '{}' = ANY($2::text[]) " +
       'AND NOT EXISTS (SELECT 1 FROM session s ' +
       'WHERE s.ticket_id = t.id AND s.workflow_state IS NOT NULL) ' +
       "GROUP BY t.base #>> '{}' ORDER BY 1",
-    [def.id, dropped],
+    [def.id, dropped, accountId],
   );
   return r.rows.map((row) => {
     const n = Number(row.n);
@@ -148,7 +155,11 @@ export async function insertWorkflowVersion(
   def: WorkflowDefinition,
   opts: SaveWorkflowOptions = {},
 ): Promise<SaveWorkflowResult> {
-  const inUse = [...(await removedStatesInUse(q, def)), ...(await removedBasesInUse(q, def))];
+  const accountId = opts.accountId ?? LOCAL_ACCOUNT_ID;
+  const inUse = [
+    ...(await removedStatesInUse(q, def, accountId)),
+    ...(await removedBasesInUse(q, def, accountId)),
+  ];
   if (inUse.length > 0) return { ok: false, code: 'invalid_workflow', errors: inUse };
   // A concurrent save of the same id loses the primary-key race and retries.
   for (let attempt = 0; ; attempt++) {
@@ -157,7 +168,7 @@ export async function insertWorkflowVersion(
         'INSERT INTO workflow_definition (id, version, definition, created_by, note, account_id) ' +
           'SELECT $1::text, coalesce(max(version), 0) + 1, ' +
           "jsonb_set($2::jsonb, '{version}', to_jsonb(coalesce(max(version), 0) + 1)), $3::text, " +
-          '$5::text, $6::uuid FROM workflow_definition WHERE id = $1::text ' +
+          '$5::text, $6::uuid FROM workflow_definition WHERE account_id = $6::uuid AND id = $1::text ' +
           'HAVING $4::int IS NULL OR coalesce(max(version), 0) = $4::int RETURNING version',
         [
           def.id,
@@ -165,7 +176,7 @@ export async function insertWorkflowVersion(
           opts.createdBy ?? null,
           opts.baseVersion ?? null,
           opts.note?.trim() ? opts.note.trim() : null,
-          opts.accountId ?? LOCAL_ACCOUNT_ID,
+          accountId,
         ],
       );
       const row = res.rows[0];
@@ -173,7 +184,7 @@ export async function insertWorkflowVersion(
         return {
           ok: false,
           code: 'conflict',
-          latest: (await latestWorkflow(q, def.id))?.version ?? null,
+          latest: (await latestWorkflow(q, def.id, accountId))?.version ?? null,
         };
       }
       return { ok: true, id: def.id, version: row.version };
@@ -216,7 +227,7 @@ export async function saveGuarded(
   def: WorkflowDefinition,
   opts: SaveWorkflowOptions = {},
 ): Promise<GuardedSaveResult> {
-  const weakened = await weakenedApprovals(q, def);
+  const weakened = await weakenedApprovals(q, def, opts.accountId ?? LOCAL_ACCOUNT_ID);
   if (weakened.length > 0) return { ok: false, code: 'approval_weakened', transitions: weakened };
   const res = await insertWorkflowVersion(q, def, opts);
   return res;
@@ -237,6 +248,7 @@ export function adoptDefaultWorkflow(
  */
 export async function defaultComparison(
   q: Queryable,
+  accountId: string,
   id: string,
 ): Promise<{
   version: number;
@@ -244,12 +256,12 @@ export async function defaultComparison(
   definition: WorkflowDefinition;
   diff: { changes: StructuralChange[]; more_changes: number };
 } | null> {
-  const available = await conductorDefaultAvailable(q, id);
+  const available = await conductorDefaultAvailable(q, id, accountId);
   if (available === null) return null;
   const r = await q.query<{ version: number; definition: unknown }>(
-    'SELECT version, definition FROM workflow_definition WHERE id = $1 ' +
+    'SELECT version, definition FROM workflow_definition WHERE account_id = $1 AND id = $2 ' +
       'ORDER BY version DESC LIMIT 1',
-    [id],
+    [accountId, id],
   );
   const row = r.rows[0];
   if (row === undefined) return null;

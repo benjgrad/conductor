@@ -110,10 +110,11 @@ export async function approveProposal(
     if (created) return created;
   }
   // The repo and workflow checks of POST /api/tickets (nothing is written when they fail).
-  const prepared = await prepareNewTicket(deps, {
-    repo: proposal.repo,
-    workflow_id: parent.workflow_id,
-  });
+  const prepared = await prepareNewTicket(
+    deps,
+    { repo: proposal.repo, workflow_id: parent.workflow_id },
+    scope.account_id,
+  );
   if (!prepared.ok) return prepared;
 
   const outcome = await withTransaction(db, async (tx) => {

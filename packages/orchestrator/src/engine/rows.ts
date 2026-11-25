@@ -92,23 +92,29 @@ export async function readOpenInput(
 }
 
 /**
- * Workflow definitions are immutable per (id, version) (05 §Versioning), so a process-wide cache
- * is safe.
+ * Workflow definitions are immutable per (account, id, version) (05 §Versioning; M2-T12: each
+ * account has its own), so a process-wide cache is safe.
  */
 export class DefinitionCache {
   private readonly cache = new Map<string, WorkflowDefinition>();
 
-  async get(tx: Queryable, id: string, version: number): Promise<WorkflowDefinition> {
+  async get(
+    tx: Queryable,
+    accountId: string,
+    id: string,
+    version: number,
+  ): Promise<WorkflowDefinition> {
     const key = `${id}@${version}`;
-    const hit = this.cache.get(key);
+    const cacheKey = `${accountId}/${key}`;
+    const hit = this.cache.get(cacheKey);
     if (hit) return hit;
     const r = await tx.query<{ definition: unknown }>(
-      'SELECT definition FROM workflow_definition WHERE id = $1 AND version = $2',
-      [id, version],
+      'SELECT definition FROM workflow_definition WHERE account_id = $1 AND id = $2 AND version = $3',
+      [accountId, id, version],
     );
     if (!r.rows[0]) throw new Error(`workflow ${key} not found`);
     const def = WorkflowDefinitionSchema.parse(r.rows[0].definition);
-    this.cache.set(key, def);
+    this.cache.set(cacheKey, def);
     return def;
   }
 }

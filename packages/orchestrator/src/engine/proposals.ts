@@ -18,6 +18,7 @@ const defs = new DefinitionCache();
 
 /** What reading a session's proposals needs. */
 export interface ProposalSession {
+  account_id: string;
   context: Record<string, JsonObject>;
   workflow_id: string;
   workflow_version: number;
@@ -34,7 +35,7 @@ export async function sessionProposals(
   q: Queryable,
   session: ProposalSession,
 ): Promise<ParsedProposal[]> {
-  const def = await defs.get(q, session.workflow_id, session.workflow_version).catch(() => null);
+  const def = await defs.get(q, session.account_id, session.workflow_id, session.workflow_version).catch(() => null);
   return proposalsOfContext(session.context, def ? proposalLimitsOf(def) : undefined);
 }
 

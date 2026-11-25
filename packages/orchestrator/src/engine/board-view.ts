@@ -36,35 +36,40 @@ const shared = new DefinitionCache();
 /** The latest `conductor` definition, or null when none is seeded (a bare test database). */
 export async function latestConductor(
   q: Queryable,
+  accountId: string,
   defs: DefinitionCache = shared,
 ): Promise<WorkflowDefinition | null> {
   const r = await q.query<{ v: number | null }>(
-    'SELECT max(version) AS v FROM workflow_definition WHERE id = $1',
-    [CONDUCTOR_WORKFLOW_ID],
+    'SELECT max(version) AS v FROM workflow_definition WHERE account_id = $1 AND id = $2',
+    [accountId, CONDUCTOR_WORKFLOW_ID],
   );
   const v = r.rows[0]?.v ?? null;
-  return v === null ? null : defs.get(q, CONDUCTOR_WORKFLOW_ID, v);
+  return v === null ? null : defs.get(q, accountId, CONDUCTOR_WORKFLOW_ID, v);
 }
 
 /** Resolves card views with the columns read once (one board load, one apply). */
 export class CardViews {
   private columns: CardView['columns'] | null = null;
 
+  /** M2-T12: one account's board (its own `conductor` gives the columns). */
   constructor(
     private readonly q: Queryable,
+    private readonly accountId: string,
     private readonly defs: DefinitionCache = shared,
   ) {}
 
   async view(workflowId: string, version: number | null): Promise<CardView> {
-    this.columns ??= boardColumns(await latestConductor(this.q, this.defs));
+    this.columns ??= boardColumns(await latestConductor(this.q, this.accountId, this.defs));
     let def: WorkflowDefinition | null = null;
-    if (version !== null) def = await this.defs.get(this.q, workflowId, version).catch(() => null);
+    if (version !== null) {
+      def = await this.defs.get(this.q, this.accountId, workflowId, version).catch(() => null);
+    }
     return { columns: this.columns, def };
   }
 
   /** The board's columns (Queued first). */
   async boardColumns(): Promise<CardView['columns']> {
-    this.columns ??= boardColumns(await latestConductor(this.q, this.defs));
+    this.columns ??= boardColumns(await latestConductor(this.q, this.accountId, this.defs));
     return this.columns;
   }
 }
@@ -72,10 +77,11 @@ export class CardViews {
 /** One card view (columns + the session's definition) for a single card. */
 export function cardView(
   q: Queryable,
+  accountId: string,
   workflowId: string,
   version: number | null,
 ): Promise<CardView> {
-  return new CardViews(q).view(workflowId, version);
+  return new CardViews(q, accountId).view(workflowId, version);
 }
 
 // ---------------------------------------------------------------- M2-T16a machine fields
@@ -199,7 +205,7 @@ export class MachineCardFields {
 
   private async pendingProposals(ticketId: string, sessionId: string): Promise<number> {
     const r = await this.q.query<ProposalSession>(
-      'SELECT context, workflow_id, workflow_version FROM session WHERE id = $1',
+      'SELECT account_id, context, workflow_id, workflow_version FROM session WHERE id = $1',
       [sessionId],
     );
     const session = r.rows[0];
@@ -210,14 +216,14 @@ export class MachineCardFields {
     let version = ticket.workflow_version;
     if (version === null) {
       const r = await this.q.query<{ v: number | null }>(
-        'SELECT max(version) AS v FROM workflow_definition WHERE id = $1',
-        [ticket.workflow_id],
+        'SELECT max(version) AS v FROM workflow_definition WHERE account_id = $1 AND id = $2',
+        [ticket.account_id, ticket.workflow_id],
       );
       version = r.rows[0]?.v ?? null;
     }
     if (version === null) return undefined;
     const reqs = await this.required
-      .get(this.q, ticket.workflow_id, version, ticket.kind)
+      .get(this.q, ticket.account_id, ticket.workflow_id, version, ticket.kind)
       .catch(() => null);
     if (reqs === null) return undefined;
     let fleet = this.machines.get(ticket.account_id);

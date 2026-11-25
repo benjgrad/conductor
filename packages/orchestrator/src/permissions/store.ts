@@ -115,7 +115,12 @@ export async function currentCard(tx: Queryable, sessionId: string): Promise<Boa
   const locked = await lockSession(tx, sessionId);
   if (!locked) throw new Error(`session ${sessionId} not found`);
   const { session, ticket } = locked;
-  const view = await cardView(tx, session.workflow_id, session.workflow_version);
+  const view = await cardView(
+    tx,
+    session.account_id,
+    session.workflow_id,
+    session.workflow_version,
+  );
   return withMachineFields(
     tx,
     withPermission(

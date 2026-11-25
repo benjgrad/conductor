@@ -6,6 +6,8 @@ import {
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import { InMemoryBoardBus, type Queryable } from '../contracts.js';
+
+const LOCAL = '00000000-0000-4000-8000-000000000001';
 import { parseLastEventId, serveBoardStream } from './board.js';
 import type { SseConnection } from './sse.js';
 
@@ -104,7 +106,7 @@ describe('serveBoardStream', () => {
     const { conn, ids } = fakeConn();
 
     const release = pause();
-    const served = serveBoardStream(conn, { db, boardBus: bus }, 0);
+    const served = serveBoardStream(conn, { db, boardBus: bus, accountId: LOCAL }, 0);
     await flush();
     // While the replay SELECT is in flight: id 3 commits and is published.
     bus.publish(commit(rows, 3, tmpl));
@@ -129,7 +131,7 @@ describe('serveBoardStream', () => {
       const { db, rows } = fakeDb();
       const bus = new InMemoryBoardBus();
       const { conn, ids } = fakeConn();
-      await serveBoardStream(conn, { db, boardBus: bus }, null);
+      await serveBoardStream(conn, { db, boardBus: bus, accountId: LOCAL }, null);
 
       let armed = true;
       const write = conn.write.bind(conn);
@@ -153,7 +155,7 @@ describe('serveBoardStream', () => {
     const bus = new InMemoryBoardBus();
     commit(rows, 7, tmpl);
     const { conn, ids } = fakeConn();
-    await serveBoardStream(conn, { db, boardBus: bus }, null);
+    await serveBoardStream(conn, { db, boardBus: bus, accountId: LOCAL }, null);
     bus.publish(commit(rows, 8, tmpl));
     await flush();
     await flush();

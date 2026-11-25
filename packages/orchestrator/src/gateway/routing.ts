@@ -279,14 +279,15 @@ export class RequiredCaps {
 
   async get(
     q: Queryable,
+    accountId: string,
     workflowId: string,
     version: number,
     kind: TicketKind | null,
   ): Promise<CapabilityRequirement[]> {
-    const key = `${workflowId}\0${version}\0${kind ?? ''}`;
+    const key = `${accountId}\0${workflowId}\0${version}\0${kind ?? ''}`;
     const hit = this.cache.get(key);
     if (hit) return hit;
-    const reqs = this.fn(await this.defs.get(q, workflowId, version), kind);
+    const reqs = this.fn(await this.defs.get(q, accountId, workflowId, version), kind);
     this.cache.set(key, reqs);
     return reqs;
   }
@@ -298,4 +299,5 @@ export const requiredCaps = new RequiredCaps();
 /** SQL for a ticket's effective workflow version: pinned, else the latest. Needs `ticket t`. */
 export const EFFECTIVE_VERSION_SQL =
   'COALESCE(t.workflow_version, ' +
-  '(SELECT max(w.version) FROM workflow_definition w WHERE w.id = t.workflow_id))';
+  '(SELECT max(w.version) FROM workflow_definition w ' +
+  'WHERE w.account_id = t.account_id AND w.id = t.workflow_id))';

@@ -233,7 +233,7 @@ async function loadCannotTake(
   const out: MachineCannotTake[] = [];
   for (const t of tickets.rows) {
     if (t.v === null) continue;
-    const reqs = await requiredCaps.get(db, t.workflow_id, t.v, t.kind).catch(() => null);
+    const reqs = await requiredCaps.get(db, m.account_id, t.workflow_id, t.v, t.kind).catch(() => null);
     if (reqs === null) continue;
     const why = cannotTake(facts, t.repo, reqs, exclusive);
     if (why === null) continue;

@@ -81,22 +81,29 @@ function sortColumn(kind: BoardColumnInfo['kind'], cards: BoardCard[]): BoardCar
  * rows are written in the same transaction as the state they describe and commit in id order,
  * so the snapshot contains precisely the board events ≤ last_event_id.
  */
-export function loadBoard(db: Db): Promise<BoardResponse> {
+export function loadBoard(db: Db, accountId: string): Promise<BoardResponse> {
   return withSnapshot(db, async (q) => {
-    const tickets = await q.query<TicketCardRow>(TICKET_SELECT + 'ORDER BY t.created_at');
+    // M2-T21: one account's board only (ADR-0012 §Tenancy).
+    const tickets = await q.query<TicketCardRow>(
+      TICKET_SELECT + 'WHERE t.account_id = $1 ORDER BY t.created_at',
+      [accountId],
+    );
     const sessions = await q.query<SessionRow>(
-      'SELECT DISTINCT ON (ticket_id) * FROM session ORDER BY ticket_id, created_at DESC',
+      'SELECT DISTINCT ON (ticket_id) * FROM session WHERE account_id = $1 ' +
+        'ORDER BY ticket_id, created_at DESC',
+      [accountId],
     );
     const inputs = await q.query<OpenInputRow>(
       OPEN_INPUT_SELECT.replace('SELECT ', 'SELECT DISTINCT ON (ir.session_id) ') +
-        'WHERE ir.answer IS NULL ORDER BY ir.session_id, ir.created_at DESC',
+        'WHERE ir.answer IS NULL AND ir.account_id = $1 ORDER BY ir.session_id, ir.created_at DESC',
+      [accountId],
     );
     const permissions = await readCardPermissions(q);
     const lastEventId = await maxBoardEventId(q);
 
     const sessionByTicket = new Map(sessions.rows.map((s) => [s.ticket_id, s]));
     const inputBySession = new Map(inputs.rows.map((i) => [i.session_id, i]));
-    const views = new CardViews(q);
+    const views = new CardViews(q, accountId);
     const machineFields = new MachineCardFields(q);
     await machineFields.preloadAlerts();
     // Only a Needs input card shows a proposal count: preload the sessions that can be there.
@@ -171,11 +178,15 @@ export function toTicketDto(
  * Latest version of each workflow id. ADR-0010: only `conductor` unless `all` (older workflows
  * stay in the database so their tickets still render, but nothing offers them any more).
  */
-export async function listWorkflows(db: Queryable, all = false): Promise<WorkflowSummary[]> {
+export async function listWorkflows(
+  db: Queryable,
+  accountId: string,
+  all = false,
+): Promise<WorkflowSummary[]> {
   const res = await db.query<WorkflowDefinitionRow>(
-    'SELECT DISTINCT ON (id) * FROM workflow_definition WHERE $1::boolean OR id = $2 ' +
-      'ORDER BY id, version DESC',
-    [all, CONDUCTOR_WORKFLOW_ID],
+    'SELECT DISTINCT ON (id) * FROM workflow_definition ' +
+      'WHERE account_id = $3 AND ($1::boolean OR id = $2) ORDER BY id, version DESC',
+    [all, CONDUCTOR_WORKFLOW_ID, accountId],
   );
   return res.rows.map((r) => ({
     id: r.id,
@@ -187,39 +198,36 @@ export async function listWorkflows(db: Queryable, all = false): Promise<Workflo
 }
 
 /**
- * GET /api/workflows/:id[?version=N] (ADR-0009): that version (default the latest) and the list
- * of saved versions. null = unknown id or version. Workflows are shared by every account
- * (WORKFLOW_CHANGE_WARNING), so who saved a version and its note (UXR-70) are shown only to the
- * account that saved it (`viewerAccountId`; null shows them to nobody).
+ * GET /api/workflows/:id[?version=N] (ADR-0009): that version (default the latest) of the
+ * account's workflow and its saved versions, with who saved each and their note (UXR-70).
+ * null = unknown id or version. M2-T12: another account's workflows are never read.
  */
 export async function loadWorkflowDetail(
   db: Queryable,
   id: string,
   version: number | null,
-  viewerAccountId: string | null,
+  accountId: string,
 ): Promise<WorkflowDetail | null> {
   const res = await db.query<WorkflowDefinitionRow>(
-    'SELECT * FROM workflow_definition WHERE id = $1 AND ($2::int IS NULL OR version = $2::int) ' +
-      'ORDER BY version DESC LIMIT 1',
-    [id, version],
+    'SELECT * FROM workflow_definition WHERE account_id = $3 AND id = $1 ' +
+      'AND ($2::int IS NULL OR version = $2::int) ORDER BY version DESC LIMIT 1',
+    [id, version, accountId],
   );
   const row = res.rows[0];
   if (!row) return null;
   const versions = await db.query<
-    Pick<WorkflowDefinitionRow, 'version' | 'created_at' | 'created_by' | 'note' | 'account_id'>
+    Pick<WorkflowDefinitionRow, 'version' | 'created_at' | 'created_by' | 'note'>
   >(
-    'SELECT version, created_at, created_by, note, account_id FROM workflow_definition ' +
-      'WHERE id = $1 ORDER BY version',
-    [id],
+    'SELECT version, created_at, created_by, note FROM workflow_definition ' +
+      'WHERE account_id = $2 AND id = $1 ORDER BY version',
+    [id, accountId],
   );
-  const mine = (r: Pick<WorkflowDefinitionRow, 'account_id'>) =>
-    viewerAccountId !== null && r.account_id === viewerAccountId;
   return {
     id: row.id,
     version: row.version,
     created_at: row.created_at.toISOString(),
-    created_by: mine(row) ? row.created_by : null,
-    note: mine(row) ? row.note : null,
+    created_by: row.created_by,
+    note: row.note,
     // Stored definitions were parsed on save; parsing again applies defaults to older rows.
     definition: WorkflowDefinitionSchema.parse(row.definition),
     versions: versions.rows.map((r) => r.version),
@@ -227,8 +235,8 @@ export async function loadWorkflowDetail(
     history: versions.rows.map((r) => ({
       version: r.version,
       created_at: r.created_at.toISOString(),
-      created_by: mine(r) ? r.created_by : null,
-      note: mine(r) ? r.note : null,
+      created_by: r.created_by,
+      note: r.note,
     })),
   };
 }

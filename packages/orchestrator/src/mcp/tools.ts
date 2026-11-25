@@ -98,8 +98,8 @@ export { likeLiteral, snippetOf } from '../api/ticket-search.js';
 // The tool set is deliberately small (Ben approved it, 2026-10-30). ADR-0030: conductor is
 // MCP-first for managing workflows, so every way to change what a workflow runs has a tool: the
 // per-repo checks (list/get/set/clear_repo_checks), reading the workflow (get_workflow), and
-// saving it (save_workflow, adopt_default_workflow; ADR-0030 §Amendment: instance admins or local
-// mode only, because workflows are instance-wide, and never weakening `requires.approvals`).
+// saving it (save_workflow, adopt_default_workflow; M2-T12: into the caller's own account, never
+// weakening `requires.approvals`).
 // ADR-0031 (conversational clients): `waiting_on` and a status report in get_ticket, the agent's
 // plan, results, output and transcript (get_ticket_artifacts), messages to a working agent
 // (message_agent) and a long poll for changes (wait_for_updates).
@@ -174,8 +174,8 @@ export const WORKFLOW_ADVISOR_PROMPT = [
   'Rules:',
   '- Never remove or bypass a human approval (`requires.approvals`); save_workflow refuses it, ' +
     'and approvals are changed on the board.',
-  '- save_workflow changes the workflow for every account on this instance (instance admins ' +
-    'only, until per-account workflows); say so before proposing it.',
+  '- save_workflow changes this account’s workflow (its new, reopened and parked tickets); ' +
+    'say so before proposing it.',
   '- Always pass base_version (get_workflow’s version) to save_workflow, and read every state ' +
     'you send in full: a result containing "…[truncated]" must never be saved back.',
   '- Permission prompts, "Allow always" and machine rules are decided on the board: point me ' +
@@ -475,7 +475,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
     async ({ needs_input, column, kind, repo, status, limit }) => {
       const [board, own] = await Promise.all([
-        loadBoard(db),
+        loadBoard(db, accountId),
         db.query<{ id: string; status: TicketStatus }>(
           'SELECT id, status FROM ticket WHERE account_id = $1',
           [accountId],
@@ -1109,7 +1109,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         timeoutMs: (timeout_seconds ?? 25) * 1000,
         signal: extra.signal,
         present: async (changed) => {
-          const board = await loadBoard(db);
+          const board = await loadBoard(db, accountId);
           const cards = new Map(board.columns.flatMap((c) => c.cards).map((c) => [c.ticket_id, c]));
           const statuses = await db.query<{ id: string; status: TicketStatus }>(
             'SELECT id, status FROM ticket WHERE id = ANY($1)',
@@ -1522,7 +1522,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         id: detail.id,
         version: detail.version,
         versions: detail.versions,
-        default_available: await conductorDefaultAvailable(db, detail.id),
+        default_available: await conductorDefaultAvailable(db, detail.id, accountId),
       };
       if (state !== undefined) {
         const s = def.states[state];
@@ -1554,17 +1554,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  /**
-   * ADR-0030 §Amendment: workflows are instance-wide (until M2-T12), so a save changes every
-   * account's tickets. Only an instance admin, or the single user of local mode, may save.
-   */
-  const mayEditWorkflows = who.mode === 'local' || who.user.is_admin;
-  const notAdmin = () =>
-    fail(
-      'forbidden',
-      'Workflows are shared by every account on this instance: only an instance admin can save ' +
-        'them. Ask an admin, or use set_repo_checks for one repo’s checks.',
-    );
+  // M2-T12: each account has its own workflows, so any caller may save their account's (ADR-0030
+  // §Amendment's instance-admin gate existed only while workflows were shared).
   const baseVersionArg = z
     .number()
     .int()
@@ -1617,7 +1608,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     return ok({
       id: res.id,
       version: res.version,
-      default_available: await conductorDefaultAvailable(db, res.id),
+      default_available: await conductorDefaultAvailable(db, res.id, accountId),
       // ADR-0039: problems that don't block the save (a `cmd` base without `pr_into`).
       ...(warnings.length > 0
         ? {
@@ -1636,8 +1627,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Save a workflow',
       description:
-        'Save a whole definition as the workflow’s next version. Instance admins only: it ' +
-        'changes every account’s new, reopened and parked tickets. Refused with invalid_workflow ' +
+        'Save a whole definition as the workflow’s next version, in your account: it changes ' +
+        'your new, reopened and parked tickets. Refused with invalid_workflow ' +
         '(each rule and path), or if it removes a human approval. Saving `conductor` stops new ' +
         'shipped defaults installing themselves. Ask the user first.',
       inputSchema: {
@@ -1649,7 +1640,6 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       annotations: writeWorkflow,
     },
     async ({ definition, base_version }) => {
-      if (!mayEditWorkflows) return notAdmin();
       const problem = workflowJsonProblem(definition);
       if (problem !== null) return fail('invalid_input', problem);
       const checked = validateWorkflow(definition);
@@ -1663,13 +1653,12 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Adopt the newest default workflow',
       description:
-        'Save the newest shipped `conductor` workflow as its next version, replacing local edits ' +
-        '(instance admins only). Later defaults need adopting again. Ask the user first.',
+        'Save the newest shipped `conductor` workflow as your account’s next version, replacing ' +
+        'your edits. Later defaults need adopting again. Ask the user first.',
       inputSchema: { base_version: baseVersionArg },
       annotations: writeWorkflow,
     },
     async ({ base_version }) => {
-      if (!mayEditWorkflows) return notAdmin();
       return saveChecked(newestShippedConductor(), base_version);
     },
   );
@@ -1793,7 +1782,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
   // ADR-0033 P3 (MA-T05): change proposals. The advisor proposes; the user confirms; apply_change
   // runs the same guarded save paths; list_change_proposals with an id reviews an applied one. Machine settings are not a kind (MA-T06), so nothing here
   // can touch permissions or bypassPermissions.
-  const actor: ProposalActor = { accountId, by, mayEditWorkflows };
+  const actor: ProposalActor = { accountId, by, mayEditWorkflows: true };
   const proposalFail = (f: ProposalFailure) =>
     fail(f.code, f.message, {
       ...(f.details ? { details: f.details } : {}),

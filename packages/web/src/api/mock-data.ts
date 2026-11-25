@@ -1301,8 +1301,8 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
       error: null,
       review: null,
       warning:
-        'Workflows are shared by every account on this instance: applying this changes the ' +
-        'workflow for all of them, and only an instance admin can apply it.',
+        'Applying this changes your account’s workflow: its new, reopened and parked tickets ' +
+        'follow the new version.',
       base_definition: CONDUCTOR_TRANSITIONS,
       proposed_definition: proposed,
     },
@@ -1403,8 +1403,8 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
         reviewed_at: ago(0.5),
       },
       warning:
-        'Workflows are shared by every account on this instance: applying this changes the ' +
-        'workflow for all of them, and only an instance admin can apply it.',
+        'Applying this changes your account’s workflow: its new, reopened and parked tickets ' +
+        'follow the new version.',
       base_definition: CONDUCTOR,
       proposed_definition: retitledPlanning(),
     },

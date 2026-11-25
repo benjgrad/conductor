@@ -178,7 +178,7 @@ describe('ProposalsPanel', () => {
     fireEvent.click(await row(WORKFLOW!.title));
     const notes = await screen.findAllByRole('note');
     expect(notes.map((n) => n.textContent).join(' ')).toMatch(/unsaved edits/);
-    expect(notes.map((n) => n.textContent).join(' ')).toMatch(/every account/);
+    expect(notes.map((n) => n.textContent).join(' ')).toMatch(/your account’s workflow/);
     const detail = within(screen.getByRole('region', { name: 'Change proposals' }));
     fireEvent.click(detail.getByRole('button', { name: 'Apply…' }));
     fireEvent.click(detail.getByRole('button', { name: 'Confirm apply' }));

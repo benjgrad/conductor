@@ -134,7 +134,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | external_ref | text | e.g. `JIRA-123` ([U-003](../tracking/UNKNOWNS.md)) |
 | repo | text | target repo |
 | title, body | text | |
-| workflow_id, workflow_version | fk | version is null until pinned when the first session starts; re-pinned to the newest version on a reopen and on a human move on a parked session (M2-T34, [05 §Versioning](05-workflow-engine.md#versioning)). One composite FK to `workflow_definition (id, version)`, MATCH SIMPLE: checked only once the version is set |
+| workflow_id, workflow_version | fk | version is null until pinned when the first session starts; re-pinned to the newest version on a reopen and on a human move on a parked session (M2-T34, [05 §Versioning](05-workflow-engine.md#versioning)). One composite FK to `workflow_definition (account_id, id, version)` (M2-T12), MATCH SIMPLE: checked only once the version is set |
 | parent_ticket_id | fk ticket null | child tickets from a plan state |
 | required_tags | text[] | hard constraints for the claim |
 | repo_allow_machines | text[] null | hard allow-list of machine ids for the claim ([04](04-scheduler.md)); `null` = any machine. Kept, nullable ([U-009](../tracking/UNKNOWNS.md), M1-T12) |
@@ -156,11 +156,14 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | id | text | e.g. `pr_flow` |
 | version | int | immutable once saved |
 | definition | jsonb | see [05](05-workflow-engine.md) |
-| | | [ADR-0010](../adr/0010-one-workflow-columns-are-states.md): the orchestrator seeds `conductor` v1 (`docs/design/workflows/conductor.v1.json`, a copy in `packages/shared/src/workflow/conductor.ts`) on startup when no `conductor` version exists (one guarded INSERT, `ON CONFLICT DO NOTHING`: idempotent, safe on concurrent starts). Older workflows (`m1_*`) stay so their tickets still render |
-| account_id | uuid fk account | M2-T03 (see Tenancy above). The primary key stays `(id, version)` here; M2-T12 makes it `(account_id, id, version)` |
+| | | [ADR-0010](../adr/0010-one-workflow-columns-are-states.md): the orchestrator seeds `conductor` (`docs/design/workflows/conductor.v1.json`…, a copy in `packages/shared/src/workflow/conductor.ts`) and `routine` **into every account** on startup (`seedAllAccounts`), and into a new account at sign-up (`seedAccount`), when that account has no version yet (guarded INSERTs, `ON CONFLICT DO NOTHING`: idempotent, safe on concurrent starts). Older workflows (`m1_*`) stay so their tickets still render |
+| account_id | uuid fk account | M2-T03 (see Tenancy above). M2-T12 (migration `1764200000000_workflow-per-account`): part of the primary key. Each account has its own workflows and its own version numbers; nothing reads another account's. The migration copied any version a non-local ticket or session pinned into that account; its down deletes every non-local row (lossy) |
 | created_at, created_by | | `created_by`: the saver's email over REST (UXR-70), `mcp:<email>` over MCP, `conductor` for a seeded version; null when unknown |
-| note | text null | UXR-70 (migration `1763100000000_workflow-version-note`): an optional note (≤ 500 chars) written when it was saved (the Save review dialog), `Applied proposal: <title>` for an applied change proposal. `created_by` and `note` are shown only to the account that saved the version (`account_id`): workflows are shared by every account |
-| pk | (id, version) | |
+| note | text null | UXR-70 (migration `1763100000000_workflow-version-note`): an optional note (≤ 500 chars) written when it was saved (the Save review dialog), `Applied proposal: <title>` for an applied change proposal. Only the owning account ever reads them (M2-T12) |
+| pk | (account_id, id, version) | M2-T12. `ticket` and `session` reference it with `(account_id, workflow_id, workflow_version)` (`ticket_workflow_fkey`, MATCH SIMPLE; `session_workflow_fkey`), so a ticket can only pin a version of its own account |
+
+### Child rows take their parent's account (M2-T21)
+`session`, `input_request`, `event` and `outbox` have no `account_id` default (migration `1764200000001_account-from-parent`): a `BEFORE INSERT` trigger (`conductor_account_from_parent`) sets it from the parent: a session from its ticket, an input request from its session, an event from its session or else from the ticket in `payload.ticket_id`, an outbox row from its session. An explicit `account_id` that differs from the parent's is refused (`check_violation`), and a row with neither a parent nor an explicit account fails NOT NULL. `ticket`, `machine`, `machine_repo` and `workflow_definition` keep the temporary `local` default (TD-109); every writer sets them explicitly.
 
 ### session
 | column | type | notes |

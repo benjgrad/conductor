@@ -75,6 +75,7 @@ const ACCOUNTS = '1761600000000_accounts-and-auth.sql';
 const MACHINE_CREDENTIALS = '1761700000000_machine-credentials.sql';
 const AGENT_TEAM = '1762000000000_agent-team.sql';
 const PRIORITY_P_SCALE = '1763200000000_priority-p-scale.sql';
+const WORKFLOW_PER_ACCOUNT = '1764200000000_workflow-per-account.sql';
 
 // ------------------------------------------------------------------ DDL ⇄ db/types.ts
 //
@@ -1103,6 +1104,132 @@ describe('migrations', () => {
       expect((await priorities('ticket')).map((r) => r.priority)).toEqual([-1, 0, 1, 2, 0]);
       await migrate(db.url, 'up');
       expect((await priorities('ticket')).map((r) => r.priority)).toEqual([4, 3, 2, 1, 3]);
+    } finally {
+      await db.drop();
+    }
+  }, 60_000);
+
+  it('workflow-per-account + account-from-parent (M2-T12 / M2-T21): keys, copies, triggers; down and up again', async () => {
+    const db = await createTestDatabase({ migrate: false });
+    const q = (text: string, values?: unknown[]) => db.pool.query(text, values);
+    const rows = async (text: string, values?: unknown[]): Promise<unknown[]> =>
+      (await q(text, values)).rows as unknown[];
+    try {
+      await migrate(db.url, 'up', migrationsBefore(WORKFLOW_PER_ACCOUNT));
+      // The shared workflows of before: v1 and v2 in `local`; a local ticket on v1, and a ticket of
+      // account B pinned to v2 whose session took the old `local` default.
+      await q("INSERT INTO workflow_definition (id, version, definition) VALUES ('wf', 1, '{}')");
+      await q("INSERT INTO workflow_definition (id, version, definition) VALUES ('wf', 2, '{}')");
+      const b = (
+        (await rows("INSERT INTO account (name) VALUES ('B') RETURNING id"))[0] as {
+          id: string;
+        }
+      ).id;
+      const local = (
+        (
+          await rows(
+            `INSERT INTO ticket (repo, title, workflow_id, workflow_version, kind)
+           VALUES ('github.com/o/r', 'local', 'wf', 1, 'work') RETURNING id`,
+          )
+        )[0] as { id: string }
+      ).id;
+      const other = (
+        (
+          await rows(
+            `INSERT INTO ticket (account_id, repo, title, workflow_id, workflow_version, kind)
+           VALUES ($1, 'github.com/o/r', 'other', 'wf', 2, 'work') RETURNING id`,
+            [b],
+          )
+        )[0] as { id: string }
+      ).id;
+      const sess = (
+        await rows(
+          `INSERT INTO session (ticket_id, workflow_id, workflow_version)
+           VALUES ($1, 'wf', 2) RETURNING id, account_id`,
+          [other],
+        )
+      )[0] as { id: string; account_id: string };
+      expect(sess.account_id).toBe(LOCAL_ACCOUNT_ID);
+
+      await migrate(db.url, 'up');
+      // Local rows unchanged; B got its own copy of the version it pins; the session followed
+      // its ticket into B.
+      expect(
+        await rows('SELECT account_id, id, version FROM workflow_definition ORDER BY 1, 3'),
+      ).toEqual(
+        [
+          { account_id: LOCAL_ACCOUNT_ID, id: 'wf', version: 1 },
+          { account_id: LOCAL_ACCOUNT_ID, id: 'wf', version: 2 },
+          { account_id: b, id: 'wf', version: 2 },
+        ].sort((x, y) => (x.account_id < y.account_id ? -1 : 1) || x.version - y.version),
+      );
+      expect(await rows('SELECT account_id FROM session WHERE id = $1', [sess.id])).toEqual([
+        { account_id: b },
+      ]);
+      expect(
+        await rows('SELECT title FROM ticket WHERE id = ANY($1) ORDER BY title', [[local, other]]),
+      ).toEqual([{ title: 'local' }, { title: 'other' }]);
+      // Version numbers are per account now: B may have its own v1.
+      await q(
+        "INSERT INTO workflow_definition (account_id, id, version, definition) VALUES ($1, 'wf', 1, '{}')",
+        [b],
+      );
+      // A ticket can't pin a version its account doesn't have.
+      await expectPgError(
+        q(
+          `INSERT INTO ticket (account_id, repo, title, workflow_id, workflow_version, kind)
+           VALUES ($1, 'github.com/o/r', 'x', 'wf', 9, 'work')`,
+          [b],
+        ),
+        '23503',
+        'ticket_workflow_fkey',
+      );
+      // Child rows take their parent's account, and a different explicit one is refused.
+      const s2 = (
+        await rows(
+          `INSERT INTO session (ticket_id, workflow_id, workflow_version, status)
+           VALUES ($1, 'wf', 2, 'done') RETURNING id, account_id`,
+          [other],
+        )
+      )[0] as { id: string; account_id: string };
+      expect(s2.account_id).toBe(b);
+      const ev = await rows(
+        "INSERT INTO event (session_id, type) VALUES ($1, 'state.entered') RETURNING account_id",
+        [s2.id],
+      );
+      expect(ev).toEqual([{ account_id: b }]);
+      const ticketEvent = await rows(
+        "INSERT INTO event (type, payload) VALUES ('card.upserted', $1) RETURNING account_id",
+        [JSON.stringify({ ticket_id: other })],
+      );
+      expect(ticketEvent).toEqual([{ account_id: b }]);
+      const ir = await rows(
+        "INSERT INTO input_request (session_id, kind, question) VALUES ($1, 'approval', 'ok?') RETURNING account_id",
+        [s2.id],
+      );
+      expect(ir).toEqual([{ account_id: b }]);
+      await expectPgError(
+        q("INSERT INTO event (session_id, type, account_id) VALUES ($1, 'state.entered', $2)", [
+          s2.id,
+          LOCAL_ACCOUNT_ID,
+        ]),
+        '23514',
+      );
+      // No parent and no account: refused rather than filed under `local`.
+      await expectPgError(q("INSERT INTO event (type) VALUES ('state.entered')"), '23502');
+
+      // Down: B's workflow rows go (lossy), the shared key comes back; up again works.
+      await migrate(db.url, 'down', FILES.length - migrationsBefore(WORKFLOW_PER_ACCOUNT));
+      expect(
+        await rows('SELECT account_id, id, version FROM workflow_definition ORDER BY 3'),
+      ).toEqual([
+        { account_id: LOCAL_ACCOUNT_ID, id: 'wf', version: 1 },
+        { account_id: LOCAL_ACCOUNT_ID, id: 'wf', version: 2 },
+      ]);
+      await migrate(db.url, 'up');
+      expect(
+        await rows('SELECT account_id FROM workflow_definition WHERE account_id = $1', [b]),
+      ).toEqual([{ account_id: b }]);
     } finally {
       await db.drop();
     }

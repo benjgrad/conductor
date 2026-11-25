@@ -352,4 +352,23 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
     expect(existsSync(join(root, 'bin', 'conductor-daemon.cmd'))).toBe(true);
     expect(existsSync(join(root, 'machine.json'))).toBe(false);
   });
+
+  it(
+    'without a token on a fresh machine, says it is not enrolled and how to enroll',
+    { timeout: 120_000 },
+    async () => {
+      const root = join(work, 'no-token');
+      const url = await serve('0.0.0+fafafaf');
+      const r = await install(`irm ${url}/install.ps1 | iex`, root, fakeBin('exe'));
+      expect(r.stdout, r.stderr).toContain('installed conductor-daemon 0.0.0+fafafaf');
+      expect(r.stdout).not.toContain('conductor install:');
+      expect(r.stdout).toContain('This machine is NOT enrolled');
+      expect(r.stdout).toContain(`Open ${url}, go to Machines and press Add a machine.`);
+      expect(r.stdout).toContain(
+        `$env:CONDUCTOR_ENROLL_TOKEN='<token>'; conductor-daemon enroll --url ${url}`,
+      );
+      expect(r.stdout).toContain('Once it is enrolled:');
+      expect(existsSync(join(root, 'machine.json'))).toBe(false);
+    },
+  );
 });

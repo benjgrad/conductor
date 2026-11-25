@@ -18,6 +18,7 @@ use crate::claude::cli_driver::{CliDriverOptions, create_cli_driver, probe_permi
 use crate::claude::outcome_server::{OutcomeServerOptions, start_outcome_server};
 use crate::commands::service::stop_supervised_job;
 use crate::config::{DaemonConfig, Env, load_config, machine_facts_with_git_identity};
+use crate::credential::credential_path;
 use crate::daemon::{Daemon, DaemonOptions};
 use crate::inventory::report::ScanFn;
 use crate::platform::signals::DaemonSignal;
@@ -124,6 +125,27 @@ pub fn startup_line(c: &DaemonConfig) -> String {
     )
 }
 
+/// The warning logged after the startup line when this machine is not enrolled and nothing names an
+/// orchestrator: the daemon then looks for a conductor on this computer, and the server never sees
+/// it. None when enrolled or when CONDUCTOR_ORCHESTRATOR_URL is set (dev, tests, e2e).
+pub fn local_mode_warning(c: &DaemonConfig, env: &Env) -> Option<String> {
+    if c.credential.is_some()
+        || env
+            .get("CONDUCTOR_ORCHESTRATOR_URL")
+            .is_some_and(|u| !u.is_empty())
+    {
+        return None;
+    }
+    Some(format!(
+        "WARNING: this machine is not enrolled ({} does not exist), so the daemon connects to a \
+         conductor on this computer ({}) and your conductor server will not see it. To connect \
+         it, open Machines → Add a machine on your conductor server, run the command shown there, \
+         then start the daemon again.",
+        credential_path(&c.root_dir).display(),
+        c.orchestrator_url
+    ))
+}
+
 /// `<bin> --version` → its version, or None when the CLI is missing or not a native exe (U-015).
 pub async fn claude_code_version(bin: &str, log: &(dyn Fn(&str) + Send + Sync)) -> Option<String> {
     if let Some(problem) = native_exe_problem(bin, &crate::platform::spawn::process_env(), None) {
@@ -222,6 +244,9 @@ pub async fn run_daemon(env: &Env, mut deps: RunDeps) -> i32 {
     }
     daemon.start();
     log(&startup_line(&config));
+    if let Some(w) = local_mode_warning(&config, env) {
+        log(&w);
+    }
 
     let code = loop {
         tokio::select! {

@@ -308,6 +308,21 @@ On desktop (`WIDE_QUERY = '(min-width: 900px)'`, `useIsWide()`, the complement o
 
 Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `default` (opaque), so the web view starts below it: under `black-translucent` iOS blurred the top bar even though the document never scrolls on a phone ([§Breakpoint](#breakpoint)). The top bar keeps its `env(safe-area-inset-top)` padding (0 under an opaque bar) for Safari tabs and landscape, and `html` is painted `--panel` so any inset band matches the top bar. iOS reads the status-bar style when the app is added, so an installed copy must be removed and re-added to pick up a change. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. In the installed app the menu also says when the server has push off or the permission is denied. The in-tab notifications (UX-14) go through the service worker, because iOS has no `new Notification()`. iOS suspends a backgrounded app, though, so only Web Push reaches a phone whose app is closed. Web Push details: [10 §Web Push](10-contracts.md#web-push).
 
+## Landing page and onboarding tour (Support Signup)
+- **Landing page** (`/welcome`, `landing/Landing.tsx`). It is public and calls no API, like the help pages; the static server serves it as any client route. A signed-out visit to `/` is sent there: the start-up `/api/me` answered 401 and the path is exactly `/`. Every other signed-out path still goes to `/signin?next=…`, and so does a session that expires while the board is open. In order:
+  - a hero with the tagline, the pitch, Sign in and "See how it works";
+  - a decorative mini board (`aria-hidden`);
+  - the six features;
+  - "How it works" in three steps;
+  - a closing band with Sign in and Add a machine;
+  - a footer linking the help pages.
+
+  Sign-up is invite-only, so the page says to open the invite link from the email ([ADR-0046](../adr/0046-invite-email-via-resend.md)). It uses the app's tokens, so it follows the colour scheme. Below 860 px it stacks to one column. The words live in `landing/content.ts`, shared with the tour.
+- **Onboarding tour** (`onboarding/Tour.tsx`). It is a modal dialog named "Getting started":
+  - pages: a welcome with the user's name, one page per feature (`FEATURES`), then "Start with a machine";
+  - controls: Back, Next, Skip, Done, and "Set up a machine", which opens the guided setup (`#/setup`); Escape closes it;
+  - when it shows: once, on the first board after sign-up (`markTourPending` per user in localStorage, cleared when the tour is closed), and at any time from the account menu's **Getting started**. An existing user signing in never sees it on their own.
+
 ## Help pages: contents (UXR-50)
 
 Every help page (`/help/…`, `HelpPage.tsx`) has a short **Contents** list (`<nav aria-label="Contents">`) right under its title, with one link per `##` section. It is two columns from 700 px up. In the semantic heading mode, `Markdown` gives every `h2` an id (`headingId`: the text without markup, lowercased, other characters as `-`), and the links are plain `#id` anchors. Help pages render outside the shell, so no hash router sees them. `h3`s get no ids: "On Windows" repeats.

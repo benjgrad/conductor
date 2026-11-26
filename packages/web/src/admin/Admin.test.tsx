@@ -178,10 +178,12 @@ describe('admin page', () => {
 });
 
 describe('account menu', () => {
-  it('local mode: no sign-out, password change, admin or links (UXR-27)', async () => {
+  it('local mode: no sign-out, password change, admin or links; only Getting started (UXR-27)', async () => {
     render(<App api={createMockApi()} />);
     const menu = await openAccountMenu(localMeResponse().user.display_name);
-    expect(menu.queryAllByRole('menuitem').map((el) => el.textContent)).toEqual([]);
+    expect(menu.queryAllByRole('menuitem').map((el) => el.textContent)).toEqual([
+      'Getting started',
+    ]);
   });
 
   it('signs out and lands on /signin', async () => {

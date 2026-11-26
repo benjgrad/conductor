@@ -19,6 +19,8 @@ interface AccountMenuProps {
   me: MeResponse;
   /** Opens the admin view (through the app's route guard). Shown to admins only. */
   onAdmin: () => void;
+  /** Support Signup: opens the onboarding tour ("Getting started"). Absent: no item. */
+  onTour?: (() => void) | undefined;
   /** After POST /auth/logout succeeded. */
   onSignedOut: () => void;
   /** UX-11: icon-only button; the name moves to `aria-label`, the email to the tooltip. */
@@ -49,6 +51,7 @@ export function AccountMenu({
   api,
   me,
   onAdmin,
+  onTour,
   onSignedOut,
   compact,
   adminCurrent = false,
@@ -199,6 +202,18 @@ export function AccountMenu({
                   : `Notifications: ${notify}`}
               </button>
             )}
+          {onTour && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onTour();
+              }}
+            >
+              Getting started
+            </button>
+          )}
           {passwordMode && (
             <button
               type="button"

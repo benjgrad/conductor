@@ -56,6 +56,9 @@ import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.
 import { useTransitionNotifications } from './notify/useTransitionNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
+import { Tour } from './onboarding/Tour.js';
+import { clearTourPending, isTourPending, markTourPending } from './onboarding/tour.js';
+import { LANDING_PATH, Landing } from './landing/Landing.js';
 import { InsightsPage } from './insights/InsightsPage.js';
 import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';
 import { SchedulesPage } from './schedules/SchedulesPage.js';
@@ -101,6 +104,8 @@ function AppRoutes({ api, compact: compactProp }: AppProps) {
   const guarded = useMemo(() => withAuthRedirect(api, onUnauthorized), [api, onUnauthorized]);
 
   const authPage = pathname === '/signin' || pathname === '/signup' || pathname === '/reset';
+  // Support Signup: the public landing page, signed out and API-free like the help pages.
+  const landingPage = pathname === LANDING_PATH;
   const adminAlias = pathname === '/admin';
   // UX-8: the help pages need no account and no API; `#/help/…` is the first one's alias.
   const helpPage = isHelpPath(pathname);
@@ -111,7 +116,8 @@ function AppRoutes({ api, compact: compactProp }: AppProps) {
     else if (helpAlias) goTo(SETUP_GUIDE_URL, { replace: true });
   }, [adminAlias, helpAlias]);
 
-  const needsProbe = !authPage && !adminAlias && !helpPage && !helpAlias && me === null;
+  const needsProbe =
+    !authPage && !landingPage && !adminAlias && !helpPage && !helpAlias && me === null;
   useEffect(() => {
     if (!needsProbe) return;
     let cancelled = false;
@@ -121,8 +127,14 @@ function AppRoutes({ api, compact: compactProp }: AppProps) {
       },
       (err: unknown) => {
         if (cancelled) return;
-        if (isUnauthorized(err)) onUnauthorized();
-        else setProbeError(NETWORK);
+        if (!isUnauthorized(err)) {
+          setProbeError(NETWORK);
+          return;
+        }
+        // A signed-out visit to the front door gets the landing page; any deeper link (a card,
+        // a view) still goes to sign-in and comes back to it.
+        if (currentPath() === '/') goTo(LANDING_PATH, { replace: true });
+        else onUnauthorized();
       },
     );
     return () => {
@@ -135,8 +147,19 @@ function AppRoutes({ api, compact: compactProp }: AppProps) {
     return <SignIn api={api} next={params.get('next')} onSignedIn={setMe} />;
   }
   if (pathname === '/signup') {
-    return <SignUp api={api} invite={params.get('invite')} onSignedIn={setMe} />;
+    return (
+      <SignUp
+        api={api}
+        invite={params.get('invite')}
+        onSignedIn={(signedUp) => {
+          // The onboarding tour opens once on the new account's first board.
+          markTourPending(signedUp.user.id);
+          setMe(signedUp);
+        }}
+      />
+    );
   }
+  if (landingPage) return <Landing />;
   if (pathname === '/reset') return <Reset api={api} token={params.get('token')} />;
   if (helpPage) return <HelpPage path={pathname} />;
   if (adminAlias || helpAlias) return null;
@@ -292,6 +315,18 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const [machineCount, setMachineCount] = useState<number | null>(null);
   const [firstRun, setFirstRun] = useState(false);
   const userId = me?.user.id ?? null;
+  // Support Signup: the onboarding tour, once after sign-up and from the account menu.
+  const [tour, setTour] = useState(() => userId !== null && isTourPending(userId));
+  // The user is known only once /api/me answers: check then (adjusted while rendering).
+  const [tourUser, setTourUser] = useState(userId);
+  if (tourUser !== userId) {
+    setTourUser(userId);
+    if (userId !== null && isTourPending(userId)) setTour(true);
+  }
+  const closeTour = useCallback(() => {
+    if (userId !== null) clearTourPending(userId);
+    setTour(false);
+  }, [userId]);
 
   useEffect(() => {
     if (userId === null) return;
@@ -468,6 +503,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             api={api}
             me={me}
             onAdmin={() => navigate({ view: 'admin' })}
+            onTour={() => setTour(true)}
             onSignedOut={onSignedOut}
             compact={compact}
             adminCurrent={route.view === 'admin'}
@@ -525,6 +561,16 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
               setCreating(true);
             }}
             onFinish={() => setFirstRun(false)}
+          />
+        )}
+        {tour && (
+          <Tour
+            name={me?.user.display_name ?? ''}
+            onClose={closeTour}
+            onSetUpMachine={() => {
+              closeTour();
+              navigate({ view: 'setup' });
+            }}
           />
         )}
         {showForm && (

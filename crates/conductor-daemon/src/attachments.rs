@@ -4,8 +4,8 @@
 //! credential (`GET /api/daemon/attachments/:id/content`) into
 //! `<root>/artifacts/<session>/attachments/`, outside the worktree, checking the size and the
 //! sha256 it was promised. The prompt gets an `## Attachments` block with the absolute paths and
-//! Claude gets `--add-dir <that dir>`, so its Read tool can open the images without a permission
-//! prompt. A failed download never refuses the start: the block says what is missing.
+//! Claude gets `--add-dir <that dir>`, so its Read tool can open the images and text files
+//! without a permission prompt; each line says how to look at its kind of file. A failed download never refuses the start: the block says what is missing.
 //!
 //! Names are never trusted: [`safe_name`] re-sanitizes the orchestrator's name the same way
 //! `sanitizeAttachmentName` (shared) does, and keeps the file inside the directory.
@@ -246,6 +246,8 @@ fn kind(mime: &str) -> &'static str {
         "video"
     } else if mime.starts_with("model/") {
         "3D model"
+    } else if mime.starts_with("text/") || mime.starts_with("application/") {
+        "file"
     } else {
         "image"
     }
@@ -255,9 +257,11 @@ fn file_lines<'a>(delivered: impl Iterator<Item = &'a Delivered>) -> Vec<String>
     delivered
         .map(|d| match &d.fetched {
             Fetched::New(p) | Fetched::Present(p) => {
-                let hint = match kind(&d.mime) {
-                    "video" => " You can't watch a video directly; extract frames with ffmpeg if you need to see it.",
-                    "3D model" => " It's a 3D model file, not an image: inspect it with a script (e.g. Python with numpy-stl or trimesh) instead of the Read tool.",
+                let hint = match (kind(&d.mime), d.mime.as_str()) {
+                    ("video", _) => " You can't watch a video directly; extract frames with ffmpeg if you need to see it.",
+                    ("3D model", _) => " It's a 3D model file, not an image: inspect it with a script (e.g. Python with numpy-stl or trimesh) instead of the Read tool.",
+                    ("file", "application/har+json") => " It's a HAR (JSON network capture): if it's large, query it with jq or a script instead of reading it whole.",
+                    ("file", "application/zip") => " It's a ZIP archive: unzip it into a temp dir to look inside.",
                     _ => " Open it with the Read tool.",
                 };
                 format!(

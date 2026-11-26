@@ -8,7 +8,7 @@
 import {
   CHAT_ATTACHMENT_MARK,
   isImageMime,
-  isModelMime,
+  isVideoMime,
   type AttachmentDto,
 } from '@conductor/shared';
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from 'lucide-react';
@@ -22,7 +22,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { ApiClient } from '../api/client.js';
-import { AttachmentThumb, ModelIcon } from './AttachmentPicker.js';
+import { AttachmentThumb, FileIcon } from './AttachmentPicker.js';
 import { groupByState, matchChatFiles } from './attachment-groups.js';
 import {
   NO_ZOOM,
@@ -333,9 +333,11 @@ function Lightbox({ api, items, openId, onOpen, onClose }: LightboxProps) {
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
             />
-          ) : isModelMime(open.mime) ? (
+          ) : isVideoMime(open.mime) ? (
+            <video key={open.id} src={url} controls autoPlay />
+          ) : (
             <div key={open.id} className="attachment-lightbox-model">
-              <ModelIcon attachment={open} size={64} />
+              <FileIcon attachment={open} size={64} />
               <span>
                 {open.name} ({Math.max(1, Math.ceil(open.size_bytes / 1024))} KB)
               </span>
@@ -343,8 +345,6 @@ function Lightbox({ api, items, openId, onOpen, onClose }: LightboxProps) {
                 Download
               </a>
             </div>
-          ) : (
-            <video key={open.id} src={url} controls autoPlay />
           )}
           {many && (
             <>

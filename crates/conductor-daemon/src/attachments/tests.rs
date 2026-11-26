@@ -323,3 +323,34 @@ async fn a_later_file_never_replaces_one_already_there_with_other_bytes() {
     assert_eq!(both[0].fetched, Fetched::Present(dir.join("shot.png")));
     assert_eq!(both[1].fetched, Fetched::Present(dir.join("shot-2.png")));
 }
+
+#[test]
+fn a_work_file_is_called_a_file_with_its_hint() {
+    let file = |name: &str, mime: &str| Delivered {
+        name: name.into(),
+        mime: mime.into(),
+        size: 2048,
+        fetched: Fetched::New(PathBuf::from(format!("/x/{name}"))),
+    };
+    let d = vec![
+        file("trace.har", "application/har+json"),
+        file("logs.zip", "application/zip"),
+        file("spec.pdf", "application/pdf"),
+        file("build.log", "text/plain"),
+    ];
+    let block = message_block(&d).unwrap();
+    assert!(block.contains(
+        "- `/x/trace.har` (file, application/har+json, 2 KB). It's a HAR (JSON network capture): if it's large, query it with jq"
+    ));
+    assert!(block.contains(
+        "- `/x/logs.zip` (file, application/zip, 2 KB). It's a ZIP archive: unzip it into a temp dir"
+    ));
+    assert!(
+        block
+            .contains("- `/x/spec.pdf` (file, application/pdf, 2 KB). Open it with the Read tool.")
+    );
+    assert!(
+        block.contains("- `/x/build.log` (file, text/plain, 2 KB). Open it with the Read tool.")
+    );
+    assert!(!block.contains("(image"));
+}

@@ -1,15 +1,17 @@
-// 06 §Attachments: pick, drop or paste images, videos and 3D models into a ticket form. Each file is checked
+// 06 §Attachments: pick, drop or paste images, videos, 3D models and work files (HAR, JSON, text,
+// PDF, ZIP…) into a ticket form. Each file is checked
 // here first (type and size, `attachmentProblem`) and uploaded at once (POST /api/attachments);
 // the form links the uploaded ids when it saves. The server re-checks everything from the bytes.
 import {
   ATTACHMENT_ACCEPT,
   ATTACHMENT_EXTENSIONS,
   attachmentProblem,
+  isImageMime,
   isModelMime,
   isVideoMime,
   type AttachmentDto,
 } from '@conductor/shared';
-import { Box, Paperclip, X } from 'lucide-react';
+import { Box, FileArchive, FileJson, FileText, Paperclip, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -150,7 +152,7 @@ export function AttachmentPicker({ api, uploads }: AttachmentPickerProps) {
     >
       <div className="attachment-picker-row">
         <button type="button" onClick={() => input.current?.click()}>
-          <Paperclip size={18} aria-hidden="true" /> Attach images, videos or 3D models
+          <Paperclip size={18} aria-hidden="true" /> Attach images, videos, models or files
         </button>
         <span className="muted">or drop or paste them here</span>
         <input
@@ -209,19 +211,42 @@ export function AttachmentUploadList({
   );
 }
 
-/** A 3D model's tile: an icon and the format (the browser can't draw the model). */
-export function ModelIcon({ attachment, size = 24 }: { attachment: AttachmentDto; size?: number }) {
+/** The label of a file's tile: its stored name's extension (LOG, not TXT), else its type's. */
+function extensionLabel(attachment: AttachmentDto): string {
+  const dot = attachment.name.lastIndexOf('.');
+  const ext = dot > 0 ? attachment.name.slice(dot + 1) : '';
+  return (ext !== '' ? ext : ATTACHMENT_EXTENSIONS[attachment.mime]).toUpperCase();
+}
+
+/** The icon of a file the browser doesn't draw: a 3D model, an archive, JSON or text. */
+function FileGlyph({ mime, size }: { mime: string; size: number }) {
+  if (isModelMime(mime)) return <Box size={size} />;
+  if (mime === 'application/zip') return <FileArchive size={size} />;
+  if (mime === 'application/json' || mime === 'application/har+json') {
+    return <FileJson size={size} />;
+  }
+  return <FileText size={size} />;
+}
+
+/**
+ * The tile of a 3D model or a work file (HAR, text, PDF, ZIP…): an icon and the format, since
+ * the browser can't draw it.
+ */
+export function FileIcon({ attachment, size = 24 }: { attachment: AttachmentDto; size?: number }) {
+  const model = isModelMime(attachment.mime);
   return (
-    <span className="attachment-thumb model" data-testid="model-thumb" aria-hidden="true">
-      <Box size={size} />
-      <span className="attachment-model-ext">
-        {ATTACHMENT_EXTENSIONS[attachment.mime].toUpperCase()}
-      </span>
+    <span
+      className="attachment-thumb model"
+      data-testid={model ? 'model-thumb' : 'file-thumb'}
+      aria-hidden="true"
+    >
+      <FileGlyph mime={attachment.mime} size={size} />
+      <span className="attachment-model-ext">{extensionLabel(attachment)}</span>
     </span>
   );
 }
 
-/** A small preview: the image itself, a video's first frame, or a 3D model's icon. */
+/** A small preview: the image itself, a video's first frame, or a file's icon. */
 export function AttachmentThumb({
   api,
   attachment,
@@ -229,11 +254,12 @@ export function AttachmentThumb({
   api: ApiClient;
   attachment: AttachmentDto;
 }) {
-  if (isModelMime(attachment.mime)) return <ModelIcon attachment={attachment} />;
   const src = api.attachmentUrl(attachment);
-  return isVideoMime(attachment.mime) ? (
-    <video className="attachment-thumb" src={src} preload="metadata" muted aria-hidden="true" />
-  ) : (
-    <img className="attachment-thumb" src={src} alt="" loading="lazy" />
-  );
+  if (isVideoMime(attachment.mime)) {
+    return (
+      <video className="attachment-thumb" src={src} preload="metadata" muted aria-hidden="true" />
+    );
+  }
+  if (!isImageMime(attachment.mime)) return <FileIcon attachment={attachment} />;
+  return <img className="attachment-thumb" src={src} alt="" loading="lazy" />;
 }

@@ -68,6 +68,24 @@ describe('AttachmentPicker', () => {
     expect(list.queryByRole('img')).toBeNull();
   });
 
+  it('uploads a HAR and a log the browser labels oddly, and shows them as file tiles', async () => {
+    const api = createMockApi({ replyDelayMs: 0 });
+    render(<Picker api={api} />);
+    expect(fileInput().accept.split(',')).toEqual(expect.arrayContaining(['.har', '.log', '.zip']));
+    pick(
+      new File(['{"log":{}}'], 'checkout.har', { type: 'application/json' }),
+      new File(['boom\n'], 'build.log', { type: '' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('ids').textContent?.split(',')).toHaveLength(2),
+    );
+    const list = within(screen.getByRole('list', { name: 'Attachments to add' }));
+    expect(list.getByText('checkout.har')).toBeTruthy();
+    expect(list.getByText('build.log')).toBeTruthy();
+    expect(list.getAllByTestId('file-thumb').map((t) => t.textContent)).toEqual(['HAR', 'LOG']);
+    expect(list.queryByRole('img')).toBeNull();
+  });
+
   it('a pasted image is uploaded; Remove drops it and deletes the upload', async () => {
     const api = createMockApi({ replyDelayMs: 0 });
     const deleted: string[] = [];
@@ -230,6 +248,20 @@ describe('AttachmentGallery: a 3D model', () => {
     expect(link.getAttribute('href')).toContain('/api/attachments/m/content');
     expect(screen.getByRole('dialog').querySelector('img, video')).toBeNull();
     expect(d.queryByRole('button', { name: 'Zoom in' })).toBeNull();
+  });
+});
+
+describe('AttachmentGallery: a work file', () => {
+  it('shows a file tile and, opened, a Download link instead of an image or video', () => {
+    const har = { ...att('h', 'application/har+json', '2026-11-01T00:00:00.000Z'), name: 'h.har' };
+    render(<AttachmentGallery api={createMockApi({ replyDelayMs: 0 })} attachments={[har]} />);
+    expect(screen.getByTestId('file-thumb').textContent).toBe('HAR');
+    expect(document.querySelector('img, video')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open h.har' }));
+    const d = within(screen.getByRole('dialog'));
+    const link = d.getByRole('link', { name: 'Download' });
+    expect(link.getAttribute('download')).toBe('h.har');
+    expect(screen.getByRole('dialog').querySelector('img, video')).toBeNull();
   });
 });
 

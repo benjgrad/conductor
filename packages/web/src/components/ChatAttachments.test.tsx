@@ -90,7 +90,9 @@ describe('chat attachments', () => {
       ...d,
       card: { ...d.card, checking: { ...d.card.checking!, phase: 'actions' } },
     }));
-    expect(screen.queryByRole('button', { name: 'Attach images, videos or 3D models' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Attach images, videos, models or files' }),
+    ).toBeNull();
   });
 
   it('the Details tab lists the files sent in the chat', async () => {

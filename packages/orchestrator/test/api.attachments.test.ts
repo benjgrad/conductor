@@ -21,6 +21,7 @@ import {
   UNLINKED_TTL_MS,
   attachmentsFallbackNote,
   chatEchoText,
+  contentHeaders,
   sweepUnlinkedAttachments,
 } from '../src/api/attachments.js';
 import { messageAttachmentsFallbackNote, withStartAttachments } from '../src/engine/attachments.js';
@@ -263,6 +264,48 @@ describe('POST /api/attachments', () => {
     const html = await upload(a, Buffer.from('<!doctype html><script>alert(1)</script>'), 'x.obj');
     expect(html.status).toBe(415);
     expect(html.json.error?.code).toBe('attachment_type');
+  });
+
+  it('stores a HAR checked against its name, and serves it as a UTF-8 download', async () => {
+    const har = Buffer.from('{"log":{"version":"1.2","entries":[]}}');
+    const dto = await uploaded(a, har, 'checkout flow.har');
+    expect(dto).toMatchObject({
+      name: 'checkout flow.har',
+      mime: 'application/har+json',
+      size_bytes: har.length,
+    });
+    const got = await raw('GET', dto.url, as(a));
+    expect(got.status).toBe(200);
+    expect(got.bytes.equals(har)).toBe(true);
+    expect(got.headers['content-type']).toBe('application/har+json; charset=utf-8');
+    expect(got.headers['x-content-type-options']).toBe('nosniff');
+    expect(got.headers['content-security-policy']).toBe("sandbox; default-src 'none'");
+    expect(got.headers['content-disposition']).toBe(
+      "attachment; filename*=UTF-8''checkout%20flow.har",
+    );
+    // A log keeps its extension; HTML or a bad HAR named as a work file is refused.
+    expect((await uploaded(a, Buffer.from('boom\n'), 'build.log')).name).toBe('build.log');
+    for (const [bytes, name] of [
+      ['<!DOCTYPE html><script>alert(1)</script>', 'x.txt'],
+      ['{"entries":[]}', 'x.har'],
+      ['{"a":', 'x.json'],
+    ] as const) {
+      const r = await upload(a, Buffer.from(bytes), name);
+      expect(r.status).toBe(415);
+      expect(r.json.error?.code).toBe('attachment_type');
+    }
+  });
+
+  it('contentHeaders: only images and videos are inline', () => {
+    const h = (mime: string) => contentHeaders({ mime, name: 'f', size_bytes: 1 });
+    expect(h('image/png')['content-disposition']).toMatch(/^inline;/);
+    expect(h('video/mp4')['content-disposition']).toMatch(/^inline;/);
+    expect(h('image/png')['content-type']).toBe('image/png');
+    for (const mime of ['text/plain', 'application/pdf', 'application/zip', 'model/obj']) {
+      expect(h(mime)['content-disposition']).toMatch(/^attachment;/);
+    }
+    expect(h('text/plain')['content-type']).toBe('text/plain; charset=utf-8');
+    expect(h('application/pdf')['content-type']).toBe('application/pdf');
   });
 
   it('CSRF: octet-stream elsewhere is 415, and the upload without Origin is 403', async () => {

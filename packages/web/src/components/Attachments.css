@@ -178,7 +178,8 @@
   justify-content: center;
   overflow: hidden;
 }
-/* 06 §Attachments: a 3D model can't be drawn here: its icon, name and a Download link. */
+/* 06 §Attachments: a 3D model or a work file (HAR, text, PDF, ZIP…) can't be drawn here: its icon,
+   name and a Download link. */
 .attachment-lightbox-model {
   display: flex;
   flex-direction: column;

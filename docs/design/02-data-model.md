@@ -538,7 +538,7 @@ Down drops the table. An agent's proposal has `created_by` `agent:<ticket id, 8 
 | workflow_state | text null | the state an agent captured it in |
 | source | text | `human` · `agent` (CHECK) |
 | name | text | `sanitizeAttachmentName` (`^[A-Za-z0-9._ -]{1,100}$`, extension of the sniffed type) |
-| mime | text | one of `ATTACHMENT_MIMES`, sniffed from the bytes (`sniffMime`): PNG, JPEG, GIF, WebP, MP4, WebM, and the 3D models `model/stl`, `model/obj`, `model/3mf`, `model/gltf-binary`, `model/step`, `model/x-ply` (the file name's extension picks the model format, the bytes must match it). Never SVG or HTML |
+| mime | text | one of `ATTACHMENT_MIMES`, sniffed from the bytes (`sniffMime`): PNG, JPEG, GIF, WebP, MP4, WebM, and the 3D models `model/stl`, `model/obj`, `model/3mf`, `model/gltf-binary`, `model/step`, `model/x-ply`, and the work files `application/har+json`, `application/json`, `text/plain`, `text/csv`, `text/markdown`, `application/pdf`, `application/zip` (for models and work files the file name's extension picks the format, the bytes must match it). Never SVG, HTML or XML |
 | size_bytes | int | > 0 (CHECK) |
 | sha256 | bytea | 32 bytes (CHECK); sent to the daemon as hex, which re-checks the download |
 | caption | text null | ≤ 500 (agent attachments) |

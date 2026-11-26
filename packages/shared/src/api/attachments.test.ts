@@ -7,6 +7,7 @@ import {
   ATTACHMENT_ACCEPT,
   ATTACHMENT_NAME_RE,
   ATTACHMENT_TYPES_MESSAGE,
+  attachmentMime,
   attachmentMimeFromName,
   attachmentCountMax,
   attachmentMaxBytes,
@@ -79,14 +80,17 @@ describe('sniffMime: 3D models', () => {
   it.each([
     ['binary stl one byte long', new Uint8Array([...binaryStl(1), 0]), 'a.stl'],
     ['obj without its name', bytes('v 0 0 0\n'), ''],
-    ['obj named .txt', bytes('v 0 0 0\n'), 'a.txt'],
     ['html named .obj', bytes('<!doctype html><script>alert(1)</script>'), 'x.obj'],
     ['html named .stl', bytes('<html><body>solid</body></html>'), 'x.stl'],
     ['svg named .stl', bytes('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'x.stl'],
-    ['zip without its name', bytes([0x50, 0x4b, 0x03, 0x04, 0x14]), 'a.zip'],
+    ['3mf named .obj', bytes([0x50, 0x4b, 0x03, 0x04, 0x14]), 'a.obj'],
     ['step named .obj', bytes('ISO-10303-21;\n'), 'a.obj'],
     ['binary named .obj', bytes('v 0', [0, 1, 2]), 'a.obj'],
   ])('%s → null', (_n, b, name) => expect(sniffMime(b, name)).toBeNull());
+
+  it('an obj named .txt is text', () => {
+    expect(sniffMime(bytes('v 0 0 0\n'), 'a.txt')).toBe('text/plain');
+  });
 
   it('a media file is its media type whatever it is named', () => {
     expect(sniffMime(bytes([0xff, 0xd8, 0xff, 0xe0]), 'x.stl')).toBe('image/jpeg');
@@ -106,6 +110,68 @@ describe('sniffMime: 3D models', () => {
   });
 });
 
+describe('sniffMime: work files', () => {
+  const har = '{"log":{"version":"1.2","creator":{"name":"x"},"entries":[]}}';
+  it.each([
+    ['har', bytes(har), 'trace.har', 'application/har+json'],
+    [
+      'har with BOM and spaces',
+      bytes([0xef, 0xbb, 0xbf], `  ${har}\n`),
+      'T.HAR',
+      'application/har+json',
+    ],
+    ['json', bytes('[1, {"a": "b"}]'), 'data.json', 'application/json'],
+    ['har content named .json', bytes(har), 'trace.json', 'application/json'],
+    ['txt', bytes('hello\nworld\n'), 'notes.txt', 'text/plain'],
+    ['log', bytes('2026-11-26 ERROR boom\n'), 'build.log', 'text/plain'],
+    ['utf-8 text', bytes([0x63, 0x61, 0x66, 0xc3, 0xa9]), 'a.txt', 'text/plain'],
+    ['text that mentions html', bytes('see <html> tags\n'), 'a.md', 'text/markdown'],
+    ['csv', bytes('a,b\n1,2\n'), 'rows.csv', 'text/csv'],
+    ['markdown', bytes('# Title\n\n- item\n'), 'README.md', 'text/markdown'],
+    ['pdf, no name', bytes('%PDF-1.7\n', [0xe2, 0xe3, 0xcf, 0xd3]), '', 'application/pdf'],
+    ['pdf', bytes('%PDF-1.4\n'), 'spec.pdf', 'application/pdf'],
+    ['zip', bytes([0x50, 0x4b, 0x03, 0x04, 0x14]), 'logs.zip', 'application/zip'],
+    ['empty zip', bytes([0x50, 0x4b, 0x05, 0x06, 0]), 'empty.zip', 'application/zip'],
+    ['3mf is still 3mf', bytes([0x50, 0x4b, 0x03, 0x04, 0x14]), 'part.3mf', 'model/3mf'],
+  ])('%s', (_n, b, name, mime) => expect(sniffMime(b, name)).toBe(mime));
+
+  it.each([
+    ['har without log', bytes('{"entries":[]}'), 'a.har'],
+    ['har whose log is an array', bytes('{"log":[]}'), 'a.har'],
+    ['invalid json', bytes('{"a": 1,'), 'a.json'],
+    ['invalid json named .har', bytes('{"log": {'), 'a.har'],
+    ['text with a NUL byte', bytes('abc', [0], 'def'), 'a.txt'],
+    ['invalid utf-8', bytes([0x61, 0xff, 0xfe, 0x62]), 'a.txt'],
+    ['html named .txt', bytes('<!DOCTYPE html><script>alert(1)</script>'), 'x.txt'],
+    ['html named .log', bytes('  <html><body>x</body></html>'), 'x.log'],
+    ['svg named .md', bytes('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'x.md'],
+    ['xml named .csv', bytes('<?xml version="1.0"?><svg/>'), 'x.csv'],
+    ['html with BOM named .txt', bytes([0xef, 0xbb, 0xbf], '<html>'), 'x.txt'],
+    ['empty text', new Uint8Array(), 'a.txt'],
+    ['zip without its name', bytes([0x50, 0x4b, 0x03, 0x04, 0x14]), ''],
+    ['text named .zip', bytes('not a zip'), 'a.zip'],
+    ['text named .pdf', bytes('not a pdf'), 'a.pdf'],
+    ['text without a name', bytes('hello\n'), ''],
+  ])('%s → null', (_n, b, name) => expect(sniffMime(b, name)).toBeNull());
+
+  it('attachmentMimeFromName', () => {
+    expect(attachmentMimeFromName('trace.HAR')).toBe('application/har+json');
+    expect(attachmentMimeFromName('dir/build.log')).toBe('text/plain');
+    expect(attachmentMimeFromName('a.markdown')).toBe('text/markdown');
+    expect(attachmentMimeFromName('a.html')).toBeNull();
+  });
+
+  it('the picker accepts the work file extensions', () => {
+    expect(ATTACHMENT_ACCEPT.split(',')).toEqual(
+      expect.arrayContaining(['.har', '.json', '.txt', '.log', '.csv', '.md', '.pdf', '.zip']),
+    );
+  });
+
+  it('the refusal message lists them', () => {
+    expect(ATTACHMENT_TYPES_MESSAGE).toMatch(/HAR, JSON, TXT, LOG, CSV, MD, PDF, ZIP/);
+  });
+});
+
 describe('sanitizeAttachmentName', () => {
   it.each([
     ['screen shot.png', 'image/png', 'screen shot.png'],
@@ -116,7 +182,11 @@ describe('sanitizeAttachmentName', () => {
     ['', 'video/mp4', 'attachment.mp4'],
     ['x.svg', 'image/png', 'x.png'],
     ['part.STL', 'model/stl', 'part.stl'],
-    ['bracket.stp', 'model/step', 'bracket.step'],
+    ['bracket.stp', 'model/step', 'bracket.stp'],
+    ['build.log', 'text/plain', 'build.log'],
+    ['x.exe', 'text/plain', 'x.txt'],
+    ['Trace.HAR', 'application/har+json', 'Trace.har'],
+    ['trace.json', 'application/har+json', 'trace.har'],
   ] as const)('%s', (raw, mime, want) => {
     expect(sanitizeAttachmentName(raw, mime)).toBe(want);
     expect(ATTACHMENT_NAME_RE.test(want)).toBe(true);
@@ -144,9 +214,23 @@ describe('limits', () => {
     expect(
       attachmentProblem({ name: 'part.stl', type: 'application/vnd.ms-pki.stl', size: 10 }),
     ).toBeNull();
-    expect(attachmentProblem({ name: 'notes.txt', type: '', size: 10 })).toBe(
+    expect(attachmentProblem({ name: 'notes.exe', type: '', size: 10 })).toBe(
       ATTACHMENT_TYPES_MESSAGE,
     );
+    expect(attachmentProblem({ name: 'notes.txt', type: '', size: 10 })).toBeNull();
+    expect(attachmentProblem({ name: 'page.html', type: 'text/html', size: 10 })).toBe(
+      ATTACHMENT_TYPES_MESSAGE,
+    );
+    // A HAR is labelled application/json or nothing: the extension decides.
+    expect(attachmentMime({ name: 'x.har', type: 'application/json' })).toBe(
+      'application/har+json',
+    );
+    expect(attachmentMime({ name: 'x.log', type: '' })).toBe('text/plain');
+    expect(attachmentMime({ name: 'image.png', type: 'image/png' })).toBe('image/png');
+    expect(attachmentProblem({ name: 'x.har', type: '', size: 40 * 1024 * 1024 })).toBeNull();
+    expect(
+      attachmentProblem({ name: 'x.har', type: '', size: ATTACHMENT_MAX_VIDEO_BYTES + 1 }),
+    ).toMatch(/too large/);
     expect(
       attachmentProblem({ name: 'big.obj', type: '', size: ATTACHMENT_MAX_VIDEO_BYTES + 1 }),
     ).toMatch(/too large/);

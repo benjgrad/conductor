@@ -13,7 +13,9 @@ import {
   attachmentMaxBytes,
   parseDaemonAuthHeader,
   attachmentCountMax,
-  isModelMime,
+  isImageMime,
+  isTextMime,
+  isVideoMime,
   sanitizeAttachmentName,
   sniffMime,
   type ApiErrorCode,
@@ -367,13 +369,15 @@ export function uploadName(header: string | string[] | undefined): string {
 }
 
 /**
- * The headers the bytes are served with: the sniffed type, never rendered as a document. A 3D
- * model is downloaded (`attachment`): browsers can't show one.
+ * The headers the bytes are served with: the sniffed type, never rendered as a document. Only
+ * images and videos are inline; a 3D model or a work file (HAR, text, PDF, ZIP…) is downloaded
+ * (`attachment`), and text says it is UTF-8.
  */
 export function contentHeaders(row: Pick<AttachmentRow, 'mime' | 'name' | 'size_bytes'>) {
-  const disposition = isModelMime(row.mime) ? 'attachment' : 'inline';
+  const inline = isImageMime(row.mime) || isVideoMime(row.mime);
+  const disposition = inline ? 'inline' : 'attachment';
   return {
-    'content-type': row.mime,
+    'content-type': isTextMime(row.mime) ? `${row.mime}; charset=utf-8` : row.mime,
     'content-length': String(row.size_bytes),
     'content-disposition': `${disposition}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
     'x-content-type-options': 'nosniff',

@@ -57,7 +57,7 @@ import { useTransitionNotifications } from './notify/useTransitionNotifications.
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
 import { Tour } from './onboarding/Tour.js';
-import { clearTourPending, isTourPending, markTourPending } from './onboarding/tour.js';
+import { clearTourPending, isTourPending, markTourPending } from './onboarding/tour-storage.js';
 import { LANDING_PATH, Landing } from './landing/Landing.js';
 import { InsightsPage } from './insights/InsightsPage.js';
 import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';

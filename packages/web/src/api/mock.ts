@@ -2312,6 +2312,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           id: row.id,
           url: `http://localhost/signup?invite=${token}`,
           expires_at: row.expires_at,
+          // ADR-0046: the mock "sends" every invite that names an email.
+          emailed: row.email !== null,
         };
       }),
 

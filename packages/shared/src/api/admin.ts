@@ -26,6 +26,14 @@ export const InviteCreatedSchema = z.object({
   id: UuidSchema,
   url: z.url(),
   expires_at: IsoDateTimeSchema,
+  /**
+   * ADR-0046: whether the link was emailed to the invite's `email` (Resend). False without an
+   * email, with mail off (no RESEND_API_KEY) or when the send failed; `url` is returned either way.
+   * Absent from older servers.
+   */
+  emailed: z.boolean().optional(),
+  /** Why the send failed (no secret in it); absent when emailed or not attempted. */
+  email_error: z.string().optional(),
 });
 export type InviteCreated = z.infer<typeof InviteCreatedSchema>;
 

@@ -42,6 +42,9 @@ const iso = (d: Date | null) => (d === null ? null : d.toISOString());
 
 export function registerAdminRoutes(app: FastifyInstance, deps: AuthRouteDeps): void {
   const { db, auth, now } = deps;
+  const mailer = deps.mailer ?? null;
+  const log =
+    deps.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
   if (auth.mode !== 'password') return;
   const sockets = deps.sockets ?? NO_SOCKETS;
   const noUser = (reply: Parameters<typeof sendError>[0]) =>
@@ -132,7 +135,26 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AuthRouteDeps): 
       id: invite.id,
       url: invite.url,
       expires_at: invite.expires_at.toISOString(),
+      emailed: false,
     };
+    // ADR-0046: email the link when the invite names an address and mail is on. A failure only
+    // changes `emailed`: the invite stands and the admin copies the link. The log line names the
+    // invite and the reason, never the link or the key.
+    if (body.email !== undefined && mailer) {
+      const sent = await mailer.sendInvite({
+        inviteId: invite.id,
+        to: body.email,
+        url: invite.url,
+        expiresAt: invite.expires_at,
+        invitedBy: req.auth!.user.display_name,
+      });
+      if (sent.ok) {
+        created.emailed = true;
+      } else {
+        created.email_error = sent.reason;
+        log(`invite ${invite.id}: email not sent (${sent.reason})`);
+      }
+    }
     return reply.code(201).send(created);
   });
 

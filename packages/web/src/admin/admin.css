@@ -111,6 +111,12 @@
 .one-time-link h3 {
   margin: 0 0 var(--space-1);
 }
+/* ADR-0046: the invite was emailed. */
+.one-time-link .success {
+  margin: 0 0 var(--space-2);
+  color: var(--ok);
+  font-weight: 600;
+}
 .one-time-url {
   display: flex;
   gap: 6px;

@@ -2,6 +2,10 @@
    light / dark scheme like every other page. */
 
 .landing {
+  /* Local display sizes: a marketing page's headings are larger than the app's type scale. */
+  --landing-hero-size: clamp(32px, 4.6vw, 52px);
+  --landing-pitch-size: 18px;
+  --landing-h2-size: clamp(24px, 3vw, 32px);
   min-height: 100vh;
   background:
     radial-gradient(
@@ -85,14 +89,14 @@
 }
 .landing-hero h1 {
   margin: 0 0 var(--space-4);
-  font-size: clamp(32px, 4.6vw, 52px);
+  font-size: var(--landing-hero-size);
   line-height: 1.08;
   letter-spacing: -0.02em;
 }
 .landing-pitch {
   margin: 0 0 var(--space-5);
   color: var(--muted);
-  font-size: 18px;
+  font-size: var(--landing-pitch-size);
   max-width: 34em;
 }
 .landing-invite {
@@ -207,7 +211,7 @@
 .landing-section h2,
 .landing-closing h2 {
   margin: 0 0 var(--space-5);
-  font-size: clamp(24px, 3vw, 32px);
+  font-size: var(--landing-h2-size);
   letter-spacing: -0.01em;
 }
 .landing-features,

@@ -39,8 +39,8 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `delete_schedule` | Remove a recurring job (its past tickets stay) |
 | `run_schedule_now` | Run a recurring job now, without moving its next run |
 | `get_workflow` | The workflow: its states and transitions, or one state in full |
-| `save_workflow` | Save a new version of a workflow (instance admins only: it changes the workflow for every account). It can't remove an approval |
-| `adopt_default_workflow` | Replace your edits with the newest shipped `conductor` workflow (instance admins only) |
+| `save_workflow` | Save a new version of your account's workflow (it changes your new, reopened and parked tickets). It can't remove an approval |
+| `adopt_default_workflow` | Replace your edits with the newest shipped `conductor` workflow |
 | `get_process_metrics` | How your tickets moved over the last days: time in each state, repo or machine, checks that fail, questions, permission denials |
 | `list_findings` | What slows your work down (slow states, failing checks, repeated denials, frequent questions, rework, machines that stop or fail more than the others), with example tickets and the tool that would fix it |
 | `get_process_report` | What the analyst agents found across your finished sessions (recurring frictions by state, with session ids), how many sessions were analysed and what that cost. Empty until a machine runs the new Rust daemon |

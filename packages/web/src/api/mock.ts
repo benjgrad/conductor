@@ -1680,6 +1680,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       reply((): ChangeProposalDetail => {
         const p = proposal(id);
         mustBeProposed(p);
+        // `requires_admin` is always false from the server since M2-T12; the mock still honours
+        // a fixture that sets it.
         if (p.requires_admin && authMode !== 'local' && !signedInUser().row.is_admin) {
           throw new ApiRequestError(403, 'forbidden', 'Only an instance admin can apply this.');
         }
@@ -1840,13 +1842,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
     adoptDefaultWorkflow: (id, baseVersion) =>
       reply((): SaveWorkflowResponse => {
-        if (authMode !== 'local' && !signedInUser().row.is_admin) {
-          throw new ApiRequestError(
-            403,
-            'forbidden',
-            'only an instance admin can change the workflow',
-          );
-        }
+        // M2-T12: any member adopts into their own account's workflow (no admin gate).
         const versions = workflows.get(id);
         if (id !== CONDUCTOR.id || !versions || !opts.defaultWorkflow) {
           throw new ApiRequestError(404, 'not_found', `no shipped default for ${id}`);

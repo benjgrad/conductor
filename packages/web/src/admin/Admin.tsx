@@ -15,8 +15,9 @@ import { OneTimeLink } from './OneTimeLink.js';
 import './admin.css';
 
 export const ADMINS_ONLY = 'Only admins can see this page.';
-/** Sign-up with an API-created (general) invite is refused until general sign-up lands (TD-173, M2-T15b). */
-export const NEW_ACCOUNTS_NOTE = "Invite links can't create new accounts yet.";
+/** M2-T15b: signing up with a general invite makes the new user their own account. */
+export const NEW_ACCOUNTS_NOTE =
+  'Each invite link creates a new account with its own board, machines and workflows.';
 
 interface AdminPageProps {
   api: ApiClient;

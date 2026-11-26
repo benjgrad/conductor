@@ -238,7 +238,7 @@ describe('the Queued card’s routing (board view)', () => {
        RETURNING id`,
       [scope.account_id, repo],
     );
-    const board = await loadBoard(db.pool);
+    const board = await loadBoard(db.pool, scope.account_id);
     return board.columns.flatMap((c) => c.cards).find((c) => c.ticket_id === t.rows[0]!.id)!;
   }
 

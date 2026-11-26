@@ -27,7 +27,9 @@ async function failedBuild(daysAgo: number) {
   const q = stack.db.pool;
   const at = new Date(Date.now() - daysAgo * 86_400_000);
   const wf = await q.query<{ version: number }>(
-    "SELECT max(version) AS version FROM workflow_definition WHERE id = 'conductor'",
+    "SELECT max(version) AS version FROM workflow_definition WHERE id = 'conductor' " +
+      'AND account_id = $1',
+    [LOCAL_ACCOUNT_ID],
   );
   const t = await q.query<{ id: string }>(
     'INSERT INTO ticket (account_id, repo, title, body, workflow_id, status, kind) ' +

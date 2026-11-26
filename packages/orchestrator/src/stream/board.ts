@@ -45,6 +45,8 @@ export function parseLastEventId(value: unknown): number | null {
 export interface BoardStreamDeps {
   db: Queryable;
   boardBus: BoardBus;
+  /** M2-T21: only this account's board events are sent (`event.account_id`). */
+  accountId: string;
   onError?: (err: unknown) => void;
 }
 
@@ -68,8 +70,8 @@ export async function serveBoardStream(
         if (conn.closed || cursor === null) return;
         const res = await deps.db.query<EventRowLite>(
           'SELECT id, session_id, type, payload, ts FROM event ' +
-            'WHERE id > $1 AND type = ANY($2) ORDER BY id LIMIT $3',
-          [cursor, BOARD_SSE_EVENT_TYPES, PAGE],
+            'WHERE id > $1 AND type = ANY($2) AND account_id = $4 ORDER BY id LIMIT $3',
+          [cursor, BOARD_SSE_EVENT_TYPES, PAGE, deps.accountId],
         );
         for (const row of res.rows) {
           const ev = boardSseEventFromRow(row);

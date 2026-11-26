@@ -79,7 +79,8 @@ export interface WorkflowsViewProps {
   /** The workflow id with unsaved changes, or null; the app guards navigation with it. */
   onDirtyChange?: (dirty: DirtyDraft | null) => void;
   /**
-   * UXR-87: the user may change the workflow (an instance admin, or local mode), so a newer
+   * UXR-87: the user may change the workflow (M2-T12: any signed-in member, for their own
+   * account's workflow), so a newer
    * shipped default (`default_available`) is offered to compare and adopt. Default false.
    */
   canEditWorkflows?: boolean;

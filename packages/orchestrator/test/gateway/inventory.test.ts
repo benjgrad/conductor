@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AlertPayload, BoardCard } from '@conductor/shared';
+import { LOCAL_ACCOUNT_ID, type AlertPayload, type BoardCard } from '@conductor/shared';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { loadBoard } from '../../src/api/queries.js';
 import type { MachineAlertRow, MachineCapabilityRow, MachineRepoRow } from '../../src/db/types.js';
@@ -197,7 +197,7 @@ describe('alert ingest', () => {
       .find((e) => e.type === 'card.upserted' && e.session_id === sessionId);
     expect(ev?.type === 'card.upserted' && ev.card.alerts).toEqual(expected);
 
-    const board = await loadBoard(db.pool);
+    const board = await loadBoard(db.pool, LOCAL_ACCOUNT_ID);
     const card = board.columns
       .flatMap((c) => c.cards)
       .find((c: BoardCard) => c.ticket_id === t.rows[0]!.id);

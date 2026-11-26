@@ -34,8 +34,16 @@ import type { EventRow, InputRequestRow, SessionRow, WorkflowDefinitionRow } fro
  */
 const PROCESS_STARTED_AT = Date.now();
 
-export async function sessionExists(db: Queryable, id: string): Promise<boolean> {
-  const res = await db.query('SELECT 1 FROM session WHERE id = $1', [id]);
+/** M2-T21: whether the session exists in this account (another account's is "not found"). */
+export async function sessionInAccount(
+  db: Queryable,
+  id: string,
+  accountId: string,
+): Promise<boolean> {
+  const res = await db.query('SELECT 1 FROM session WHERE id = $1 AND account_id = $2', [
+    id,
+    accountId,
+  ]);
   return res.rowCount === 1;
 }
 
@@ -108,8 +116,8 @@ export async function loadSessionDetail(
   const [t, wd, ir, moves, inputRequests, permission, proposals, pages] = await Promise.all([
     db.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1', [session.ticket_id]),
     db.query<WorkflowDefinitionRow>(
-      'SELECT * FROM workflow_definition WHERE id = $1 AND version = $2',
-      [session.workflow_id, session.workflow_version],
+      'SELECT * FROM workflow_definition WHERE account_id = $1 AND id = $2 AND version = $3',
+      [session.account_id, session.workflow_id, session.workflow_version],
     ),
     db.query<OpenInputRow>(
       OPEN_INPUT_SELECT +
@@ -138,7 +146,7 @@ export async function loadSessionDetail(
           ticket,
           session,
           openInput,
-          await cardView(db, session.workflow_id, session.workflow_version),
+          await cardView(db, session.account_id, session.workflow_id, session.workflow_version),
         ),
         permission,
       ),

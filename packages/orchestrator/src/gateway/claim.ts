@@ -121,7 +121,7 @@ export async function claimWork(
         if (c.v === null) continue;
         let list: string[];
         try {
-          list = await required.get(tx, c.workflow_id, c.v, c.kind);
+          list = await required.get(tx, machine.account_id, c.workflow_id, c.v, c.kind);
         } catch (err) {
           log(`required capabilities of ${c.workflow_id}@${c.v}: ${String(err)}`);
           continue;

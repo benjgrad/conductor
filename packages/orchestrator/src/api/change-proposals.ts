@@ -57,11 +57,11 @@ const sendFailure = (reply: FastifyReply, f: ProposalFailure) => {
 };
 
 /**
- * ADR-0030 amendment: who may change a workflow (every account's): an instance admin, or anyone in
- * local mode, like MCP's `mayEditWorkflows`. Also gates UXR-87's adopt-the-default route.
+ * Who may change a workflow. ADR-0030's amendment limited it to instance admins (or local mode)
+ * because workflows were shared by every account; since M2-T12 each account has its own, so any
+ * signed-in member of the account may change that account's (the approval guard still applies).
  */
-export const mayEditWorkflows = (req: FastifyRequest): boolean =>
-  req.auth!.mode === 'local' || req.auth!.user.is_admin;
+export const mayEditWorkflows = (req: FastifyRequest): boolean => req.auth !== undefined;
 
 const actorOf = (req: FastifyRequest): ProposalActor => ({
   accountId: req.auth!.scope.account_id,

@@ -147,7 +147,12 @@ export class EngineServiceImpl implements EngineService {
     if (opts.fencingToken !== undefined && opts.fencingToken < Number(session.fencing_token)) {
       return rejected('stale_fencing_token');
     }
-    let def = await this.defs.get(tx, session.workflow_id, session.workflow_version);
+    let def = await this.defs.get(
+      tx,
+      session.account_id,
+      session.workflow_id,
+      session.workflow_version,
+    );
     // M2-T34: a human acting on a parked session moves it (and its ticket) to the newest version.
     const repinned = await repinParked(tx, session, def, event);
     if (repinned !== null) {
@@ -165,7 +170,7 @@ export class EngineServiceImpl implements EngineService {
       ]);
       session.workflow_version = repinned;
       ticket.workflow_version = repinned;
-      def = await this.defs.get(tx, session.workflow_id, repinned);
+      def = await this.defs.get(tx, session.account_id, session.workflow_id, repinned);
     }
 
     let inputRow: InputRequestRow | null = null;
@@ -185,7 +190,7 @@ export class EngineServiceImpl implements EngineService {
     const repoChecks = await readRepoChecksWithMeta(tx, ticket.account_id, ticket.repo);
     const before = toSnapshot(session, ticket, repoChecks.checks, repoChecks.meta);
     // ADR-0010: the card's column comes from the board's columns and the pinned definition.
-    const view = await new CardViews(tx, this.defs).view(
+    const view = await new CardViews(tx, session.account_id, this.defs).view(
       session.workflow_id,
       session.workflow_version,
     );

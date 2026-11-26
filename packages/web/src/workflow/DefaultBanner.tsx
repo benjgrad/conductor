@@ -4,7 +4,8 @@ import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js'
 import { diffVersions, type ReadableChange } from './version-diff.js';
 import { VersionDiff } from './VersionDiff.js';
 
-// UXR-87: the Workflow page's "newer default available" banner, for instance admins. The user's
+// UXR-87: the Workflow page's "newer default available" banner (M2-T12: for any member, since the
+// workflow is the account's own). The user's
 // edits kept the seed from installing a newer shipped `conductor` (ADR-0011,
 // `WorkflowDetail.default_available`). Compare shows what adopting it changes from the latest
 // version (`GET /api/workflows/conductor/default`), in the editor's words like the version

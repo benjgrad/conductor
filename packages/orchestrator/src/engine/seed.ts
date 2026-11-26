@@ -5,6 +5,7 @@ import {
   CONDUCTOR_V3,
   CONDUCTOR_V4,
   CONDUCTOR_WORKFLOW_ID,
+  LOCAL_ACCOUNT_ID,
   ROUTINE_V1,
   ROUTINE_WORKFLOW_ID,
   WorkflowDefinitionSchema,
@@ -26,6 +27,9 @@ import type { Queryable } from '../contracts.js';
 // - Anything else (the user saved a version of their own) is never touched: the start logs that a
 //   newer default is available, and `GET /api/workflows/conductor` carries `default_available`.
 // ADR-0032: `routine` (recurring tickets) is seeded by the same rules (`seedShippedWorkflow`).
+// M2-T12: workflows belong to an account (primary key (account_id, id, version)), so every rule
+// above runs per account: `seedAccount` seeds one (sign-up), `seedAllAccounts` every one (start).
+// One account's edits never stop another account's upgrade. `accountId` defaults to `local`.
 
 /** The message logged on start when the user's edits kept the seed from inserting a newer default. */
 export const NEWER_DEFAULT_MESSAGE = 'A newer default conductor workflow is available';
@@ -33,6 +37,8 @@ export const NEWER_DEFAULT_MESSAGE = 'A newer default conductor workflow is avai
 export interface SeedOptions {
   /** Where the "newer default" notice goes; default stderr. null = silent (the ticket route). */
   log?: ((msg: string) => void) | null;
+  /** The account to seed; default `local`. */
+  accountId?: string;
 }
 
 /**
@@ -93,11 +99,15 @@ export function isShippedDefinition(stored: unknown, shipped: WorkflowDefinition
  * for every other id and when nothing is stored. `GET /api/workflows/:id` sends it as
  * `default_available` so the editor can offer the new defaults.
  */
-export async function conductorDefaultAvailable(db: Queryable, id: string): Promise<number | null> {
+export async function conductorDefaultAvailable(
+  db: Queryable,
+  id: string,
+  accountId: string = LOCAL_ACCOUNT_ID,
+): Promise<number | null> {
   if (id !== CONDUCTOR_WORKFLOW_ID) return null;
   const rows = await db.query<{ definition: unknown }>(
-    'SELECT definition FROM workflow_definition WHERE id = $1',
-    [id],
+    'SELECT definition FROM workflow_definition WHERE account_id = $1 AND id = $2',
+    [accountId, id],
   );
   if (rows.rowCount === 0) return null;
   const newest = shipped().at(-1)!;
@@ -109,17 +119,25 @@ export async function seedConductorWorkflow(
   db: Queryable,
   opts: SeedOptions = {},
 ): Promise<boolean> {
-  return seedShippedWorkflow(db, CONDUCTOR_WORKFLOW_ID, shipped(), async (latestVersion) => {
-    if (opts.log === null) return;
-    const available = await conductorDefaultAvailable(db, CONDUCTOR_WORKFLOW_ID);
-    if (available === null) return;
-    const log =
-      opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
-    log(
-      `${NEWER_DEFAULT_MESSAGE} (v${available}); ` +
-        `your edited version ${latestVersion} was kept as the latest.`,
-    );
-  });
+  const accountId = opts.accountId ?? LOCAL_ACCOUNT_ID;
+  return seedShippedWorkflow(
+    db,
+    CONDUCTOR_WORKFLOW_ID,
+    shipped(),
+    async (latestVersion) => {
+      if (opts.log === null) return;
+      const available = await conductorDefaultAvailable(db, CONDUCTOR_WORKFLOW_ID, accountId);
+      if (available === null) return;
+      const log =
+        opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
+      log(
+        `${NEWER_DEFAULT_MESSAGE} (v${available}); ` +
+          `your edited version ${latestVersion} was kept as the latest` +
+          (accountId === LOCAL_ACCOUNT_ID ? '.' : ` (account ${accountId}).`),
+      );
+    },
+    accountId,
+  );
 }
 
 /** ADR-0032: the shipped `routine` versions, oldest first, each validated. */
@@ -131,8 +149,33 @@ function shippedRoutine(): WorkflowDefinition[] {
  * ADR-0032: seed the shipped `routine` workflow (recurring tickets), by the same rules as
  * `conductor`; an edited latest version is kept silently. true = it inserted a version.
  */
-export function seedRoutineWorkflow(db: Queryable): Promise<boolean> {
-  return seedShippedWorkflow(db, ROUTINE_WORKFLOW_ID, shippedRoutine(), null);
+export function seedRoutineWorkflow(
+  db: Queryable,
+  accountId: string = LOCAL_ACCOUNT_ID,
+): Promise<boolean> {
+  return seedShippedWorkflow(db, ROUTINE_WORKFLOW_ID, shippedRoutine(), null, accountId);
+}
+
+/**
+ * M2-T12: give one account its shipped workflows (`conductor` and `routine`), silently. Sign-up
+ * calls it inside its transaction; true = it inserted a version.
+ */
+export async function seedAccount(db: Queryable, accountId: string): Promise<boolean> {
+  const conductor = await seedConductorWorkflow(db, { log: null, accountId });
+  const routine = await seedRoutineWorkflow(db, accountId);
+  return conductor || routine;
+}
+
+/**
+ * M2-T12: seed every account on start (each account's unedited shipped versions are upgraded; an
+ * account that edited its own is told a newer default exists, through `log`).
+ */
+export async function seedAllAccounts(db: Queryable, opts: SeedOptions = {}): Promise<void> {
+  const accounts = await db.query<{ id: string }>('SELECT id FROM account ORDER BY id');
+  for (const { id } of accounts.rows) {
+    await seedConductorWorkflow(db, { ...opts, accountId: id });
+    await seedRoutineWorkflow(db, id);
+  }
 }
 
 /**
@@ -145,21 +188,23 @@ export async function seedShippedWorkflow(
   id: string,
   versions: readonly WorkflowDefinition[],
   onEdited: ((latestVersion: number) => Promise<void>) | null,
+  accountId: string = LOCAL_ACCOUNT_ID,
 ): Promise<boolean> {
   const insertedV1 = await db.query(
-    'INSERT INTO workflow_definition (id, version, definition, created_by) ' +
-      "SELECT $1::text, 1, $2::jsonb, 'conductor' " +
-      'WHERE NOT EXISTS (SELECT 1 FROM workflow_definition WHERE id = $1::text) ' +
-      'ON CONFLICT (id, version) DO NOTHING',
-    [id, JSON.stringify(versions[0])],
+    'INSERT INTO workflow_definition (account_id, id, version, definition, created_by) ' +
+      "SELECT $3::uuid, $1::text, 1, $2::jsonb, 'conductor' " +
+      'WHERE NOT EXISTS (SELECT 1 FROM workflow_definition ' +
+      'WHERE account_id = $3::uuid AND id = $1::text) ' +
+      'ON CONFLICT (account_id, id, version) DO NOTHING',
+    [id, JSON.stringify(versions[0]), accountId],
   );
   let inserted = insertedV1.rowCount === 1;
 
   for (;;) {
     const latest = await db.query<{ version: number; definition: unknown }>(
-      'SELECT version, definition FROM workflow_definition WHERE id = $1 ' +
+      'SELECT version, definition FROM workflow_definition WHERE account_id = $1 AND id = $2 ' +
         'ORDER BY version DESC LIMIT 1',
-      [id],
+      [accountId, id],
     );
     const row = latest.rows[0];
     if (row === undefined) return inserted;
@@ -174,12 +219,12 @@ export async function seedShippedWorkflow(
     // Only fires while no version at or above `next` exists; a concurrent start that won the race
     // makes this a no-op, and the next read carries on from whatever is latest then.
     const res = await db.query(
-      'INSERT INTO workflow_definition (id, version, definition, created_by) ' +
-        "SELECT $1::text, $2::int, $3::jsonb, 'conductor' " +
+      'INSERT INTO workflow_definition (account_id, id, version, definition, created_by) ' +
+        "SELECT $4::uuid, $1::text, $2::int, $3::jsonb, 'conductor' " +
         'WHERE NOT EXISTS (SELECT 1 FROM workflow_definition ' +
-        'WHERE id = $1::text AND version >= $2::int) ' +
-        'ON CONFLICT (id, version) DO NOTHING',
-      [id, next.version, JSON.stringify(next)],
+        'WHERE account_id = $4::uuid AND id = $1::text AND version >= $2::int) ' +
+        'ON CONFLICT (account_id, id, version) DO NOTHING',
+      [id, next.version, JSON.stringify(next), accountId],
     );
     if (res.rowCount === 1) inserted = true;
   }

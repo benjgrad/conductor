@@ -178,8 +178,8 @@ export const API_PATHS = {
   workflow: (id: string) => `/api/workflows/${id}`,
   /**
    * UXR-87: the newer shipped default of a workflow (only `conductor` has one). GET →
-   * WorkflowDefaultResponse (404 when none is available); POST `{base_version}` (instance admins,
-   * or local mode) saves it as the next version, like MCP `adopt_default_workflow` → 201
+   * WorkflowDefaultResponse (404 when none is available); POST `{base_version}` (the caller's own
+   * account, M2-T12) saves it as the next version, like MCP `adopt_default_workflow` → 201
    * SaveWorkflowResponse, 403 forbidden, 409 conflict / approval_weakened.
    */
   workflowDefault: (id: string) => `/api/workflows/${id}/default`,

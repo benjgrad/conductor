@@ -256,7 +256,10 @@ export const ChangeProposalSummarySchema = z.object({
   title: z.string(),
   /** The repo (repo_checks) or the workflow id. */
   target: z.string(),
-  /** A workflow change needs an instance admin to apply, and changes every account. */
+  /**
+   * Whether applying needs an instance admin. Always false since M2-T12 (each account has its own
+   * workflows); kept so older clients still parse.
+   */
   requires_admin: z.boolean(),
   /** How many structural changes it makes. */
   changes: z.number().int().nonnegative(),
@@ -321,7 +324,7 @@ export const ListChangeProposalsQuerySchema = z.object({
   ticket_id: z.string().uuid().optional(),
 });
 
-/** A workflow change's warning (workflows are shared by every account until M2-T12). */
+/** A workflow change's warning (M2-T12: it changes only the proposal's own account). */
 export const WORKFLOW_CHANGE_WARNING =
-  'Workflows are shared by every account on this instance: applying this changes the workflow ' +
-  'for all of them, and only an instance admin can apply it.';
+  'Applying this changes your account’s workflow: its new, reopened and parked tickets follow ' +
+  'the new version.';

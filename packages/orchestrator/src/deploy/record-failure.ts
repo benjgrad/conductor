@@ -52,7 +52,7 @@ export async function recordDeployFailure(
   accountId: string = LOCAL_ACCOUNT_ID,
 ): Promise<RecordedDeployFailure> {
   // ADR-0010: seeded on start too; a bare database (tests) needs it here.
-  await seedConductorWorkflow(db, { log: null });
+  await seedConductorWorkflow(db, { log: null, accountId });
   return withTransaction(db, async (tx) => {
     const account = await tx.query('SELECT 1 FROM account WHERE id = $1', [accountId]);
     if (account.rowCount === 0) throw new NoAccountError(`no account ${accountId}`);

@@ -50,8 +50,9 @@ async function ticket(
 async function session(accountId: string, ticketId: string): Promise<string> {
   // A stub definition: the search reads only the session's id.
   await db.pool.query(
-    "INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_search', 1, '{}') " +
-      'ON CONFLICT DO NOTHING',
+    'INSERT INTO workflow_definition (account_id, id, version, definition) ' +
+      "VALUES ($1, 'wf_search', 1, '{}') ON CONFLICT DO NOTHING",
+    [accountId],
   );
   const r = await db.pool.query<{ id: string }>(
     'INSERT INTO session (account_id, ticket_id, workflow_id, workflow_version) ' +

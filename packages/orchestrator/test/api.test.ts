@@ -1079,7 +1079,10 @@ describe('board stream', () => {
     // Written while disconnected, including non-board audit rows and rows from another writer
     // (insertBoardEvents directly, like the engine wrapper) that are never published on the bus.
     for (let i = 0; i < 5; i++) await createTicket(`offline ${i}`);
-    await db.pool.query("INSERT INTO event (type, payload) VALUES ('state.entered', '{}')");
+    await db.pool.query(
+      "INSERT INTO event (type, payload, account_id) VALUES ('state.entered', '{}', $1)",
+      ['00000000-0000-4000-8000-000000000001'],
+    );
     const { sessionId, ticket } = await seedSession('running');
     await withTransaction(db.pool, (tx) =>
       insertBoardEvents(tx, [

@@ -4,6 +4,7 @@ import {
   CONDUCTOR_V2_DEF,
   CONDUCTOR_V3_DEF,
   CONDUCTOR_V4_DEF,
+  LOCAL_ACCOUNT_ID,
   ROUTINE_V1_DEF,
   WorkflowDefinitionSchema,
 } from '@conductor/shared';
@@ -12,6 +13,9 @@ import {
   NEWER_DEFAULT_MESSAGE,
   conductorDefaultAvailable,
   isShippedDefinition,
+  newestShippedConductor,
+  seedAccount,
+  seedAllAccounts,
   seedConductorWorkflow,
   seedRoutineWorkflow,
 } from '../../src/engine/seed.js';
@@ -30,8 +34,9 @@ interface Row {
 const rows = async () =>
   (
     await db.pool.query<Row>(
-      "SELECT version, definition, created_by FROM workflow_definition WHERE id = 'conductor' " +
-        'ORDER BY version',
+      'SELECT version, definition, created_by FROM workflow_definition ' +
+        "WHERE id = 'conductor' AND account_id = $1 ORDER BY version",
+      [LOCAL_ACCOUNT_ID],
     )
   ).rows;
 const insert = (version: number, definition: unknown) =>
@@ -194,8 +199,9 @@ describe('seedRoutineWorkflow (ADR-0032)', () => {
   const routineRows = async () =>
     (
       await db.pool.query<Row>(
-        "SELECT version, definition, created_by FROM workflow_definition WHERE id = 'routine' " +
-          'ORDER BY version',
+        'SELECT version, definition, created_by FROM workflow_definition ' +
+          "WHERE id = 'routine' AND account_id = $1 ORDER BY version",
+        [LOCAL_ACCOUNT_ID],
       )
     ).rows;
 
@@ -225,5 +231,64 @@ describe('seedRoutineWorkflow (ADR-0032)', () => {
     expect(await seedRoutineWorkflow(db.pool)).toBe(false);
     expect((await routineRows()).map((x) => x.version)).toEqual([1, 2]);
     expect(await rows()).toEqual([]);
+  });
+});
+
+// M2-T12: workflows belong to an account; every seed rule runs per account.
+describe('seedAccount / seedAllAccounts (M2-T12)', () => {
+  const newAccount = async () =>
+    (
+      await db.pool.query<{ id: string }>(
+        "INSERT INTO account (name) VALUES ('other') RETURNING id",
+      )
+    ).rows[0]!.id;
+  const versionsOf = async (accountId: string, id = 'conductor') =>
+    (
+      await db.pool.query<{ version: number }>(
+        'SELECT version FROM workflow_definition WHERE account_id = $1 AND id = $2 ' +
+          'ORDER BY version',
+        [accountId, id],
+      )
+    ).rows.map((r) => r.version);
+  const newest = newestShippedConductor().version;
+  const all = Array.from({ length: newest }, (_, i) => i + 1);
+
+  beforeEach(async () => {
+    await db.pool.query("DELETE FROM workflow_definition WHERE id = 'routine'");
+  });
+
+  it('seeds one account’s conductor and routine, leaving `local` untouched', async () => {
+    const b = await newAccount();
+    expect(await seedAccount(db.pool, b)).toBe(true);
+    expect(await versionsOf(b)).toEqual(all);
+    expect(await versionsOf(b, 'routine')).toEqual([1]);
+    expect(await versionsOf(LOCAL_ACCOUNT_ID)).toEqual([]);
+    expect(await seedAccount(db.pool, b)).toBe(false);
+  });
+
+  it('one account’s edit never blocks another account’s upgrade, and vice versa', async () => {
+    const b = await newAccount();
+    // `local` stays on an unedited v1; B edits its v1, so B's seed stops there.
+    await insert(1, CONDUCTOR_V1);
+    await db.pool.query(
+      "INSERT INTO workflow_definition (account_id, id, version, definition) VALUES ($1, 'conductor', 1, $2)",
+      [b, JSON.stringify({ ...CONDUCTOR_V1, budget: { usd: 1, minutes: 5 } })],
+    );
+    await seedAllAccounts(db.pool, { log: null });
+    expect(await versionsOf(LOCAL_ACCOUNT_ID)).toEqual(all);
+    expect(await versionsOf(b)).toEqual([1]);
+    expect(await conductorDefaultAvailable(db.pool, 'conductor', b)).toBe(newest);
+    expect(await conductorDefaultAvailable(db.pool, 'conductor', LOCAL_ACCOUNT_ID)).toBeNull();
+  });
+
+  it('seedAllAccounts is idempotent under concurrent starts', async () => {
+    const b = await newAccount();
+    await Promise.all([
+      seedAllAccounts(db.pool, { log: null }),
+      seedAllAccounts(db.pool, { log: null }),
+    ]);
+    expect(await versionsOf(b)).toEqual(all);
+    expect(await versionsOf(LOCAL_ACCOUNT_ID)).toEqual(all);
+    expect(await versionsOf(b, 'routine')).toEqual([1]);
   });
 });

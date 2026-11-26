@@ -1093,7 +1093,9 @@ class Gateway implements DaemonGateway {
   private async runsAgent(tx: Queryable, s: SessionRow): Promise<boolean> {
     if (s.status !== 'running' || !s.agent_process_live || s.workflow_state === null) return false;
     if (splitStep(s.context).step !== null) return false;
-    const def = await this.defs.get(tx, s.workflow_id, s.workflow_version).catch(() => null);
+    const def = await this.defs
+      .get(tx, s.account_id, s.workflow_id, s.workflow_version)
+      .catch(() => null);
     return def?.states[s.workflow_state]?.type === 'agent';
   }
 

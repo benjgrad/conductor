@@ -16,7 +16,7 @@ import {
   updateSchedule,
   type ScheduleDeps,
 } from '../src/schedules/store.js';
-import { useTestDatabase } from './db.js';
+import { copyLocalWorkflows, useTestDatabase } from './db.js';
 
 const db = useTestDatabase();
 const LOCAL = { mode: 'local' } as const;
@@ -26,6 +26,7 @@ async function account(): Promise<AccountScope> {
     'INSERT INTO account (name) VALUES ($1) RETURNING id',
     [`acct-${randomBytes(4).toString('hex')}`],
   );
+  await copyLocalWorkflows(db.pool, r.rows[0]!.id); // M2-T12
   return { account_id: r.rows[0]!.id } as AccountScope;
 }
 

@@ -90,8 +90,9 @@ export const registerRunGateRoutes: FastifyPluginAsync<RunGateRoutesOptions> = (
     const session = await liveSession(id, m.machineId);
     if (session === null) return sendError(reply, 404, 'not_found', `session ${id} not found`);
     const d = await db.query<{ definition: unknown }>(
-      'SELECT definition FROM workflow_definition WHERE id = $1 AND version = $2',
-      [session.workflow_id, session.workflow_version],
+      'SELECT definition FROM workflow_definition WHERE account_id = $1 AND id = $2 ' +
+        'AND version = $3',
+      [session.account_id, session.workflow_id, session.workflow_version],
     );
     const def = WorkflowDefinitionSchema.safeParse(d.rows[0]?.definition);
     const state = session.workflow_state;

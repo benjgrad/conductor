@@ -58,7 +58,7 @@ export interface ProposalActor {
   accountId: string;
   /** `mcp:<email>` over MCP, the email on the board. */
   by: string | null;
-  /** ADR-0030 §Amendment: an instance admin (or local mode) may change workflows. */
+  /** Whether the actor may change the account's workflows (M2-T12: any signed-in member). */
   mayEditWorkflows: boolean;
 }
 
@@ -132,7 +132,8 @@ export function toSummary(row: ChangeProposalRow): ChangeProposalSummary {
     status: row.status as ChangeStatus,
     title: row.title,
     target: targetOf(row),
-    requires_admin: row.kind === 'workflow',
+    // M2-T12: workflows are per account, so applying one needs no instance admin any more.
+    requires_admin: false,
     changes: row.diff.length,
     expected_effect: effect.text ?? '',
     created_at: row.created_at.toISOString(),
@@ -230,7 +231,7 @@ async function prepare(
       `definition.id is ${checked.def.id}, not the workflow_id ${change.workflow_id}.`,
     );
   }
-  const latest = await latestWorkflow(q, change.workflow_id);
+  const latest = await latestWorkflow(q, change.workflow_id, accountId);
   if (latest === null) return failure('not_found', `No workflow ${change.workflow_id}.`);
   if (latest.version !== change.base_version) {
     return failure(
@@ -441,8 +442,8 @@ export async function proposalBodies(
   }
   const proposed = WorkflowDefinitionSchema.safeParse(change.data.definition);
   const stored = await q.query<{ definition: unknown }>(
-    'SELECT definition FROM workflow_definition WHERE id = $1 AND version = $2',
-    [change.data.workflow_id, change.data.base_version],
+    'SELECT definition FROM workflow_definition WHERE account_id = $3 AND id = $1 AND version = $2',
+    [change.data.workflow_id, change.data.base_version, accountId],
   );
   const base = WorkflowDefinitionSchema.safeParse(stored.rows[0]?.definition);
   return {
@@ -503,11 +504,7 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
 
   if (change.data.kind === 'workflow') {
     if (!actor.mayEditWorkflows) {
-      return failure(
-        'forbidden',
-        'Workflows are shared by every account on this instance: only an instance admin can ' +
-          'apply a workflow change.',
-      );
+      return failure('forbidden', 'Only a person in this account can apply a workflow change.');
     }
     const stored = validateWorkflow(change.data.definition);
     if (!stored.ok) {
@@ -516,7 +513,7 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
       return failure('invalid_workflow', err, { details: workflowDetails(stored.errors) });
     }
     const baseVersion = change.data.base_version;
-    const latest = await latestWorkflow(tx, change.data.workflow_id);
+    const latest = await latestWorkflow(tx, change.data.workflow_id, actor.accountId);
     let checked = stored;
     let saveFrom = baseVersion;
     let note = `Applied proposal: ${row.title}`;
@@ -524,8 +521,9 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
       // ADR-0033 §Amendment "apply rebases": replay what the proposal changed onto the latest.
       const id = change.data.workflow_id;
       const baseRow = await tx.query<{ definition: unknown }>(
-        'SELECT definition FROM workflow_definition WHERE id = $1 AND version = $2',
-        [id, baseVersion],
+        'SELECT definition FROM workflow_definition ' +
+          'WHERE account_id = $3 AND id = $1 AND version = $2',
+        [id, baseVersion, actor.accountId],
       );
       if (baseRow.rows[0] === undefined || latest.def === null) {
         return conflict(
@@ -565,7 +563,7 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
       saveFrom = latest.version;
       note = `Applied proposal (rebased from v${baseVersion}): ${row.title}`;
     }
-    const weakened = await weakenedApprovals(tx, checked.def);
+    const weakened = await weakenedApprovals(tx, checked.def, actor.accountId);
     if (weakened.length > 0) {
       return conflict(
         `Applying it now would remove or bypass a human approval (${weakened.join(', ')}).`,

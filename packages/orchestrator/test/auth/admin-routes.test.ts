@@ -13,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_AUTH } from '../../src/auth/config.js';
 import { previewInvite } from '../../src/auth/invites.js';
 import { createSession, hashToken } from '../../src/auth/sessions.js';
-import { NOT_SUPPORTED_YET_MESSAGE } from '../../src/auth/signup.js';
 import { isLocked, recordFailure } from '../../src/auth/throttle.js';
 import type { MachineSockets } from '../../src/gateway/revoke.js';
 import { useTestDatabase } from '../db.js';
@@ -333,7 +332,7 @@ describe('invites', () => {
     expect(after[0]!.revoked_at).not.toBeNull();
   });
 
-  it('FR-2: an API invite is general (claims_account ignored); sign-up with it → not_supported_yet', async () => {
+  it('FR-2: an API invite is general (claims_account ignored); sign-up with it makes a new account', async () => {
     const admin = await user({ admin: true });
     const created = await send('POST', API_PATHS.adminInvites, {
       cookie: admin.cookie,
@@ -355,9 +354,15 @@ describe('invites', () => {
         password: PASSWORD,
       },
     });
-    expect(signup.status).toBe(400);
-    expect(signup.json.error?.message).toBe(NOT_SUPPORTED_YET_MESSAGE);
-    expect(signup.json.error?.details).toEqual([{ path: 'invite', message: 'not_supported_yet' }]);
+    // M2-T15b: the new user owns a new account (never `local`, whatever the body claimed).
+    expect(signup.status).toBe(201);
+    const account = (signup.json as { account?: { id: string } }).account!;
+    expect(account.id).not.toBe(LOCAL_ACCOUNT_ID);
+    const owner = await db.pool.query<{ account_id: string }>(
+      'SELECT m.account_id FROM account_member m JOIN app_user u ON u.id = m.user_id ' +
+        "WHERE u.email = 'new@example.com' AND m.role = 'owner'",
+    );
+    expect(owner.rows).toEqual([{ account_id: account.id }]);
   });
 
   it('a bad body → 400', async () => {

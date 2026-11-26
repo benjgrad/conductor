@@ -192,9 +192,12 @@ function repoFor(auth: AuthConfig, repo: string): { ok: true; repo: string } | S
   return { ok: true, repo: canonical };
 }
 
-async function workflowExists(q: Queryable, id: string): Promise<boolean> {
-  if (id === ROUTINE_WORKFLOW_ID) await seedRoutineWorkflow(q);
-  const r = await q.query('SELECT 1 FROM workflow_definition WHERE id = $1 LIMIT 1', [id]);
+async function workflowExists(q: Queryable, accountId: string, id: string): Promise<boolean> {
+  if (id === ROUTINE_WORKFLOW_ID) await seedRoutineWorkflow(q, accountId);
+  const r = await q.query(
+    'SELECT 1 FROM workflow_definition WHERE account_id = $1 AND id = $2 LIMIT 1',
+    [accountId, id],
+  );
   return (r.rowCount ?? 0) > 0;
 }
 
@@ -271,7 +274,7 @@ export async function createSchedule(
   if (!repo.ok) return repo;
   const rule = checkRule(body.cron, body.timezone, now);
   if (rule) return rule;
-  if (!(await workflowExists(deps.db, body.workflow_id))) {
+  if (!(await workflowExists(deps.db, scope.account_id, body.workflow_id))) {
     return badRequest('workflow_id', `unknown workflow ${body.workflow_id}`);
   }
   const machines = await resolveMachines(deps.db, scope.account_id, body.machines);
@@ -324,7 +327,10 @@ export async function updateSchedule(
     if (!r.ok) return r;
     repo = r.repo;
   }
-  if (patch.workflow_id !== undefined && !(await workflowExists(deps.db, patch.workflow_id))) {
+  if (
+    patch.workflow_id !== undefined &&
+    !(await workflowExists(deps.db, scope.account_id, patch.workflow_id))
+  ) {
     return badRequest('workflow_id', `unknown workflow ${patch.workflow_id}`);
   }
   let machineIds: string[] | null | undefined;
@@ -435,7 +441,7 @@ export async function runScheduleNow(
       );
       const row = cur.rows[0];
       if (row === undefined) return notFound(id);
-      if (row.workflow_id === ROUTINE_WORKFLOW_ID) await seedRoutineWorkflow(tx);
+      if (row.workflow_id === ROUTINE_WORKFLOW_ID) await seedRoutineWorkflow(tx, row.account_id);
       const fired = await fireSchedule(tx, row, at, now, {
         manual: true,
         force: opts.force === true,

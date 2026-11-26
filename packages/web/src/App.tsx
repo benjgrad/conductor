@@ -488,7 +488,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             api={api}
             onDirtyChange={draft.setDirty}
             proposalId={route.proposalId ?? null}
-            canEditWorkflows={me !== null && (me.auth_mode === 'local' || me.user.is_admin)}
+            canEditWorkflows={me !== null}
           />
         )}
         {route.view === 'insights' && (

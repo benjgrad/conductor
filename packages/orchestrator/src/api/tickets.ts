@@ -69,12 +69,12 @@ async function definitionOf(
   let version = session?.workflow_version ?? ticket.workflow_version;
   if (version === null) {
     const r = await q.query<{ v: number | null }>(
-      'SELECT max(version) AS v FROM workflow_definition WHERE id = $1',
-      [id],
+      'SELECT max(version) AS v FROM workflow_definition WHERE account_id = $1 AND id = $2',
+      [ticket.account_id, id],
     );
     version = r.rows[0]?.v ?? null;
   }
-  return version === null ? null : defs.get(q, id, version).catch(() => null);
+  return version === null ? null : defs.get(q, ticket.account_id, id, version).catch(() => null);
 }
 
 async function toDetail(
@@ -83,7 +83,12 @@ async function toDetail(
   session: SessionRow | null,
 ): Promise<TicketDetail> {
   const def = await definitionOf(q, ticket, session);
-  const view = await cardView(q, session?.workflow_id ?? ticket.workflow_id, def?.version ?? null);
+  const view = await cardView(
+    q,
+    ticket.account_id,
+    session?.workflow_id ?? ticket.workflow_id,
+    def?.version ?? null,
+  );
   const column = toBoardCard(ticket, session, null, view).column;
   const state = session?.workflow_state ?? null;
   return {
@@ -202,7 +207,7 @@ async function updateTicketTx(
       return { status: 'not_editable', detail: before };
     }
     if (patch.base != null) {
-      const bad = await baseProblem(tx, ticket.workflow_id, patch.base);
+      const bad = await baseProblem(tx, ticket.account_id, ticket.workflow_id, patch.base);
       if (bad !== null) return { status: 'bad_base', error: bad };
     }
     if (Date.parse(patch.expected_updated_at) !== ticket.updated_at.getTime()) {
@@ -242,15 +247,17 @@ async function updateTicketTx(
  */
 async function baseProblem(
   q: Queryable,
+  accountId: string,
   workflowId: string,
   base: TicketBase,
 ): Promise<Extract<CreateTicketResult, { ok: false }> | null> {
   const r = await q.query<{ v: number | null }>(
-    'SELECT max(version) AS v FROM workflow_definition WHERE id = $1',
-    [workflowId],
+    'SELECT max(version) AS v FROM workflow_definition WHERE account_id = $1 AND id = $2',
+    [accountId, workflowId],
   );
   const version = r.rows[0]?.v ?? null;
-  const def = version === null ? null : await defs.get(q, workflowId, version).catch(() => null);
+  const def =
+    version === null ? null : await defs.get(q, accountId, workflowId, version).catch(() => null);
   const problems = ticketBaseProblems(def, base);
   if (problems.length === 0) return null;
   return {
@@ -274,7 +281,7 @@ export async function sessionlessCardUpserted(
       ticket_id: row.id,
       card: await withMachineFields(
         tx,
-        toBoardCard(row, null, null, await cardView(tx, row.workflow_id, null)),
+        toBoardCard(row, null, null, await cardView(tx, row.account_id, row.workflow_id, null)),
         row,
       ),
     },
@@ -302,6 +309,7 @@ export type PreparedTicket =
 export async function prepareNewTicket(
   deps: { db: Db; auth: AuthConfig },
   body: { repo: string; workflow_id: string },
+  accountId: string,
 ): Promise<PreparedTicket> {
   const { db, auth } = deps;
   // M2-T17 (U-048, ADR-0013 §Routing): in `password` mode the repo must be host/org/repo and is
@@ -325,11 +333,14 @@ export async function prepareNewTicket(
   // ADR-0010: `conductor` is seeded on startup; seeding here too keeps a bare database (tests,
   // a start that raced a migration) working. Idempotent.
   // Silent: the "newer default" notice is the start's (M1b-T09).
-  if (body.workflow_id === CONDUCTOR_WORKFLOW_ID) await seedConductorWorkflow(db, { log: null });
-  if (body.workflow_id === ROUTINE_WORKFLOW_ID) await seedRoutineWorkflow(db);
-  const known = await db.query('SELECT 1 FROM workflow_definition WHERE id = $1 LIMIT 1', [
-    body.workflow_id,
-  ]);
+  if (body.workflow_id === CONDUCTOR_WORKFLOW_ID) {
+    await seedConductorWorkflow(db, { log: null, accountId });
+  }
+  if (body.workflow_id === ROUTINE_WORKFLOW_ID) await seedRoutineWorkflow(db, accountId);
+  const known = await db.query(
+    'SELECT 1 FROM workflow_definition WHERE account_id = $1 AND id = $2 LIMIT 1',
+    [accountId, body.workflow_id],
+  );
   if (known.rowCount === 0) {
     return {
       ok: false,
@@ -348,11 +359,11 @@ export async function createTicket(
   body: z.output<typeof CreateTicketRequestSchema>,
 ): Promise<CreateTicketResult> {
   const { db, boardBus } = deps;
-  const prepared = await prepareNewTicket(deps, body);
+  const prepared = await prepareNewTicket(deps, body, scope.account_id);
   if (!prepared.ok) return prepared;
   const { repo } = prepared;
   if (body.base !== undefined) {
-    const bad = await baseProblem(db, body.workflow_id, body.base);
+    const bad = await baseProblem(db, scope.account_id, body.workflow_id, body.base);
     if (bad !== null) return bad;
   }
   // WF-T03: an explicit kind wins; else the repo's last ticket's; else the caller must say.

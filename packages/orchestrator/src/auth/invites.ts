@@ -12,8 +12,8 @@ import { hashToken, newSessionToken, sessionIdHash, type Queryable } from './ses
 
 // M2-T15a: invites (ADR-0017 §Invites, sign-up, resets, the admin). A token is 32 random bytes
 // (base64url, the same shape as a session cookie); `invite.token_hash` stores only its SHA-256,
-// and the URL is the only place the token is ever shown. Creating invites is the CLI's job for
-// now (`conductor-admin bootstrap`); the admin routes are M2-T15b.
+// and the URL is the only place the token is ever shown. Invites come from the CLI
+// (`conductor-admin bootstrap` / `invite`) and the admin routes (admin-routes.ts).
 
 export const DAY_MS = 24 * 3600_000;
 

@@ -30,6 +30,32 @@ const inviteRows = () =>
     .slice(1);
 
 describe('admin page', () => {
+  async function invite(email: string) {
+    const form = within(screen.getByRole('form', { name: 'New invite' }));
+    fireEvent.change(form.getByLabelText('Email (optional)'), { target: { value: email } });
+    fireEvent.click(form.getByRole('button', { name: 'New invite' }));
+    return within(await screen.findByRole('dialog', { name: 'Invite link' }));
+  }
+
+  it('ADR-0046: says the invite was emailed, and still shows the link', async () => {
+    await renderAdmin();
+    const dialog = await invite('sam@example.com');
+    expect(dialog.getByText('Invite emailed to sam@example.com.')).toBeTruthy();
+    expect(dialog.getByLabelText<HTMLInputElement>('Link').value).toMatch(/invite=mock-/);
+  });
+
+  it('ADR-0046: says when the email could not be sent, so the admin copies the link', async () => {
+    const api = createMockApi({ auth: 'password' });
+    const create = api.createInvite.bind(api);
+    api.createInvite = async (req) => ({ ...(await create(req)), emailed: false });
+    await renderAdmin(api);
+    const dialog = await invite('sam@example.com');
+    expect(dialog.getByRole('alert').textContent).toMatch(
+      /Couldn't email the invite to sam@example.com/,
+    );
+    expect(dialog.queryByText(/Invite emailed/)).toBeNull();
+  });
+
   it("shows a created invite's URL once, and it is gone after closing", async () => {
     await renderAdmin();
     expect(window.location.hash).toBe('#/admin');
@@ -152,10 +178,12 @@ describe('admin page', () => {
 });
 
 describe('account menu', () => {
-  it('local mode: no sign-out, password change, admin or links (UXR-27)', async () => {
+  it('local mode: no sign-out, password change, admin or links; only Getting started (UXR-27)', async () => {
     render(<App api={createMockApi()} />);
     const menu = await openAccountMenu(localMeResponse().user.display_name);
-    expect(menu.queryAllByRole('menuitem').map((el) => el.textContent)).toEqual([]);
+    expect(menu.queryAllByRole('menuitem').map((el) => el.textContent)).toEqual([
+      'Getting started',
+    ]);
   });
 
   it('signs out and lands on /signin', async () => {

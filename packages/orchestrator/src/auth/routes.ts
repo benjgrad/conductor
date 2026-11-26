@@ -27,6 +27,7 @@ import {
   recordSuccess,
   throttleKey,
 } from './throttle.js';
+import type { Mailer } from '../mail/resend.js';
 
 // M2-T08: sign-in routes (ADR-0017 §Auth: behaviour; 10-contracts §Accounts and web auth).
 // GET /api/me in both modes; POST /auth/login, /auth/logout and /auth/password in password mode
@@ -42,6 +43,10 @@ export interface AuthRouteDeps {
   now: () => Date;
   /** Closes a disabled user's machines' daemon sockets (the gateway). Default: none open. */
   sockets?: MachineSockets;
+  /** ADR-0046: emails invites (Resend); null or absent = mail off. */
+  mailer?: Mailer | null;
+  /** Operational notes (a failed invite email). Default: stderr. */
+  log?: (msg: string) => void;
 }
 
 /** One body for every failed login: unknown email, wrong password, disabled user, locked email. */

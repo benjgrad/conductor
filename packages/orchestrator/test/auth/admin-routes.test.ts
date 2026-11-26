@@ -15,6 +15,7 @@ import { previewInvite } from '../../src/auth/invites.js';
 import { createSession, hashToken } from '../../src/auth/sessions.js';
 import { isLocked, recordFailure } from '../../src/auth/throttle.js';
 import type { MachineSockets } from '../../src/gateway/revoke.js';
+import type { InviteEmail, Mailer, SendResult } from '../../src/mail/resend.js';
 import { useTestDatabase } from '../db.js';
 import {
   HTTPS_URL,
@@ -34,13 +35,13 @@ let api: TestApi | null = null;
 let bodies: string[] = [];
 let disconnect: ReturnType<typeof vi.fn<MachineSockets['disconnectMachine']>>;
 
-async function start(): Promise<TestApi> {
+async function start(mailer: Mailer | null = null): Promise<TestApi> {
   await api?.close();
   disconnect = vi.fn<MachineSockets['disconnectMachine']>();
   api = await startApi({
     db: db.pool,
     auth: AUTH,
-    api: { sockets: { disconnectMachine: disconnect } },
+    api: { sockets: { disconnectMachine: disconnect }, mailer },
   });
   return api;
 }
@@ -475,5 +476,93 @@ describe('local mode', () => {
     api = await startApi({ db: db.pool, auth: DEFAULT_AUTH });
     const res = await send('GET', API_PATHS.adminUsers);
     expect(res.status).toBe(404);
+  });
+});
+
+// ADR-0046: invites emailed through the mailer (Resend in production, a fake here).
+describe('POST /api/admin/invites emails the link (ADR-0046)', () => {
+  function fakeMailer(result: SendResult) {
+    const sent: InviteEmail[] = [];
+    const mailer: Mailer = {
+      sendInvite: (e) => {
+        sent.push(e);
+        return Promise.resolve(result);
+      },
+    };
+    return { mailer, sent };
+  }
+
+  it('with mail on and an email: sends the same link once and says emailed', async () => {
+    const m = fakeMailer({ ok: true, id: 'email_1' });
+    await start(m.mailer);
+    const admin = await user({ admin: true });
+    const res = await send('POST', API_PATHS.adminInvites, {
+      cookie: admin.cookie,
+      body: { email: 'dana@example.com' },
+    });
+    expect(res.status).toBe(201);
+    const created = InviteCreatedSchema.parse(res.json);
+    expect(created.emailed).toBe(true);
+    expect(created.email_error).toBeUndefined();
+    expect(m.sent).toHaveLength(1);
+    expect(m.sent[0]).toMatchObject({
+      inviteId: created.id,
+      to: 'dana@example.com',
+      url: created.url,
+    });
+    expect(m.sent[0]!.expiresAt.toISOString()).toBe(created.expires_at);
+  });
+
+  it('without an email nothing is sent', async () => {
+    const m = fakeMailer({ ok: true, id: 'email_1' });
+    await start(m.mailer);
+    const admin = await user({ admin: true });
+    const res = await send('POST', API_PATHS.adminInvites, { cookie: admin.cookie, body: {} });
+    expect(res.status).toBe(201);
+    expect(InviteCreatedSchema.parse(res.json).emailed).toBe(false);
+    expect(m.sent).toEqual([]);
+  });
+
+  it('a failed send still creates the invite (201, emailed false, the link to copy), logging no secret', async () => {
+    const m = fakeMailer({ ok: false, reason: 'Resend answered 403: domain not verified' });
+    const logged: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      logged.push(String(chunk));
+      return true;
+    });
+    try {
+      await start(m.mailer);
+      const admin = await user({ admin: true });
+      const res = await send('POST', API_PATHS.adminInvites, {
+        cookie: admin.cookie,
+        body: { email: 'dana@example.com' },
+      });
+      expect(res.status).toBe(201);
+      const created = InviteCreatedSchema.parse(res.json);
+      expect(created).toMatchObject({
+        emailed: false,
+        email_error: 'Resend answered 403: domain not verified',
+      });
+      const token = new URL(created.url).searchParams.get('invite')!;
+      expect((await previewInvite(db.pool, token, new Date())).valid).toBe(true);
+      const line = logged.find((l) => l.includes('email not sent'));
+      expect(line).toContain(created.id);
+      expect(line).not.toContain(token);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('with mail off (no RESEND_API_KEY): emailed false, nothing sent', async () => {
+    await start(null);
+    const admin = await user({ admin: true });
+    const res = await send('POST', API_PATHS.adminInvites, {
+      cookie: admin.cookie,
+      body: { email: 'dana@example.com' },
+    });
+    expect(res.status).toBe(201);
+    const created = InviteCreatedSchema.parse(res.json);
+    expect(created.emailed).toBe(false);
+    expect(created.email_error).toBeUndefined();
   });
 });

@@ -306,3 +306,19 @@ The private key is a secret. Never rotate the pair casually: a new one invalidat
 ## 14. Optional: GitHub webhooks (R11)
 
 PR gates and watched columns re-check on a 1–15 minute poll. To have them react within seconds of CI, reviews and merges, add a GitHub webhook to each repo (or the org). The payload URL and secret come from `cdc exec orchestrator node dist/admin-cli.js github-webhook <email>`. The full steps are in [github-webhooks.md](github-webhooks.md). nginx needs no change: it passes `X-Hub-Signature-256`, `X-GitHub-Event`, `X-GitHub-Delivery` and the body through untouched, and these deliveries are far below its 4m body limit.
+
+## 15. Send invites by email (Resend, ADR-0046)
+
+With `RESEND_API_KEY` set, an admin invite that names an email address is emailed from `Conductor <conductor@gradyserver.com>` (override with `CONDUCTOR_MAIL_FROM`). Without it, mail is off and the Admin page shows the link to copy, as before. **(Ben)**
+
+1. In Resend, verify `gradyserver.com` (Domains). Resend lists the SPF (`send` MX + TXT) and DKIM (`resend._domainkey` TXT) records to add at the DNS host; wait until all show **Verified**.
+2. Create an API key with **Sending access** only, for that domain.
+3. Put it in the deploy `.env` on gradyserver, `/home/bengrady4/deploy/conductor/.env` (mode 0600, never committed), and recreate the orchestrator:
+
+```bash
+nano ~/deploy/conductor/.env      # RESEND_API_KEY=re_…   (optional: CONDUCTOR_MAIL_FROM=…)
+cdc up -d --no-deps orchestrator && cdc logs orchestrator | grep 'mail:'   # mail: on (Resend, from …)
+```
+
+**No email arrived?** The Admin page says "Couldn't email the invite" with the link to copy, and the orchestrator logs `invite <id>: email not sent (<reason>)`: `Resend answered 403: … not verified` means the domain or the key's domain is wrong; `timeout` / `network error` means the container can't reach `api.resend.com` over HTTPS. The orchestrator never retries a send (the link is not stored): create a new invite, or copy the link.
+

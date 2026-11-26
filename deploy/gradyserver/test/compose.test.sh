@@ -45,6 +45,10 @@ for var in CONDUCTOR_VAPID_PUBLIC_KEY CONDUCTOR_VAPID_PRIVATE_KEY CONDUCTOR_VAPI
   check "orchestrator env $var (optional, empty = push off)" has "$orch" \
     "^      $var: \\\$\\{$var:-\\}"
 done
+for var in RESEND_API_KEY CONDUCTOR_MAIL_FROM; do
+  check "orchestrator env $var (optional, empty = mail off)" has "$orch" \
+    "^      $var: \\\$\\{$var:-\\}"
+done
 
 # Every ${VAR} used in compose.yml is documented in env.example (CONDUCTOR_GIT_SHA is set by
 # deploy.sh and documented in env.example's header instead).

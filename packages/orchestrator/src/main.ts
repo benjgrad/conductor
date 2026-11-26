@@ -20,6 +20,8 @@ import {
 } from './distribution.js';
 import { seedAllAccounts } from './engine/seed.js';
 import { parsePushConfig, type PushConfig } from './push/config.js';
+import { parseMailConfig } from './mail/config.js';
+import { createResendMailer, type Mailer } from './mail/resend.js';
 import { createDb as createPoolDb } from './db/index.js';
 import { createEngineService as createRealEngineService } from './engine/index.js';
 import { createGateway as createRealGateway } from './gateway/index.js';
@@ -112,6 +114,8 @@ export type CreateApi = (deps: {
   machineTransport?: OutboxTransport;
   /** UX-15: Web Push (VAPID); absent or null → the /api/push/* routes answer 404 push_disabled. */
   push?: PushConfig | null;
+  /** ADR-0046: invite email (Resend); absent or null → invites are not emailed. */
+  mailer?: Mailer | null;
 }) => ApiHandle;
 
 export type CreateDb = (opts: { databaseUrl: string }) => Db;
@@ -136,6 +140,8 @@ export interface OrchestratorConfig {
   trustedProxy?: string | null;
   /** UX-15: CONDUCTOR_VAPID_* (parsePushConfig); absent or null → push disabled. */
   push?: PushConfig | null;
+  /** ADR-0046: RESEND_API_KEY (parseMailConfig → createResendMailer); absent or null → mail off. */
+  mailer?: Mailer | null;
 }
 
 export interface Orchestrator {
@@ -170,6 +176,7 @@ export function composeOrchestrator(
     ...(gateway.transcripts ? { transcripts: gateway.transcripts } : {}),
     machineTransport: gateway.transport,
     push,
+    mailer: config.mailer ?? null,
     ...(config.auth ? { auth: config.auth } : {}),
     ...(config.trustedProxy ? { trustedProxy: config.trustedProxy } : {}),
     ...(gateway.disconnectMachine
@@ -258,6 +265,7 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
   const env = opts.env ?? process.env;
   const server = parseServerConfig(env);
   const push = parsePushConfig(env);
+  const mail = parseMailConfig(env);
   const log =
     opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
   const databaseUrl = env.DATABASE_URL;
@@ -292,11 +300,13 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
       auth: server.auth,
       trustedProxy: server.trustedProxy,
       push,
+      mailer: mail ? createResendMailer(mail) : null,
     },
   );
   await orchestrator.start();
   log(`listening on http://${server.bindHost}:${port} (auth: ${server.auth.mode})`);
   log(push ? 'push: on (Web Push, VAPID)' : 'push: off (CONDUCTOR_VAPID_* unset)');
+  log(mail ? `mail: on (Resend, from ${mail.from})` : 'mail: off (RESEND_API_KEY unset)');
   log(serveWeb ? `web app from ${webDir}` : `no web app at ${webDir} (run pnpm build)`);
   log(
     dist

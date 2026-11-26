@@ -11,7 +11,7 @@ import { ApiRequestError, type ApiClient } from '../api/client.js';
 import { authErrorMessage } from '../auth/errors.js';
 import { formatTime, inviteStatus } from './format.js';
 import { useToast } from '../components/Toast.js';
-import { OneTimeLink } from './OneTimeLink.js';
+import { OneTimeLink, type LinkDelivery } from './OneTimeLink.js';
 import './admin.css';
 
 export const ADMINS_ONLY = 'Only admins can see this page.';
@@ -35,6 +35,8 @@ interface ShownLink {
   title: 'Invite link' | 'Reset link';
   url: string;
   expiresAt: string;
+  /** ADR-0046: what happened to the invite email (null: no email, or a reset link). */
+  delivery?: LinkDelivery | null;
 }
 
 /**
@@ -104,6 +106,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
           title={link.title}
           url={link.url}
           expiresAt={link.expiresAt}
+          delivery={link.delivery ?? null}
           onClose={() => setLink(null)}
         />
       )}
@@ -223,6 +226,11 @@ export function AdminPage({ api, me }: AdminPageProps) {
                     title: 'Invite link',
                     url: created.url,
                     expiresAt: created.expires_at,
+                    // ADR-0046: an invite with an email was sent through Resend, or not.
+                    delivery:
+                      req.email === undefined
+                        ? null
+                        : { to: req.email, emailed: created.emailed === true },
                   });
                 }
               }}

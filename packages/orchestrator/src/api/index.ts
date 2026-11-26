@@ -80,6 +80,7 @@ import { AttachmentLinkError, chatEchoText, registerAttachmentRoutes } from './a
 import { registerPageRoutes } from './pages.js';
 import { registerRunGateRoutes } from './run-gate.js';
 import { registerGithubWebhookRoutes } from './github-webhook.js';
+import type { Mailer } from '../mail/resend.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
 
@@ -133,6 +134,8 @@ export interface ApiOptions {
   push?: PushConfig | null;
   /** UX-15: the push sender for POST /api/push/test (default: web-push with `push`). */
   pushSender?: PushSender;
+  /** ADR-0046: emails invites (also a CreateApi dep); null = mail off. */
+  mailer?: Mailer | null;
 }
 
 const NO_SOCKETS: MachineSockets = { disconnectMachine: () => undefined };
@@ -156,6 +159,7 @@ export const createApi = (({
   machineTransport,
   push = null,
   pushSender,
+  mailer = null,
 }: ApiDeps) => {
   const app = Fastify({ logger: false, trustProxy: trustedProxy ?? false });
   // M1-T14 / M2-T08: Host / Origin / content-type guard before routing (09), then who is asking.
@@ -163,7 +167,7 @@ export const createApi = (({
   app.decorateRequest('auth', null);
   app.addHook('onRequest', authHook({ db, auth, now }));
   registerRateLimit(app);
-  void app.register(registerAuthRoutes, { db, auth, hasher, now, sockets });
+  void app.register(registerAuthRoutes, { db, auth, hasher, now, sockets, mailer });
   void app.register(registerMachineRoutes, {
     db,
     sockets,

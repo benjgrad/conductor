@@ -86,6 +86,9 @@ services:
       CONDUCTOR_VAPID_PUBLIC_KEY: ${CONDUCTOR_VAPID_PUBLIC_KEY:-}
       CONDUCTOR_VAPID_PRIVATE_KEY: ${CONDUCTOR_VAPID_PRIVATE_KEY:-}
       CONDUCTOR_VAPID_SUBJECT: ${CONDUCTOR_VAPID_SUBJECT:-}
+      # ADR-0046: invite email through Resend; empty key = mail off. See env.example.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      CONDUCTOR_MAIL_FROM: ${CONDUCTOR_MAIL_FROM:-}
       DATABASE_URL: *database-url
     restart: unless-stopped
 

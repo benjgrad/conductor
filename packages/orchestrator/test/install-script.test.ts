@@ -431,6 +431,19 @@ describe.skipIf(!runnable)('install.sh', { timeout: 30_000 }, () => {
     }
   });
 
+  it('without a token on a fresh machine, says it is not enrolled and how to enroll', async () => {
+    const r = await run(h, v1.script, ['--root', h.root]);
+    expect(r.status, r.stderr).toBe(0);
+    expectInstalled(h, V1);
+    expect(r.stdout).toContain('This machine is NOT enrolled');
+    expect(r.stdout).toContain(`Open ${v1.url}, go to Machines and press Add a machine.`);
+    expect(r.stdout).toContain(
+      `CONDUCTOR_ENROLL_TOKEN=<token> ${h.root}/bin/conductor-daemon enroll --url ${v1.url}`,
+    );
+    expect(calls(h)).toEqual([]);
+    expect(existsSync(join(h.root, 'machine.json'))).toBe(false);
+  });
+
   it('a second run without --token upgrades in place and keeps machine.json', async () => {
     expect((await run(h, v1.script, ['--token', TOKEN, '--root', h.root])).status).toBe(0);
     const credential = readFileSync(join(h.root, 'machine.json'));

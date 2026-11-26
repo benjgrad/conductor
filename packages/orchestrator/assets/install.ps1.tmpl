@@ -80,6 +80,7 @@
     if ($LASTEXITCODE -ne 0) { Fail "$what failed (exit code $LASTEXITCODE)" }
   }
 
+  $enrolled = $true
   try {
     $root = $env:CONDUCTOR_ROOT
     if (-not $root) { $root = Join-Path $HOME '.conductor' }
@@ -244,13 +245,20 @@
         Write-Host "upgraded in place; enrollment kept ($(Join-Path $root 'machine.json'))"
         Write-Host 'If the daemon is running, stop it (Ctrl-C) and start it again to run the new version.'
       } else {
-        Write-Host 'not enrolled: run the command from Add a machine'
+        # Installed but not enrolled: the daemon would only look for conductor on this computer.
+        $enrolled = $false
+        Write-Host ''
+        Write-Host "This machine is NOT enrolled: conductor can't see it or send it tickets yet. To enroll it:" -ForegroundColor Yellow
+        Write-Host "  1. Open $PublicUrl, go to Machines and press Add a machine."
+        Write-Host '  2. Run the Windows command it shows here (it includes a one-time token), or enroll directly:'
+        Write-Host "     `$env:CONDUCTOR_ENROLL_TOKEN='<token>'; conductor-daemon enroll --url $PublicUrl"
       }
     } finally {
       Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Write-Host ''
+    if (-not $enrolled) { Write-Host 'Once it is enrolled:' }
     Write-Host 'Start the daemon, and keep this window open (stop it with Ctrl-C):'
     Write-Host '  conductor-daemon'
     Write-Host 'Then tell it where your repos are, for example:'
